@@ -1,1 +1,2 @@
-pub mod Ellipsoids;
+pub mod ellipsoids;
+pub mod ode;

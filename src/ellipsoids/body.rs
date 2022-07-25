@@ -2,7 +2,7 @@ use csv::*;
 use nalgebra as na;
 use serde::Serialize;
 
-use crate::Ellipsoids::state::State;
+use crate::ellipsoids::state::State;
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "PascalCase")]

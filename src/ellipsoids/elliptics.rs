@@ -2,7 +2,14 @@ use csv::*;
 use nalgebra as na;
 use serde::Serialize;
 
-use crate::Ellipsoids::body::Body;
+use crate::ellipsoids::body::Body;
+
+type State = na::Vector3<f64>;
+type Time = f64;
+
+struct Ellipsoid {
+    shape: na::Vector3<f64>,
+}
 
 impl Body {
     pub fn is_inside(&self, x :na::Vector3<f64>) -> bool {
@@ -49,7 +56,7 @@ impl Body {
 
         let s = self.shape;
 
-        fn R(x :f64, s :na::Vector3<f64>) -> f64 {
+        let outer = | x :f64 | -> f64 {
 
             let (a, b, c) = (s[0], s[1], s[2]);
             let delta = 1.0 - (c/a).powi(2);
@@ -81,10 +88,14 @@ impl Body {
             };
 
             let (status, result, abs_err, resabs) = rgsl::integration::qng(inner, 0.0, lambda, 1e-8, 1e-8);
+            let fac = b * (1.0 - delta * s1 * s1).sqrt();
+            result * fac
+        };
 
-            result
-        }
-        0.0
+        let (status, result, abs_err, resabs) = rgsl::integration::qng(outer, 0.0, lambda, 1e-8, 1e-8);
+
+        result
+
     }
 
     pub fn phi(&self, x :na::Vector3<f64>) -> f64 {
@@ -99,6 +110,7 @@ impl Body {
         let (aa, bb, cc) = (a*a, b*b, c*c);
 
         let lin_phi = -v1*x1 - v2*x2 - v3*x3;
+        let lin_phi = -v.dot(&x);
         let rot_phi1 = - (bb - cc)/(bb + cc) * o1 * x2 * x3;
         let rot_phi2 = - (cc - aa)/(cc + aa) * o2 * x1 * x3;
         let rot_phi3 = - (aa - bb)/(aa + bb) * o3 * x1 * x2;
@@ -132,3 +144,15 @@ impl Body {
     }
 
 }
+//
+// impl crate::ode::System<State> for Ellipsoid {
+//     fn system(&self, x: Time, _y: &State, dy : &mut State) {
+//
+//         let (a, b, c) = (self.shape[0], self.shape[1], self.shape[2]);
+//         let delta = 1.0 - (c/a).powi(2);
+//         let eps = 1.0 - (c/b).powi(2);
+//         let s1 = x / a;
+//         let m  = eps * (1.0 - s1*s1) / (1.0 - delta * s1*s1);
+//
+//     }
+// }
