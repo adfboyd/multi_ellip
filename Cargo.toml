@@ -1,0 +1,18 @@
+[package]
+name = "multi_ellip"
+version = "0.1.0"
+edition = "2021"
+authors = ["Andrew Boyd"]
+license-file = "LICENSE"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.1.6"
+serde = "1.0.136"
+nalgebra = {version ="0.30.1", features = ["default", "serde-serialize"]}
+num = "0.4.0"
+#simba = "0.7.1"
+#thiserror = "1.0.30"
+#itertools = "0.8.1"
+#rayon = "1.5.2"
