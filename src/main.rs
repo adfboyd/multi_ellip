@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use nalgebra as na;
 use nalgebra::{Quaternion, Vector3};
 use multi_ellip::ellipsoids::body::Body;
@@ -10,12 +9,12 @@ fn main() {
     println!("Hello, world!");
 
     let den = 5.0;
-    let s = na::Vector3::new(1.0, 0.8, 0.6);
+    let s = na::Vector3::new(1.0, 1.0, 0.9);
     let q = na::Quaternion::from_parts(1.0, na::Vector3::new(0.0, 0.0, 0.0));
     let o_vec = na::Vector3::new(1.0, 1.0, 1.0).normalize();
     let o_vec2 = na::Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();
-    let ang_mom_q = init_ang_mom.quaternion();
+    let ang_mom_q = na::Quaternion::from_imag(init_ang_mom);
 
 
     let mut body = Body {
@@ -24,7 +23,7 @@ fn main() {
         position: Vector3::zeros(),
         orientation: q.normalize(),
         linear_momentum: o_vec,
-        angular_momentum: *ang_mom_q,
+        angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 

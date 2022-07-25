@@ -14,5 +14,6 @@ nalgebra = {version ="0.30.1", features = ["default", "serde-serialize"]}
 num = "0.4.0"
 simba = "0.7.1"
 thiserror = "1.0.30"
+GSL = "4.0"
 #itertools = "0.8.1"
 #rayon = "1.5.2"

@@ -66,12 +66,13 @@ impl Body {
     pub fn integ(&self, f: &dyn Fn(na::Vector3<f64>) -> f64) -> f64 {
 
         let s = self.shape;
+        let (a, b, c) = (s[0], s[1], s[2]);
 
-        lambda = 1e-8;
+        let hpi = std::f64::consts::FRAC_PI_2;
 
         let outer = | x :f64 | -> f64 {
 
-            let (a, b, c) = (s[0], s[1], s[2]);
+
             let delta = 1.0 - (c/a).powi(2);
             let eps = 1.0 - (c/b).powi(2);
             let s1 = x / a;
@@ -100,12 +101,12 @@ impl Body {
                 sq_br * w
             };
 
-            let (status, result, abs_err, resabs) = rgsl::integration::qng(inner, 0.0, lambda, 1e-8, 1e-8);
+            let (status, result, abs_err, resabs) = rgsl::integration::qng(inner, -hpi, hpi, 1e-8, 1e-8);
             let fac = b * (1.0 - delta * s1 * s1).sqrt();
             result * fac
         };
 
-        let (status, result, abs_err, resabs) = rgsl::integration::qng(outer, 0.0, lambda, 1e-8, 1e-8);
+        let (status, result, abs_err, resabs) = rgsl::integration::qng(outer, -a, a, 1e-8, 1e-8);
 
         result
 
