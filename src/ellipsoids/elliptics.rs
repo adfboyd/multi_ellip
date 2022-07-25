@@ -52,9 +52,22 @@ impl Body {
         u
     }
 
+    pub fn sa_est(&self) -> f64 {
+        let s = self.shape;
+        let (a, b, c) = (s[0], s[1], s[2]);
+        let p = 1.6;
+        let num = (a*b).powf(p) + (b*c).powf(p) + (a*c).powf(p);
+        let pi4 = std::f64::consts::PI * 4.0;
+        let sa = pi4 * (num / 3.0).powf(1.0/p);
+        sa
+    }
+
+
     pub fn integ(&self, f: &dyn Fn(na::Vector3<f64>) -> f64) -> f64 {
 
         let s = self.shape;
+
+        lambda = 1e-8;
 
         let outer = | x :f64 | -> f64 {
 
