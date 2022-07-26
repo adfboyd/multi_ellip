@@ -65,30 +65,32 @@ impl Body {
 
     pub fn integ(&self, f: &dyn Fn(na::Vector3<f64>) -> f64) -> f64 {
 
-        let s = self.shape;
-        let (a, b, c) = (s[0], s[1], s[2]);
+        let shape = self.shape;
+        let (a, b, c) = (shape[0], shape[1], shape[2]);
+        let delta = 1.0 - (c/a).powi(2);
+        let eps = 1.0 - (c/b).powi(2);
 
-        let hpi = std::f64::consts::FRAC_PI_2;
+        let pi = std::f64::consts::PI;
 
         let outer = | x :f64 | -> f64 {
 
-
-            let delta = 1.0 - (c/a).powi(2);
-            let eps = 1.0 - (c/b).powi(2);
-            let s1 = x / a;
-            let m  = eps * (1.0 - s1*s1) / (1.0 - delta * s1*s1);
+            let s = x / a;
+            let ss = s.powi(2);
+            let m  = eps * (1.0 - s * s) / (1.0 - delta * ss);
 
             let inner = |q :f64| -> f64 {
 
-                let y = b * q.sin() * (1.0 - s1*s1).sqrt();
+                let y = b * (q.sin()) * ((1.0 - ss).sqrt());
 
                 let alpha = 1.0 - (x/a).powi(2) - (y/b).powi(2);
 
                 let u =
                     if alpha >= 0.0 {
-                        c * alpha.sqrt()
+                        c * (alpha.sqrt())
                     }
                     else {
+                        println!("Tried point outside ellipse, alpha = {:?}", alpha);
+
                         0.0
                     };
 
@@ -96,18 +98,18 @@ impl Body {
                 let p2 = na::Vector3::new(x, y, -u);
 
                 let sq_br = f(p1) + f(p2);
-                let w = (1.0 - m * q.sin().powi(2));
-
+                let w = (1.0 - m * q.sin().powi(2)).sqrt();
+                // println!("m = {}, w = {}", m, w);
                 sq_br * w
             };
 
-            let (status, result, abs_err, resabs) = rgsl::integration::qng(inner, -hpi, hpi, 1e-8, 1e-8);
-            let fac = b * (1.0 - delta * s1 * s1).sqrt();
+            let (status, result, abs_err, resabs) = rgsl::integration::qng(inner, -pi / 2.0, pi / 2.0, 1e-8, 1e-8);
+            let fac = b * (1.0 - delta * ss).sqrt();
             result * fac
         };
 
         let (status, result, abs_err, resabs) = rgsl::integration::qng(outer, -a, a, 1e-8, 1e-8);
-
+        // println!("Status is {:?}", status);
         result
 
     }
