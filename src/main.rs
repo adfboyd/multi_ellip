@@ -27,35 +27,48 @@ fn main() {
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
-    let surface_area = body.integ(&f0);
     let sa_est = body.sa_est();
+    let sa = body.sa_calc();
 
-    println!("Calculated area = {:?} for body of shape {:?}", surface_area, body.shape);
+    println!("Calculated area = {:?} for body of shape {:?}", sa, body.shape);
     println!("A good estimate should be {:?}", sa_est);
 
     let m = 0.25;
-    let p = na::Vector3::new(0.0, 0.0, 0.0);
+    let p = na::Vector3::new(0.5, 0.4, 0.0);
 
     let f = |x :na::Vector3<f64>| -> f64 {
         flux(x, p, m, body)
     };
 
-    let ave_dist = body.integ(&dist) / surface_area;
+    let ave_dist = body.integ(&dist) / sa;
 
     println!("Average distance of a point on ellipsoid is {:?}", ave_dist);
-    // let point_flux = body.integ(&f);
-    // println!("Total flux from charge is {:?}", point_flux);
+    // for i in 0..100000 {
+    //     let point_flux = body.integ(&f);
+    //     if i%1000 == 0 {
+    //         println!("{:?}", i);
+    //     }
+    //     // println!("Total flux from charge is {:?}", point_flux);
+    // };
 
-}
+    let pf = body.integ(&f);
+    println!("Total flux from charge is {:?}", pf);
+    let er = pf - std::f64::consts::PI;
+    println!("Error - {:?}", er);
 
-fn f0(_x :na::Vector3<f64>) -> f64 {
-    1.0
+
+
 }
 
 fn gradp(x :na::Vector3<f64>, p :na::Vector3<f64>, m :f64) -> na::Vector3<f64> {
     let v = x - p;
     let denom = v.norm().powi(3);
-    let res = (m/denom) * v;
+
+    let res =  if denom != 0.0 {
+        (m/denom) * v}
+    else {
+        na::Vector3::new(0.0, 0.0, 0.0)
+    };
     res
 }
 

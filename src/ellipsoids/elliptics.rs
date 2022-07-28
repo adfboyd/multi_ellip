@@ -29,7 +29,8 @@ impl Body {
         let (a, b, c) = (s[0], s[1], s[2]);
         let (x1, x2, x3) = (x[0], x[1], x[2]);
 
-        let prefac = x1/(a*a).powi(2) + x2/(b*b).powi(2) + x3/(c*c).powi(2);
+        let prefac = (x1/(a*a)).powi(2) + (x2/(b*b)).powi(2) + (x3/(c*c)).powi(2);
+
         let fac = 1.0 / prefac.sqrt();
 
         let n1 = fac * x1 / (a*a);
@@ -38,6 +39,10 @@ impl Body {
 
         na::Vector3::new(n1, n2, n3)
 
+    }
+
+    pub fn com_vec(&self, x:na::Vector3<f64>) -> na::Vector3<f64> {
+        x.normalize()
     }
 
     pub fn z_on_surface(&self, x :na::Vector2<f64>) -> f64 {
@@ -59,6 +64,11 @@ impl Body {
         let num = (a*b).powf(p) + (b*c).powf(p) + (a*c).powf(p);
         let pi4 = std::f64::consts::PI * 4.0;
         let sa = pi4 * (num / 3.0).powf(1.0/p);
+        sa
+    }
+
+    pub fn sa_calc(&self) -> f64 {
+        let sa = self.integ(& |_x :na::Vector3<f64>| -> f64 {1.0});
         sa
     }
 
@@ -157,6 +167,21 @@ impl Body {
 
         let u = na::Vector3::new(u1, u2, u3);
         u
+    }
+
+    fn frame_lab2body(&self, x :na::Vector3<f64>) -> na::Vector3<f64> {
+        let p = self.position;
+        let q = na::UnitQuaternion::from_quaternion(self.orientation).conjugate();
+
+        let x_trans = x - p;
+        let x_rot = q.transform_vector(&x_trans);
+        x_rot
+
+    }
+
+    fn fn_eval(&self, x :na::Vector3<f64>, f: &dyn Fn(na::Vector3<f64>) -> f64) -> f64 {
+        let x_body = self.frame_lab2body(x);
+        f(x_body)
     }
 
 }
