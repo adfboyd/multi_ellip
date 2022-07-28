@@ -184,6 +184,9 @@ impl Body {
         f(x_body)
     }
 
+    fn fn_blank(&self) -> f64 {
+        0.0
+    }
 }
 //
 // impl crate::ode::System<State> for Ellipsoid {
