@@ -1,11 +1,10 @@
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, SMatrix, Vector3, Vector6};
-use serde::__private::ser::serialize_tagged_newtype;
-use nalgebra::{U1, U2, U3, U4, U5, U6};
+use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
+use nalgebra::{U1};
 
 pub fn ellip_gridder(ndiv : u32, req :f64,
-                     shape :na::Vector3<f64>, centre :na::Vector3<f64>, orient : na::UnitQuaternion<f64>)
-    -> (usize, usize, na::DMatrix<f64>, na::DMatrix<usize>)
+                     shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>)
+    -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
     {
 
         let mut nelm :usize = 8;
@@ -17,10 +16,6 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
 
         let (a, b, c) = (shape[0], shape[1], shape[2]);
         let (boa, coa) = (b/a, c/a);
-
-        let (cxp, cyp, czp) = (centre[0], centre[1], centre[2]);
-
-        let (NQ, mint) = (6, 7);
 
         type MatrixU3 = DMatrix<usize>;
         type MatrixF6 = DMatrix<f64>;
@@ -93,7 +88,7 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
         //Compute node coords on each element for discretization
         // levels 1 through ndiv
 
-        for i in 0..ndiv {
+        for _ in 0..ndiv {
 
             let mut num :usize = 0;
 
@@ -204,19 +199,19 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
 
         for i in 0..nelm {
             for j in 0..6 {
-                let mut Iflag = true; //Is current point new?
+                let mut iflag = true; //Is current point new?
 
                 for k in 0..npts {
                     if (x[(i,j)] - p[(k,0)]).abs() < eps {
                         if (y[(i,j)] - p[(k,1)]).abs() < eps {
                             if (z[(i,j)] - p[(k,2)]).abs() < eps {
-                                Iflag = false;
+                                iflag = false;
                                 n[(i, j)] = k + 1;
                             }
                         }
                     }
                 }
-                if Iflag {
+                if iflag {
                     (p[(npts, 0)], p[(npts, 1)], p[(npts, 2)]) = (x[(i, j)], y[(i, j)], z[(i, j)]);
                     n[(i, j)] = npts + 1;
                     npts += 1;
@@ -248,8 +243,8 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
     }
 
 pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
-                p1 :DMatrix<f64>, p2 :DMatrix<f64>,
-                n1 :DMatrix<usize>, n2 :DMatrix<usize>) -> (
+                p1 :&DMatrix<f64>, p2 :&DMatrix<f64>,
+                n1 :&DMatrix<usize>, n2 :&DMatrix<usize>) -> (
         usize, usize, DMatrix<f64>, DMatrix<usize>
 ) {
     let nelm = nelm1 + nelm2;
@@ -267,7 +262,7 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
 
     for i in 0..nelm2 {
         for j in 0..6 {
-            n[(i + nelm1, j)] = n2[(i, j)];
+            n[(i + nelm1, j)] = n2[(i, j)] + npts1;
         }
     }
 
@@ -286,33 +281,33 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     (nelm, npts, p, n)
 }
 
-pub fn gauss_leg(NQ :usize) -> (DVector<f64>, DVector<f64>) {
+pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {
 
-    let nq_a = if (NQ != 3) & (NQ != 6) {
-        println!("Unsupported quadrature points number, taking NQ = 6");
+    let nq_a = if (nq != 3) & (nq != 6) {
+        println!("Unsupported quadrature points number, taking nq = 6");
         6
     }
     else {
-        NQ
+        nq
     };
 
 
-    let mut Z = DVector::zeros(nq_a);
-    let mut W = DVector::zeros(nq_a);
+    let mut z = DVector::zeros(nq_a);
+    let mut w = DVector::zeros(nq_a);
 
     if nq_a == 3 {
-        (Z[0], Z[1], Z[2]) = (-0.77459666924148337703, 0.0, -0.77459666924148337703);
-        (W[0], W[1], W[2]) = (5.0/9.0, 8.0/9.0, 5.0/9.0);
+        (z[0], z[1], z[2]) = (-0.77459666924148337703, 0.0, -0.77459666924148337703);
+        (w[0], w[1], w[2]) = (5.0/9.0, 8.0/9.0, 5.0/9.0);
     }
     else if nq_a == 6 {
-        (Z[0], Z[1], Z[2]) = (-0.932469514203152, -0.661209386466265, -0.238619186083197);
-        (Z[3], Z[4], Z[5]) = (-Z[2], -Z[1], -Z[0]);
+        (z[0], z[1], z[2]) = (-0.932469514203152, -0.661209386466265, -0.238619186083197);
+        (z[3], z[4], z[5]) = (-z[2], -z[1], -z[0]);
 
-        (W[0], W[1], W[2]) = (0.171324492379170, 0.360761573048139, 0.467913934572691);
-        (W[3], W[4], W[5]) = (W[2], W[1], W[0]);
+        (w[0], w[1], w[2]) = (0.171324492379170, 0.360761573048139, 0.467913934572691);
+        (w[3], w[4], w[5]) = (w[2], w[1], w[0]);
     }
 
-    (Z, W)
+    (z, w)
 }
 
 pub fn gauss_trgl(mint :usize) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
@@ -435,10 +430,10 @@ pub fn interp_p(p1 :Vector3<f64>,
     let dph1 = -dph2 - dph3 - dph4 - dph5 - dph6;
 
     //Compute dx/dxi from xi derivatives of phi
-    let DxDxi = p1[0]*dph1 + p2[0]*dph2 + p3[0]*dph3 + p4[0]*dph4 + p5[0]*dph5 + p6[0]*dph6;
-    let DyDxi = p1[1]*dph1 + p2[1]*dph2 + p3[1]*dph3 + p4[1]*dph4 + p5[1]*dph5 + p6[1]*dph6;
-    let DzDxi = p1[2]*dph1 + p2[2]*dph2 + p3[2]*dph3 + p4[2]*dph4 + p5[2]*dph5 + p6[2]*dph6;
-    let DDxi = Vector3::new(DxDxi, DyDxi, DzDxi);
+    let dx_dxi = p1[0]*dph1 + p2[0]*dph2 + p3[0]*dph3 + p4[0]*dph4 + p5[0]*dph5 + p6[0]*dph6;
+    let dy_dxi = p1[1]*dph1 + p2[1]*dph2 + p3[1]*dph3 + p4[1]*dph4 + p5[1]*dph5 + p6[1]*dph6;
+    let dz_dxi = p1[2]*dph1 + p2[2]*dph2 + p3[2]*dph3 + p4[2]*dph4 + p5[2]*dph5 + p6[2]*dph6;
+    let ddxi = Vector3::new(dx_dxi, dy_dxi, dz_dxi);
 
     //Evaluate eta derivatives of basis functions
     let pph2 = xi * (al - ga) / (alc * gac);
@@ -449,12 +444,12 @@ pub fn interp_p(p1 :Vector3<f64>,
     let pph1 = -pph2 - pph3 - pph4 - pph5 - pph6;
 
     //Compute Dx/Deta from eta derivatives of phi
-    let DxDet = p1[0]*pph1 + p2[0]*pph2 + p3[0]*pph3 + p4[0]*pph4 + p5[0]*pph5 + p6[0]*pph6;
-    let DyDet = p1[1]*pph1 + p2[1]*pph2 + p3[1]*pph3 + p4[1]*pph4 + p5[1]*pph5 + p6[1]*pph6;
-    let DzDet = p1[2]*pph1 + p2[2]*pph2 + p3[2]*pph3 + p4[2]*pph4 + p5[2]*pph5 + p6[2]*pph6;
-    let DDet = Vector3::new(DxDet, DyDet, DzDet);
+    let dx_det = p1[0]*pph1 + p2[0]*pph2 + p3[0]*pph3 + p4[0]*pph4 + p5[0]*pph5 + p6[0]*pph6;
+    let dy_det = p1[1]*pph1 + p2[1]*pph2 + p3[1]*pph3 + p4[1]*pph4 + p5[1]*pph5 + p6[1]*pph6;
+    let dz_det = p1[2]*pph1 + p2[2]*pph2 + p3[2]*pph3 + p4[2]*pph4 + p5[2]*pph5 + p6[2]*pph6;
+    let ddet = Vector3::new(dx_det, dy_det, dz_det);
 
-    let mut vn = DDxi.cross(&DDet);
+    let mut vn = ddxi.cross(&ddet);
     let hs = vn.norm();
 
     vn = vn.normalize();
@@ -470,18 +465,18 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
     let mut area = 0.0;
     let mut vlm = 0.0;
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    let mut cz = 0.0;
+    // let mut cx = 0.0;
+    // let mut cy = 0.0;
+    // let mut cz = 0.0;
 
     let mut vna = DMatrix::zeros(npts, 3);
     // let mut v = na::DMatrix::zeros(6, 3);
     let mut itally = DVector::zeros(npts);
 
     let mut arel :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
-    let mut xmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
-    let mut ymom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
-    let mut zmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
+    // let mut xmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
+    // let mut ymom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
+    // let mut zmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
 
     for k in 0..nelm {
 
@@ -500,7 +495,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
         let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
 
         let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
-        let (alc, bec, gac) = (1.0 - al, 1.0 - be, 1.0 - ga);
+        let (_alc, _bec, gac) = (1.0 - al, 1.0 - be, 1.0 - ga);
 
         for i in 0..mint {
 
@@ -514,23 +509,23 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
             arel[k] += cf;
 
-            xmom[k] += cf * xvec[0];
-            ymom[k] += cf * xvec[1];
-            zmom[k] += cf * xvec[2];
+            // xmom[k] += cf * xvec[0];
+            // ymom[k] += cf * xvec[1];
+            // zmom[k] += cf * xvec[2];
 
             vlm += xvec.dot(&vn) * cf;
         }
 
         arel[k] *= 0.5;
-        xmom[k] *= 0.5;
-        ymom[k] *= 0.5;
-        zmom[k] *= 0.5;
+        // xmom[k] *= 0.5;
+        // ymom[k] *= 0.5;
+        // zmom[k] *= 0.5;
 
         area += arel[k];
 
-        cx += xmom[k];
-        cy += ymom[k];
-        cz += zmom[k];
+        // cx += xmom[k];
+        // cy += ymom[k];
+        // cz += zmom[k];
 
         //Node triangle coordinates
         let xxi = Vector6::new(0.0, 1.0, 0.0, al, ga, 0.0);
@@ -540,7 +535,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
         for i in 0..6 {
             let (xi, eta) = (xxi[i], eet[i]);
 
-            let (xvec, vn, hs) = interp_p(p1, p2, p3, p4, p5, p6,
+            let (_xvec, vn, _hs) = interp_p(p1, p2, p3, p4, p5, p6,
                                           al, be, ga,
                                           xi, eta);
 
@@ -572,7 +567,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
     //Finally compute surface area and volume
 
-    (cx, cy, cz) = (cx / area, cy / area, cx / area);
+    // (cx, cy, cz) = (cx / area, cy / area, cx / area);
     vlm = vlm / 6.0;
 
     (vna, vlm, area)
