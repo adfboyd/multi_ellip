@@ -293,8 +293,8 @@ pub fn phi_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) 
     println!("RHS is calculated");
 
 
-    let mut amat_1 = DMatrix::zeros(npts, npts);
-    let mut amat = Mutex::from(amat_1);
+    let amat_1 = DMatrix::zeros(npts, npts);
+    let amat = Mutex::from(amat_1);
 
     let js = (0..npts).collect::<Vec<usize>>();
 

@@ -283,9 +283,9 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
 
 pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {
 
-    let nq_a = if (nq != 3) & (nq != 6) {
-        println!("Unsupported quadrature points number, taking nq = 6");
-        6
+    let nq_a = if (nq != 3) & (nq != 6) & (nq != 12) {
+        println!("Unsupported quadrature points number, taking nq = 12");
+        12
     }
     else {
         nq
@@ -306,13 +306,42 @@ pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {
         (w[0], w[1], w[2]) = (0.171324492379170, 0.360761573048139, 0.467913934572691);
         (w[3], w[4], w[5]) = (w[2], w[1], w[0]);
     }
+    else if nq_a == 12 {
 
+        z[0] = -0.981560634246719;
+        z[1] = -0.904117256370475;
+        z[2] = -0.769902674194305;
+        z[3] = -0.587317954286617;
+        z[4] = -0.367831498998180;
+        z[5] = -0.125233408511469;
+
+        z[6] = -z[5];
+        z[7] = -z[4];
+        z[8] = -z[3];
+        z[9]= -z[2];
+        z[10]= -z[1];
+        z[11]= -z[0];
+
+        w[0] = 0.047175336386511;
+        w[1] = 0.106939325995318;
+        w[2] = 0.160078328543346;
+        w[3] = 0.203167426723066;
+        w[4] = 0.233492536538355;
+        w[5] = 0.249147045813403;
+
+        w[6] = w[5];
+        w[7] = w[4];
+        w[8] = w[3];
+        w[9] = w[2];
+        w[10]= w[1];
+        w[11]= w[0];
+    }
     (z, w)
 }
 
 pub fn gauss_trgl(mint :usize) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
 
-    let mint_a:usize = if mint == 7 {
+    let mint_a:usize = if (mint == 7) || (mint == 13) {
         mint
     }
     else {
@@ -335,6 +364,64 @@ pub fn gauss_trgl(mint :usize) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
         (xi[0], xi[1], xi[2], xi[3], xi[4], xi[5], xi[6]) = (de, al, de, be, ga, be, 1.0/3.0);
         (eta[0], eta[1], eta[2], eta[3], eta[4], eta[5], eta[6]) = (de, de, al, be, be, ga, 1.0/3.0);
         (w[0], w[1], w[2], w[3], w[4], w[5], w[6]) = (o1, o1, o1, o2, o2, o2, 0.225);
+    }
+    else if mint == 13 {
+
+        let al = 0.479308067841923;
+        let be = 0.065130102902216;
+        let ga = 0.869739794195568;
+        let de = 0.260345966079038;
+        let rh = 0.638444188569809;
+        let qa = 0.312865496004875;
+        let ru = 0.048690315425316;
+        let o1 = 0.175615257433204;
+        let o2 = 0.053347235608839;
+        let o3 = 0.077113760890257;
+        let o4 =-0.149570044467670;
+
+        xi[0]  = de;
+        xi[1]  = al;
+        xi[2]  = de;
+        xi[3]  = be;
+        xi[4]  = ga;
+        xi[5]  = be;
+        xi[6]  = qa;
+        xi[7]  = ru;
+        xi[8]  = rh;
+        xi[9] = qa;
+        xi[10] = ru;
+        xi[11] = rh;
+        xi[12] = 1.0/3.0;
+
+        eta[0]  = de;
+        eta[1]  = de;
+        eta[2]  = al;
+        eta[3]  = be;
+        eta[4]  = be;
+        eta[5]  = ga;
+        eta[6]  = ru;
+        eta[7]  = qa;
+        eta[8]  = qa;
+        eta[9] = rh;
+        eta[10] = rh;
+        eta[11] = ru;
+        eta[12] = 1.0/3.0;
+
+        w[0]  = o1;
+        w[1]  = o1;
+        w[2]  = o1;
+        w[3]  = o2;
+        w[4]  = o2;
+        w[5]  = o2;
+        w[6]  = o3;
+        w[7]  = o3;
+        w[8]  = o3;
+        w[9] = o3;
+        w[10] = o3;
+        w[11] = o3;
+        w[12] = o4;
+
+
     }
 
     (xi, eta, w)

@@ -274,7 +274,7 @@ pub fn lslp_3d_integral_sing(ngl :usize,
 
     //Compute triangle area and surface metric
 
-    let mut vn = (p2 - p1).cross(&(p3 - p1));
+    let vn = (p2 - p1).cross(&(p3 - p1));
 
     let area = 0.5 * vn.norm();
     let hs = 2.0 * area;

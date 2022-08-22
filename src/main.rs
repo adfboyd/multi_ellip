@@ -43,7 +43,7 @@ fn main() {
 
 
     let ndiv = 3;
-    let (nq, mint) = (3_usize, 7_usize);
+    let (nq, mint) = (12_usize, 13_usize);
 
     let sing_par = Instant::now();
     let f = phi_1body(&body1, ndiv, nq, mint);
