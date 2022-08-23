@@ -9,7 +9,7 @@ use crate::ellipsoids::body::Body;
 
 
 
-
+///Calculates correct Neumann boundary conditions for a given discretized body with specified linear and rotational velocity.
 pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npts :usize, p :&DMatrix<f64>, vna :&DMatrix<f64>) -> DVector<f64> {
 
 
@@ -28,6 +28,7 @@ pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npt
     dfdn
 }
 
+///Concatenates two vectors vertically
 pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
 
     let npts1 = v1.shape().0;
@@ -46,7 +47,8 @@ pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
 
 }
 
-pub fn phi_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, orientation :UnitQuaternion<f64>,
+///Calculates the correct value of phi on the boundary by solving the BEM.
+pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, orientation :UnitQuaternion<f64>,
                   velocity :Vector3<f64>, omega :Vector3<f64>, nq :usize, mint :usize) -> DVector<f64> {
 
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, shape, centre, orientation);
@@ -107,6 +109,7 @@ pub fn phi_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>
     f
 }
 
+///Calculates the correct value of phi on the boundary by solving the BEM (un-parallelised).
 pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
     let s = body.shape;
@@ -169,7 +172,8 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
 
 }
 
-pub fn phi_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
+///Calculates the correct phi for a given body used as the boundary, using BEM.
+pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
     let s = body.shape;
     let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
@@ -236,7 +240,37 @@ pub fn phi_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64>
 
 }
 
-pub fn phi_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
+///Calculates the total KE of the fluid due to the movement of 1 body.
+pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
+
+    let f = f_1body(&body, ndiv, nq, mint);
+
+    let s = body.shape;
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+
+    let orientation = UnitQuaternion::from_quaternion(body.orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+
+    let (zz, ww) = gauss_leg(nq);
+    let (xiq, etq, wq) = gauss_trgl(mint);
+
+    let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
+
+    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
+                                    &p, &n,
+                                    &alpha, &beta, &gamma,
+                                    &xiq, &etq, &wq);
+
+    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+
+
+    let ke = ke_3d(npts, nelm, mint, &f, &dfdn,&p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+
+    ke
+}
+
+///Calculates the correct f for 2 given bodies by solving the BEM.
+pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
     let s1 = body1.shape;
     let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
@@ -329,7 +363,7 @@ pub fn phi_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) 
     f
 }
 
-pub fn phi_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
+pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
     let s1 = body1.shape;
     let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);

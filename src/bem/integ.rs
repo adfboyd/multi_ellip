@@ -1,6 +1,6 @@
 use nalgebra::{DMatrix, DVector, Vector3, Vector6};
 
-
+///The free-space green's function for potential flow in 3d, and its derivative.
 pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
 
     let pi = std::f64::consts::PI;
@@ -17,6 +17,8 @@ pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
 
     (g, dg)
 }
+
+///Interpolates over the triangle, also interpolates the force f.
 pub fn lslp_3d_interp(p1 :Vector3<f64>,
                 p2 :Vector3<f64>,
                 p3 :Vector3<f64>,
@@ -84,6 +86,7 @@ pub fn lslp_3d_interp(p1 :Vector3<f64>,
     (xvec, hs, f)
 }
 
+///Interpolates over the triangle, including the force q and the normal vector.
 pub fn ldlp_3d_interp(p1 :Vector3<f64>,
                       p2 :Vector3<f64>,
                       p3 :Vector3<f64>,
@@ -163,6 +166,7 @@ pub fn ldlp_3d_interp(p1 :Vector3<f64>,
     (xvec, v, hs, q)
 }
 
+///Integrates the single-layer potential over element k from point x0.
 pub fn lslp_3d_integral(x0 :Vector3<f64>, k :usize,
                         mint :usize, f :&DVector<f64>,
                         p :&DMatrix<f64>, n :&DMatrix<usize>,
@@ -210,6 +214,8 @@ pub fn lslp_3d_integral(x0 :Vector3<f64>, k :usize,
     }
     (slp, area)
 }
+
+///Integrates the double-layer potential over element k from point x0.
 
 pub fn ldlp_3d_integral (x0 :Vector3<f64>, k :usize,
                          mint :usize, q :&DVector<f64>, q0 :f64,
@@ -265,12 +271,14 @@ pub fn ldlp_3d_integral (x0 :Vector3<f64>, k :usize,
     (ptl, area)
 }
 
+///Integrates the singular potential over the triangle in the case that the integral is singular (ie x0 is part of element k).
+///Compute the laplace single-layer potential over a flat triangle with points p1-3
+///Integrate in local polar coordinates with origin at p1
 pub fn lslp_3d_integral_sing(ngl :usize,
                              p1 :Vector3<f64>, p2 :Vector3<f64>, p3 :Vector3<f64>,
                              f1 :f64, f2 :f64, f3 :f64,
                              zz :&DVector<f64>, ww :&DVector<f64>) -> (f64, f64) {
-    /// Compute the laplace single-layer potential over a flat triangle with points p1-3
-    /// Integrate in local polar coordinates with origin at p1
+
 
     //Compute triangle area and surface metric
 
@@ -331,6 +339,8 @@ pub fn lslp_3d_integral_sing(ngl :usize,
     (area, slp)
 }
 
+///Computes the double-layer potential for a given initial condition q = phi(p)
+
 pub fn ldlp_3d(npts :usize, nelm :usize,
                mint :usize, q :&DVector<f64>,
                p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -380,6 +390,8 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
 
 }
 
+///Computes the single-layer potential for a given f = d(phi)/dn
+
 pub fn lslp_3d(npts :usize, nelm :usize,
                mint :usize, nq :usize, f :&DVector<f64>,
                p :&DMatrix<f64>, n :&DMatrix<usize>, _vna :&DMatrix<f64>,
@@ -410,6 +422,7 @@ pub fn lslp_3d(npts :usize, nelm :usize,
             let test = Vector6::new(f1.abs(), f2.abs(), f3.abs(), f4.abs(), f5.abs(), f6.abs()).sum();
 
             if test > tol {
+                //Check if singular point is one of the corner nodes i1, i2, i3
                 if i == i1 {
 
                     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
@@ -456,7 +469,8 @@ pub fn lslp_3d(npts :usize, nelm :usize,
 
                     ptl += pptl;
                     srf_area += arelm;
-                } else if i == i4 {
+                } //Check if the singular point is one of the edge nodes i4, i5, i6
+                else if i == i4 {
                     let (ia, ib, ic) = (i4, i6, i1);
 
                     let p1 = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
@@ -638,7 +652,8 @@ pub fn lslp_3d(npts :usize, nelm :usize,
 
                     ptl += pptl;
                     srf_area += arelm;
-                } else {
+                } else //Do non-singular integral
+                {
 
                     let (pptl, arelm) = lslp_3d_integral(p0, k, mint,
                                                          f, p, n,
@@ -656,6 +671,7 @@ pub fn lslp_3d(npts :usize, nelm :usize,
     slp
 }
 
+///Interpolates all quantities over the surface of the triangle.
 pub fn lsdlpp_3d_interp(p1 :Vector3<f64>,
                         p2 :Vector3<f64>,
                         p3 :Vector3<f64>,
@@ -737,6 +753,7 @@ pub fn lsdlpp_3d_interp(p1 :Vector3<f64>,
     (xvec, v, hs, f, df)
 }
 
+///Integrates single and double- layer potentials for given f and df/dn.
 pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
                            mint :usize, f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -796,6 +813,7 @@ pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
     (sdlp, area)
 }
 
+///Loops over all points and elements to calculate phi for given phi and d(phi)/dn on the surfaces.
 pub fn lsdlpp_3d(_npts :usize, nelm :usize, mint :usize,
                  f :&DVector<f64>, dfdn :&DVector<f64>,
                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -819,4 +837,91 @@ pub fn lsdlpp_3d(_npts :usize, nelm :usize, mint :usize,
 
     f0
 }
+
+///Integrates the kinetic energy of the fluid over the surface of an element
+pub fn ke_3d_integral(k :usize, mint :usize,
+                      f :&DVector<f64>, df :&DVector<f64>,
+                      p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                      alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                      xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> (f64, f64) {
+
+    let mut area = 0.0;
+    let mut sdlp = 0.0;
+
+    let i1 = n[(k, 0)] - 1;
+    let i2 = n[(k, 1)] - 1;
+    let i3 = n[(k, 2)] - 1;
+    let i4 = n[(k, 3)] - 1;
+    let i5 = n[(k, 4)] - 1;
+    let i6 = n[(k, 5)] - 1;
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+    let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
+    let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
+    let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
+
+    let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
+    let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
+    let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
+    let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
+    let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
+    let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
+
+    let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
+
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+
+        let (xi, eta) = (xiq[i], etq[i]);
+
+        let (_xvec, _v, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+                                                             vna1, vna2, vna3, vna4, vna5, vna6,
+                                                             f1, f2, f3, f4, f5, f6,
+                                                             df1, df2, df3, df4, df5, df6,
+                                                             al, be, ga, xi, eta);
+
+
+        let cf = 0.5 * hs * wq[i];
+
+        area += cf;
+
+        let rint = -dfdn_int * fint;
+
+        sdlp += rint * cf;
+    }
+
+    (sdlp, area)
+}
+
+///Calculates the total kinetic energy of the fluid from a given phi, d(phi)/dn on the surface.(Assumes \rho_f = 1)
+pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
+                 f :&DVector<f64>, dfdn :&DVector<f64>,
+                 p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                 alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                 xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> f64 {
+
+    ///Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
+
+    let mut f0 = 0.0;
+
+    for k in 0..nelm {
+
+
+        let (sdlp, _arelm) = ke_3d_integral(k, mint,
+                                                f, dfdn,
+                                                p, n, vna,
+                                                alpha, beta, gamma,
+                                                xiq, etq, wq);
+
+        f0 += sdlp;
+    }
+
+    f0
+}
+
+
 

@@ -2,6 +2,7 @@ use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
 
+///Generates a grid for a given ellipsoid
 pub fn ellip_gridder(ndiv : u32, req :f64,
                      shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>)
     -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
@@ -184,10 +185,10 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
             }
         }
 
-        ///Generate a list of global nodes by looping over all elements
-        /// and adding in new ones
-        /// n[(i,j)] is jth node of i+1th element
-        /// First size nodes of first element are entered manually
+        //Generate a list of global nodes by looping over all elements
+        // and adding in new ones
+        // n[(i,j)] is jth node of i+1th element
+        // First size nodes of first element are entered manually
 
         for i in 0..6 {
             (p[(i, 0)], p[(i, 1)], p[(i, 2)]) = (x[(0, i)], y[(0, i)], z[(0, i)]);
@@ -242,6 +243,7 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
         (nelm, npts, p, n)
     }
 
+///Combines grids for 2 different ellipsoids.
 pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
                 p1 :&DMatrix<f64>, p2 :&DMatrix<f64>,
                 n1 :&DMatrix<usize>, n2 :&DMatrix<usize>) -> (
@@ -281,6 +283,7 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     (nelm, npts, p, n)
 }
 
+///Computes gaussian quadrature constants
 pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {
 
     let nq_a = if (nq != 3) & (nq != 6) & (nq != 12) {
@@ -339,6 +342,7 @@ pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {
     (z, w)
 }
 
+///Computes gaussian triangle integration constants
 pub fn gauss_trgl(mint :usize) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
 
     let mint_a:usize = if (mint == 7) || (mint == 13) {
@@ -427,6 +431,7 @@ pub fn gauss_trgl(mint :usize) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
     (xi, eta, w)
 }
 
+///Calculates a, b, c which are measurements of how far along each side the mid-points are
 pub fn abc(p1 :Vector3<f64>,
            p2 :Vector3<f64>,
            p3 :Vector3<f64>,
@@ -447,6 +452,8 @@ pub fn abc(p1 :Vector3<f64>,
 
     (al, be, ga)
 }
+
+///Calculates a, b, c for every element
 pub fn abc_vec(nelm :usize,
                p :&DMatrix<f64>,
                n :&DMatrix<usize>) ->
@@ -481,6 +488,7 @@ pub fn abc_vec(nelm :usize,
     (alpha, beta, gamma)
 }
 
+///Interpolates over an element, returning surface metric hs and position vector xvec
 pub fn interp_p(p1 :Vector3<f64>,
                 p2 :Vector3<f64>,
                 p3 :Vector3<f64>,
@@ -544,6 +552,7 @@ pub fn interp_p(p1 :Vector3<f64>,
     (xvec, vn, hs)
 }
 
+///Returns Normal vectors at each point in the grid as well as estimates of the total volume and surface area
 pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
                 p :&DMatrix<f64>, n :&DMatrix<usize>,
                 alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
