@@ -2,7 +2,7 @@
 name = "multi_ellip"
 version = "0.1.0"
 edition = "2021"
-authors = ["Andrew Boyd"]
+authors = ["Andrew Boyd", "Erich Essmann"]
 license-file = "LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
