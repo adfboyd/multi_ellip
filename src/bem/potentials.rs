@@ -240,6 +240,75 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
 }
 
+pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector3<f64>) -> f64 {
+
+    let s = body.shape;
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+
+    let orientation = UnitQuaternion::from_quaternion(body.orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+
+    let (zz, ww) = gauss_leg(nq);
+    let (xiq, etq, wq) = gauss_trgl(mint);
+
+    let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
+
+    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
+                                    &p, &n,
+                                    &alpha, &beta, &gamma,
+                                    &xiq, &etq, &wq);
+
+    //Calculate dfdn
+
+    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+
+    //Calculate RHS of linear equation
+
+    let rhs = lslp_3d(npts, nelm, mint, nq,
+                      &dfdn, &p, &n, &vna,
+                      &alpha, &beta, &gamma,
+                      &xiq, &etq, &wq, &zz, &ww);
+
+    println!("RHS is calculated");
+
+
+    let amat_1 = DMatrix::zeros(npts, npts);
+    let amat = Mutex::new(amat_1);
+
+    let js = (0..npts).collect::<Vec<usize>>();
+
+    js.par_iter().progress_count(npts as u64).for_each(|&j| {
+        // println!("Computing column {} of the influence matrix", j);
+        let mut q = DVector::zeros(npts);
+
+        q[j] = 1.0;
+
+        let dlp = ldlp_3d(npts, nelm, mint,
+                          &q, &p, &n, &vna,
+                          &alpha, &beta, &gamma,
+                          &xiq, &etq, &wq);
+
+        let mut amat = amat.lock().unwrap();
+
+        for k in 0..npts {
+            amat[(k, j)] = dlp[k];
+        }
+    });
+
+    let amat_final = amat.into_inner().unwrap();
+
+    let decomp = amat_final.lu();
+
+    let f = decomp.solve(&rhs).expect("Linear resolution failed");
+
+    println!("Linear system solved!");
+
+    let phi_val = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, p0);
+
+    phi_val
+
+}
+
 ///Calculates the total KE of the fluid due to the movement of 1 body.
 pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
 

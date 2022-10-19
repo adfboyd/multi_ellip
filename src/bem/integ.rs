@@ -1,12 +1,14 @@
-use nalgebra::{DMatrix, DVector, Vector3, Vector6};
+use std::f64::consts::PI;
+use nalgebra::{DMatrix, DVector, Matrix3, Vector3, Vector6};
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
 pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
 
-    let pi = std::f64::consts::PI;
+    let pi = PI;
     let pi4 = pi * 4.0;
 
     let dx = Vector3::new(x[0] - x0[0], x[1] - x0[1], x[2] - x0[2]);
+    let dx = x - x0;
     let r = dx.norm();
     let g = 1.0 / (pi4 * r);
 
@@ -16,6 +18,31 @@ pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
     }
 
     (g, dg)
+}
+
+pub fn d_lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>, xi :Vector3<f64>) -> (f64, Vector3<f64>) {
+
+    let (_, dg) = lgf_3d_fs(x, x0);
+
+    let ri = x - x0;
+    let r = ri.norm();
+    let dgdx = dg.dot(&xi);
+
+    let mut ddG = Matrix3::zeros();
+
+    for i in 0..3 {
+        for j in 0..3 {
+            let mut delta = 0f64;
+            if i==j {
+                delta = 1f64;
+            }
+            ddG[(i,j)] = delta / r.powi(3) - ( 3 / (4 * PI * r.powi(5))) * ri[i] * ri[j];
+        }
+    }
+
+
+    let ddGdx2 = ddG * xi;
+    (dgdx, ddGdx2)
 }
 
 ///Interpolates over the triangle, also interpolates the force f.

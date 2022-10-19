@@ -1,5 +1,6 @@
 use csv::*;
 use nalgebra as na;
+use nalgebra::Vector3;
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
@@ -26,6 +27,10 @@ impl Body {
 
     pub fn linear_velocity(&self) -> na::Vector3<f64> {
         (1.0 / self.mass()) * self.linear_momentum
+    }
+
+    pub fn linear_momentum_from_vel(&self, v :Vector3<f64>) -> Vector3<f64> {
+        self.mass() * v
     }
 
     pub fn angular_velocity(&self) -> na::Quaternion<f64> {
