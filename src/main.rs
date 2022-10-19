@@ -52,7 +52,7 @@ fn main() {
     let mut body2 = Body {
         density: 1.0,
         shape: s,
-        position: Vector3::new(0.0, 0.0, 0.0),
+        position: Vector3::new(1.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: o_vec2,
         angular_momentum: q0,
@@ -91,14 +91,14 @@ fn main() {
     // let f = phi_1body_serial(&body1, ndiv, nq, mint);
     // let sing_ser_t = sing_ser.elapsed();
 
-    let ke_t = Instant::now();
-    let ke_1 = ke_1body(&body1, ndiv, nq, mint);
-    let ke_elapse = ke_t.elapsed();
-
-
-    let p0 = Vector3::new(1.0, 0.0, 0.0);
-
-    let phi_val = phi_eval_1body(&body1, ndiv, nq, mint, p0);
+    // let ke_t = Instant::now();
+    // let ke_1 = ke_1body(&body1, ndiv, nq, mint);
+    // let ke_elapse = ke_t.elapsed();
+    //
+    //
+    // let p0 = Vector3::new(1.0, 0.0, 0.0);
+    //
+    // let phi_val = phi_eval_1body(&body1, ndiv, nq, mint, p0);
 
     // let par_before = Instant::now();
     // let double_d = f_2body(&body1, &body2, ndiv, nq, mint);
@@ -110,10 +110,10 @@ fn main() {
     //
     // println!("Serial code took {:?}", sing_ser_t);
     // println!("Parallel code took {:?}", sing_par_t);
-
-    println!("ke is {:?}, took {:?}", ke_1, ke_elapse);
-    println!("Phi value is {:?}", phi_val);
-
+    //
+    // println!("ke is {:?}, took {:?}", ke_1, ke_elapse);
+    // println!("Phi value is {:?}", phi_val);
+    //
     // println!("Serial code took {:?}", ser_time);
     // println!("Parallel code took {:?}", par_time);
 }
