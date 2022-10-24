@@ -133,9 +133,9 @@ impl crate::ode::System2<State> for LinForceCalculate {
 
 
 
-        let m = self.system.mass_tensor;
+        let (m, i) = self.system.body1.inertia_tensor(self.system.fluid.density);
 
-        let (_, v) = x;
+        let (_, v) = y;
 
         let dx0 = m * v;
         let dx1 = na::Vector3::zeros();
@@ -223,6 +223,7 @@ impl crate::ode::System2<State> for LinForceCalculate {
         // println!("Matrix decomposed");
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
+        let df = dfdn.clone();
         // println!("Linear system solved!");
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -232,6 +233,8 @@ impl crate::ode::System2<State> for LinForceCalculate {
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 
         let nelm1 = nelm / 2;
+        let eps = 0.01;
+
         for k in 0..nelm1 {
 
             let i1 = n[(k, 0)] - 1;
@@ -258,6 +261,9 @@ impl crate::ode::System2<State> for LinForceCalculate {
             let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
             let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
 
+            let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+
             let (xi, eta) = (1.0/3.0, 1.0/3.0);
 
             let (x_cen, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
@@ -276,17 +282,17 @@ impl crate::ode::System2<State> for LinForceCalculate {
             let u1 = grad_3d(npts, nelm, mint,
                                     &f, &dfdn, &p, &n, &vna,
                                     &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq, &p0, &vn);
+                                    &xiq, &etq, &wq, &p0, &vn, eps);
 
             let u2 = grad_3d(npts, nelm, mint,
                              &f, &dfdn, &p, &n, &vna,
                              &alpha, &beta, &gamma,
-                             &xiq, &etq, &wq, &p0, &dx_1);
+                             &xiq, &etq, &wq, &p0, &dx_1, eps);
 
             let u3 = grad_3d(npts, nelm, mint,
                              &f, &dfdn, &p, &n, &vna,
                              &alpha, &beta, &gamma,
-                             &xiq, &etq, &wq, &p0, &dx_2);
+                             &xiq, &etq, &wq, &p0, &dx_2, eps);
 
             let u_square = u1.powi(2) + u2.powi(2) + u3.powi(2);
 

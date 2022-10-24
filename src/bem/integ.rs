@@ -949,7 +949,7 @@ pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
     f0
 }
 
-pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>,
+pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                       k :usize, mint :usize,
                       f :&DVector<f64>, df :&DVector<f64>,
                       p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -1020,16 +1020,16 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
              p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
              alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
              xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-             p0 :&Vector3<f64>, dxi :&Vector3<f64>) -> f64 {
+             p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64) -> f64 {
 
-    //Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
+    //Calculates the gradient of phi in the given direction dxi at point p0.
 
     let mut f0 = 0.0;
 
     for k in 0..nelm {
 
 
-        let (sdlp, _arelm) = grad_3d_integral(p0 , dxi,
+        let (sdlp, _arelm) = grad_3d_integral(p0 , dxi, eps,
                                               k, mint,
                                               f, dfdn,
                                               p, n, vna,
