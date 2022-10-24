@@ -1,7 +1,6 @@
 //! Shared traits and structures for dopri5 and dop853.
 
 use std::fmt;
-
 use thiserror::Error;
 
 /// Trait needed to be implemented by the user.
@@ -27,9 +26,16 @@ pub trait System3<V, W, Z> {
     fn system(&self, x: f64, y: &V, s1: &W, s2: &Z) -> V;
 }
 
+pub trait System4<V> {
+    fn system(&self) -> V;
+}
+
 pub trait SystemM<V> {
     fn system(&self, x:f64, y:&V) -> V;
 }
+
+
+
 /// Enumeration of the types of the integration outputs.
 #[derive(PartialEq, Eq)]
 pub enum OutputType {

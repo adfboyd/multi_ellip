@@ -320,7 +320,7 @@ pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
 
-    let (zz, ww) = gauss_leg(nq);
+    let (_zz, _ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
@@ -489,8 +489,8 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
     println!("RHS is calculated");
 
 
-    let mut amat_1 = DMatrix::zeros(npts, npts);
-    let mut amat = Mutex::from(amat_1);
+    let amat_1 = DMatrix::zeros(npts, npts);
+    let amat = Mutex::from(amat_1);
 
     let js = (0..npts).collect::<Vec<usize>>();
 

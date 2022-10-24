@@ -1,9 +1,11 @@
-use csv::*;
+use std::f64::consts::PI;
+// use csv::*;
 use nalgebra as na;
-use nalgebra::Vector3;
+use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
+use crate::system::hamiltonian::{calc_shape_factor, if_calc, is_calc, mf_calc};
 
 #[derive(Debug, Copy, Clone, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -93,9 +95,8 @@ impl Body {
 
     pub fn rotational_frequency(&self) -> f64 {
         let ang_vel_q = self.angular_velocity();
-        // let ang_vel = ang_vel_q.vector();
-        let abs_ang_vel = ang_vel_q.i.abs();
-        abs_ang_vel / (2.0 * std::f64::consts::PI)
+        let abs_ang_vel = ang_vel_q.vector().norm();
+        abs_ang_vel / (2.0 * PI)
     }
 
 
@@ -118,5 +119,46 @@ impl Body {
         let desired_ke = ratio * self.rotational_energy();
         let p_scalar = (2.0 * desired_ke * self.mass()).sqrt();
         p_scalar * direction.normalize()
+    }
+
+    pub fn inertia_tensor(&self, rho_f :f64) -> (Matrix3<f64>, Matrix3<f64>) {
+
+
+        let m_s = na::Matrix3::from_diagonal(&self.shape);
+        let v_s = 4.0 / 3.0 * PI * self.shape.iter().fold(1.0, |acc, x| acc * x);
+
+        let lambda = 10000.0;
+
+        let shape_fun = calc_shape_factor(lambda, m_s).unwrap();
+
+        let alpha = shape_fun.alpha;
+        let beta = shape_fun.beta;
+        let gamma = shape_fun.gamma;
+        let m_f = mf_calc(alpha, beta, gamma, v_s, rho_f);
+
+        let m: Matrix3<f64> = m_f + m_s;
+
+        let i_f = if_calc(alpha, beta, gamma, v_s, rho_f, m_s);
+        let i_s = is_calc(m_s, self.density);
+        let i: Matrix3<f64> = i_f + i_s;
+
+        (m, i)
+    }
+
+    pub fn print_vel(&self) {
+        println!("Linear velocity is {:?}", self.linear_velocity());
+    }
+    pub fn print_omega(&self) {
+        println!("Angular velocity is {:?}", self.angular_velocity());
+    }
+    pub fn print_lin_mom(&self) {
+        println!("Linear momentum is {:?}", self.linear_momentum);
+    }
+    pub fn print_ang_mom(&self) {
+        println!("Angular momentum is {:?}", self.angular_momentum);
+    }
+    pub fn print_mass(&self) {
+        println!("mass is {:?}", self.mass());
+
     }
 }

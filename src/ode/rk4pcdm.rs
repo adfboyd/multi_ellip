@@ -1,28 +1,29 @@
 use nalgebra as na;
+use nalgebra::{Dynamic, OMatrix, U1};
 
-use crate::ode::dop_shared::{IntegrationError, Stats, System2, System3};
+use crate::ode::dop_shared::{IntegrationError, Stats, System2, System3, System4};
 use crate::ode::pcdm::accel_get;
 
 
-pub struct Rk4PCDM<V, Q, A, F, G, H>
+
+pub struct Rk4PCDM<V, Q, A, W, F, G, H, I>
     where
         F: System2<V>,
         G: System2<Q>,
         H: System3<A, V, Q>,
+        I: System4<W>,
 {
     f: F,
     g: G,
     h: H,
+    i: I,
     t: f64,
-    x1: V,
-    x_lab1: A,
-    o_lab1: na::Vector3<f64>,
-    o1: Q,
-    inertia1: na::Matrix3<f64>,
-    x2: V,
-    x_lab2: A,
-    o_lab2: na::Vector3<f64>,
-    o2: Q,
+    x: V,
+    x_lab: A,
+    o_lab: na::Vector3<f64>,
+    o: Q,
+    phi: W,
+    inertia: na::Matrix3<f64>,
     inertia2: na::Matrix3<f64>,
     t_begin: f64,
     t_end: f64,
@@ -31,25 +32,23 @@ pub struct Rk4PCDM<V, Q, A, F, G, H>
     quarter_step: f64,
     pub samp_rate: u32,
     pub t_out: Vec<f64>,
-    pub x_out1: Vec<V>,
-    pub x_lab_out1: Vec<A>,
-    pub o_out1: Vec<Q>,
-    pub o_lab_out1: Vec<na::Vector3<f64>>,
-    pub x_out2: Vec<V>,
-    pub x_lab_out2: Vec<A>,
-    pub o_out2: Vec<Q>,
-    pub o_lab_out2: Vec<na::Vector3<f64>>,
+    pub x_out: Vec<V>,
+    pub x_lab_out: Vec<A>,
+    pub o_out: Vec<Q>,
+    pub o_lab_out: Vec<na::Vector3<f64>>,
     stats: Stats,
 }
 
-impl<D, F, G, H> //Need to generalise this to type T instead of f64.
+impl<D, F, G, H, I> //Need to generalise this to type T instead of f64.
 Rk4PCDM<
     (na::OVector<f64, D>, na::OVector<f64, D>),
     (na::Quaternion<f64>, na::Quaternion<f64>),
     na::OVector<f64, D>,
+    OMatrix<f64, Dynamic, U1>,
     F,
     G,
     H,
+    I,
 >
     where
         D: na::Dim + na::DimName,
@@ -57,6 +56,7 @@ Rk4PCDM<
         na::OVector<f64, D>: std::ops::Mul<f64, Output=na::OVector<f64, D>>,
         G: System2<(na::Quaternion<f64>, na::Quaternion<f64>)>,
         H: System3<na::OVector<f64, D>, (na::OVector<f64, D>, na::OVector<f64, D>), (na::Quaternion<f64>, na::Quaternion<f64>)>,
+        I: System4<OMatrix<f64, Dynamic, U1>>,
         na::DefaultAllocator: na::allocator::Allocator<f64, D>,
         na::Owned<f64, D>: Copy,
 {
@@ -66,12 +66,11 @@ Rk4PCDM<
         f: F,
         g: G,
         h: H,
+        i: I,
         t: f64,
-        x1: (na::OVector<f64, D>, na::OVector<f64, D>), // (position, velocity)
-        o1: (na::Quaternion<f64>, na::Quaternion<f64>), // (orientation, angular velocity)
-        inertia1: na::Matrix3<f64>,
-        x2: (na::OVector<f64, D>, na::OVector<f64, D>), // (position, velocity)
-        o2: (na::Quaternion<f64>, na::Quaternion<f64>), // (orientation, angular velocity)
+        x: (na::OVector<f64, D>, na::OVector<f64, D>), // (position, velocity)
+        o: (na::Quaternion<f64>, na::Quaternion<f64>), // (orientation, angular velocity)
+        inertia: na::Matrix3<f64>,
         inertia2: na::Matrix3<f64>,
         t_end: f64,
         step_size: f64,
@@ -81,17 +80,15 @@ Rk4PCDM<
             f,
             g,
             h,
+            i,
             t,
-            x1,
-            x_lab1: na::OVector::zeros(),
-            o1,
-            o_lab1: na::Vector3::new(1.0, 0.0, 0.0),
-            inertia1,
-            x2,
-            x_lab2,
-            o2,
-            o_lab2,
+            x,
+            x_lab: na::OVector::zeros(),
+            o,
+            o_lab: na::Vector3::new(1.0, 0.0, 0.0),
+            inertia,
             inertia2,
+            phi: na::DVector::zeros(10),
             t_begin: t,
             t_end,
             step_size,
@@ -99,14 +96,10 @@ Rk4PCDM<
             quarter_step: step_size * 0.25,
             samp_rate,
             t_out: Vec::new(),
-            x_out1: Vec::new(),
-            x_lab_out1: vec![],
-            o_out1: Vec::new(),
-            o_lab_out1: vec![],
-            x_out2: Vec::new(),
-            x_lab_out2: vec![],
-            o_out2: Vec::new(),
-            o_lab_out2: vec![],
+            x_out: Vec::new(),
+            x_lab_out: vec![],
+            o_out: Vec::new(),
+            o_lab_out: vec![],
             stats: Stats::new(),
         }
     }
@@ -126,41 +119,32 @@ Rk4PCDM<
             if i % steps_per_sec == 0 {
                 println!("Time = {:.3}", self.t);  //Print progress
             };
-            let (t_new, x1_new) = self.rk4_step1(); //Step forward in linear motion
-            let (_, x2_new) = self.rk4_step2(); //Step forward in linear motion
 
+            let phi = self.phi_calc();
+
+
+            let (t_new, x_new) = self.rk4_step(); //Step forward in linear motion
             // let (t_new, x_new) = self.euler_step();
-            let (_, o1_new) = self.pcdm_step1(); //Step forward in rotational motion
-            let (_, o2_new) = self.pcdm_step2();
+            let (_, o_new) = self.pcdm_step(); //Step forward in rotational motion
 
-            let o_lab1_new_v = self.quaternion_to_point1(); //Calculate orientation in lab frame
-            let o_lab2_new_v = self.quaternion_to_point2();
+            let o_lab_new_v = self.quaternion_to_point(); //Calculate orientation in lab frame
 
-            let (_, x_lab1_new) = self.euler_frame_step1(); //Calculate position of body in lab frame
-            let (_, x_lab2_new) = self.euler_frame_step2();
+            let (_, x_lab_new) = self.euler_frame_step(); //Calculate position of body in lab frame
 
             if i % samp_rate == 0 { //Record current state of body
                 self.t_out.push(t_new);
-                self.x_out1.push(x1_new.clone());
-                self.o_out1.push(o1_new.clone());
-                self.x_lab_out1.push(x_lab1_new.clone());
-                self.o_lab_out1.push(o_lab1_new_v.clone());
-                self.x_out2.push(x2_new.clone());
-                self.o_out2.push(o2_new.clone());
-                self.x_lab_out2.push(x_lab2_new.clone());
-                self.o_lab_out2.push(o_lab2_new_v.clone());
+                self.x_out.push(x_new.clone());
+                self.o_out.push(o_new.clone());
+                self.x_lab_out.push(x_lab_new.clone());
+                self.o_lab_out.push(o_lab_new_v.clone());
             }
 
 
             self.t = t_new;
-            self.x1 = x1_new;
-            self.o1 = o1_new;
-            self.x_lab1 = x_lab1_new;
-            self.o_lab1 = o_lab1_new_v;
-            self.x2 = x2_new;
-            self.o2 = o2_new;
-            self.x_lab2 = x_lab2_new;
-            self.o_lab2 = o_lab2_new_v;
+            self.x = x_new;
+            self.o = o_new;
+            self.x_lab = x_lab_new;
+            self.o_lab = o_lab_new_v;
 
             // self.stats.num_eval += 10;
             self.stats.accepted_steps += 1;
@@ -168,53 +152,14 @@ Rk4PCDM<
         Ok(self.stats)
     }
 
-    //Computes the linear motion of the ellipsoid with RK4 integration
-    fn rk4_step1(&mut self) -> (f64, (na::OVector<f64, D>, na::OVector<f64, D>)) {
-        let (p, v) = self.x1.clone();
-
-
-        let (k0_0, k1_0) = self.f.system(self.t, &(p, v));
-        let (k0_1, k1_1) = self.f.system(
-            self.t + self.half_step,
-            &(
-                p + k0_0 * self.half_step,
-                v.clone() + k1_0.clone() * self.half_step,
-            ),
-        );
-
-        let (k0_2, k1_2) = self.f.system(
-            self.t + self.half_step,
-            &(
-                p.clone() + k0_1.clone() * self.half_step,
-                v.clone() + k1_1.clone() * self.half_step,
-            ),
-        );
-
-        let (k0_3, k1_3) = self.f.system(
-            self.t + self.step_size,
-            &(
-                p.clone() + k0_2.clone() * self.step_size,
-                v.clone() + k1_2.clone() * self.step_size,
-            ),
-        );
-
-        let t_new = self.t + self.step_size;
-        let p_new = &p
-            + (k0_0.clone() + k0_1.clone() * 2.0 + k0_2.clone() * 2.0 + k0_3.clone())
-            * (self.step_size / 6.0);
-        let v_new = &v
-            + (k1_0.clone() + k1_1.clone() * 2.0 + k1_2.clone() * 2.0 + k1_3.clone())
-            * (self.step_size / 6.0);
-        let x1_new = (p_new, v_new);
-
-
-        self.stats.num_eval += 6;
-
-        (t_new, x1_new)
+    fn phi_calc(&mut self) -> OMatrix<f64, Dynamic, U1> {
+        let phi = self.i.system();
+        phi
     }
 
-    fn rk4_step2(&mut self) -> (f64, (na::OVector<f64, D>, na::OVector<f64, D>)) {
-        let (p, v) = self.x2.clone();
+    //Computes the linear motion of the ellipsoid with RK4 integration
+    fn rk4_step(&mut self) -> (f64, (na::OVector<f64, D>, na::OVector<f64, D>)) {
+        let (p, v) = self.x.clone();
 
 
         let (k0_0, k1_0) = self.f.system(self.t, &(p, v));
@@ -249,12 +194,12 @@ Rk4PCDM<
         let v_new = &v
             + (k1_0.clone() + k1_1.clone() * 2.0 + k1_2.clone() * 2.0 + k1_3.clone())
             * (self.step_size / 6.0);
-        let x2_new = (p_new, v_new);
+        let x_new = (p_new, v_new);
 
 
         self.stats.num_eval += 6;
 
-        (t_new, x2_new)
+        (t_new, x_new)
     }
     //
     // fn euler_step(&mut self) -> (f64, (na::OVector<f64, D>, na::OVector<f64, D>)) {
@@ -276,8 +221,8 @@ Rk4PCDM<
 
     //Computes the rotational motion of the ellipsoid using the "Predictor Corrector Direct Multiplier" method.
     //Preserves the unit natures of the orientation quaternion inherently.
-    fn pcdm_step1(&mut self) -> (f64, (na::Quaternion<f64>, na::Quaternion<f64>)) {
-        let (q, omega_b) = self.o1.clone();
+    fn pcdm_step(&mut self) -> (f64, (na::Quaternion<f64>, na::Quaternion<f64>)) {
+        let (q, omega_b) = self.o.clone();
 
         let inertia = self.inertia;
 
@@ -306,44 +251,7 @@ Rk4PCDM<
         let q1 = self.orientation_stepper(&q, &omega_n_half, self.step_size);
 
         let omega1_b = self.omega_stepper(&omega_b, &ang_accel_half_b, self.step_size);
-        let omega1 = self.body_to_lab(&omega1_b, &q1);
-
-        self.stats.num_eval += 2;
-
-        (self.t + self.step_size, (q1, omega1_b))
-    }
-
-    fn pcdm_step2(&mut self) -> (f64, (na::Quaternion<f64>, na::Quaternion<f64>)) {
-        let (q, omega_b) = self.o2.clone();
-
-        let inertia = self.inertia;
-
-        let (_, torque1) = self.g.system(
-            self.t,
-            &(q, omega_b),
-        );
-
-        let ang_accel_b = accel_get(&omega_b, &inertia, &torque1);
-
-        let omega_n_quarter_b = self.omega_stepper(&omega_b, &ang_accel_b, self.quarter_step);
-        let omega_n_half_b = self.omega_stepper(&omega_b, &ang_accel_b, self.half_step);
-
-        let omega_n_quarter = self.body_to_lab(&omega_n_quarter_b, &q);
-        let q_half_predict = self.orientation_stepper(&q, &omega_n_quarter, self.half_step);
-
-        let (_, torque2) = self.g.system(
-            self.t,
-            &(q_half_predict, omega_n_half_b),
-        );
-
-
-        let ang_accel_half_b = accel_get(&omega_n_half_b, &self.inertia, &torque2);
-        let omega_n_half = self.body_to_lab(&omega_n_half_b, &q_half_predict);
-
-        let q1 = self.orientation_stepper(&q, &omega_n_half, self.step_size);
-
-        let omega1_b = self.omega_stepper(&omega_b, &ang_accel_half_b, self.step_size);
-        let omega1 = self.body_to_lab(&omega1_b, &q1);
+        let _omega1 = self.body_to_lab(&omega1_b, &q1);
 
         self.stats.num_eval += 2;
 
@@ -379,22 +287,11 @@ Rk4PCDM<
     // }
 
     //Computes the evolution of the body with respect to the lab frame.
-    pub fn euler_frame_step1(&self) -> (f64, na::OVector<f64, D>) {
+    pub fn euler_frame_step(&self) -> (f64, na::OVector<f64, D>) {
         let t = self.t.clone();
-        let (p, v) = self.x1.clone();
-        let (q, o) = self.o1.clone();
-        let p_lab = self.x_lab1.clone();
-
-        let dp = self.h.system(t, &p_lab, &(p, v), &(q, o));
-        let dt = self.step_size;
-        (t, p_lab + dt * dp)
-    }
-
-    pub fn euler_frame_step2(&self) -> (f64, na::OVector<f64, D>) {
-        let t = self.t.clone();
-        let (p, v) = self.x2.clone();
-        let (q, o) = self.o2.clone();
-        let p_lab = self.x_lab2.clone();
+        let (p, v) = self.x.clone();
+        let (q, o) = self.o.clone();
+        let p_lab = self.x_lab.clone();
 
         let dp = self.h.system(t, &p_lab, &(p, v), &(q, o));
         let dt = self.step_size;
@@ -402,16 +299,8 @@ Rk4PCDM<
     }
 
 
-    fn quaternion_to_point1(&self) -> na::Vector3<f64> {
-        let (q, _) = self.o1;
-        let o_lab_new = self.body_to_lab(&na::Quaternion::from_imag(
-            na::Vector3::new(1.0, 0.0, 0.0)), &q);
-        let o_lab_new_v = o_lab_new.vector();
-        na::Vector3::new(o_lab_new_v[0], o_lab_new_v[1], o_lab_new_v[2])
-    }
-
-    fn quaternion_to_point2(&self) -> na::Vector3<f64> {
-        let (q, _) = self.o2;
+    fn quaternion_to_point(&self) -> na::Vector3<f64> {
+        let (q, _) = self.o;
         let o_lab_new = self.body_to_lab(&na::Quaternion::from_imag(
             na::Vector3::new(1.0, 0.0, 0.0)), &q);
         let o_lab_new_v = o_lab_new.vector();

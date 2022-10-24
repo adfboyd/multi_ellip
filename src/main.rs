@@ -1,11 +1,12 @@
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 use std::rc::Rc;
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Quaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Quaternion, Vector3, Vector4};
 use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::potentials::{ke_1body, f_1body, phi_1body_serial, f_2body, f_2body_serial, f_finder, phi_eval_1body};
 use std::time::Instant;
+use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::system::Simulation;
 
 type State = (na::OVector<f64, na::U3>, na::OVector<f64, na::U3>);
@@ -27,6 +28,7 @@ fn main() {
     let ang_mom_q = na::Quaternion::from_imag(init_ang_mom);
     let q0 = Quaternion::from_real(0.0);
 
+    let ratio= 20.0;
 
     let mut body1 = Body {
         density: 1.0,
@@ -34,20 +36,28 @@ fn main() {
         position: Vector3::new(1.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: o_vec * 6.0,
-        angular_momentum: ang_mom_q * 0.0,
+        angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
 
     body1.linear_momentum = body1.linear_momentum_from_vel(Vector3::new(1.0, 0.0, 0.0));
+
+    body1.print_vel();
+    body1.print_mass();
+    body1.print_lin_mom();
     //Normalise initial conditions
-    let init_frequency = body.rotational_frequency();
-    body.angular_momentum = body.angular_momentum / init_frequency;
+    let init_frequency = body1.rotational_frequency();
+    println!("{:?}", init_frequency);
+    body1.print_ang_mom();
 
-    let init_direction = body.linear_momentum;
-    body.linear_momentum = body.ic_generator(init_direction, ratio);
+    body1.angular_momentum = body1.angular_momentum / init_frequency;
+    body1.print_ang_mom();
 
-    println!("Linear velocity of body is {:?}", body1.linear_velocity());
+    let init_direction = body1.linear_momentum;
+    body1.linear_momentum = body1.ic_generator(init_direction, ratio);
+
+
 
     let mut body2 = Body {
         density: 1.0,
@@ -68,6 +78,8 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
+    let ndiv = 3;
+    println!("Building simulation");
     // Building System for simulation
     let sys = Rc::new(Simulation::new(
         fluid,
@@ -75,12 +87,18 @@ fn main() {
         body2,
         100.0,
         0.000001,
+        ndiv,
         10000,
         ratio,
     ));
+    println!("Simulation Built");
 
+    let v = na::Vector6::new(0.0, 1.0, 1.0, 1.0, 0.0, 0.0);
+    let v4 = na::Vector4::new(v[0], v[1], v[2], v[3]);
+    println!("{:?}", v4);
+    // let vq = na::Quaternion::from_vector(v4);
 
-    let ndiv = 4;
+    let ndiv = 3;
     let (nq, mint) = (12_usize, 13_usize);
 
     // let sing_par = Instant::now();
@@ -100,14 +118,11 @@ fn main() {
     //
     // let phi_val = phi_eval_1body(&body1, ndiv, nq, mint, p0);
 
-    // let par_before = Instant::now();
-    // let double_d = f_2body(&body1, &body2, ndiv, nq, mint);
-    // let par_time = par_before.elapsed();
-    //
-    // let ser_before = Instant::now();
-    // let double_d_ser = f_2body_serial(&body1, &body2, ndiv, nq, mint);
-    // let ser_time = ser_before.elapsed();
-    //
+    let par_before = Instant::now();
+    let double_d = f_2body(&body1, &body2, ndiv, nq, mint);
+    let par_time = par_before.elapsed();
+
+
     // println!("Serial code took {:?}", sing_ser_t);
     // println!("Parallel code took {:?}", sing_par_t);
     //

@@ -7,7 +7,6 @@ pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
     let pi = PI;
     let pi4 = pi * 4.0;
 
-    let dx = Vector3::new(x[0] - x0[0], x[1] - x0[1], x[2] - x0[2]);
     let dx = x - x0;
     let r = dx.norm();
     let g = 1.0 / (pi4 * r);
@@ -20,9 +19,9 @@ pub fn lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>) -> (f64, Vector3<f64>) {
     (g, dg)
 }
 
-pub fn d_lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>, xi :Vector3<f64>) -> (f64, Vector3<f64>) {
+pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f64, Vector3<f64>) {
 
-    let (_, dg) = lgf_3d_fs(x, x0);
+    let (_, dg) = lgf_3d_fs(*x, *x0);
 
     let ri = x - x0;
     let r = ri.norm();
@@ -36,7 +35,7 @@ pub fn d_lgf_3d_fs(x :Vector3<f64>, x0 :Vector3<f64>, xi :Vector3<f64>) -> (f64,
             if i==j {
                 delta = 1f64;
             }
-            ddG[(i,j)] = delta / r.powi(3) - ( 3 / (4 * PI * r.powi(5))) * ri[i] * ri[j];
+            ddG[(i,j)] = delta / r.powi(3) - ( 3.0 / (4.0 * PI * r.powi(5))) * ri[i] * ri[j];
         }
     }
 
@@ -344,7 +343,7 @@ pub fn lslp_3d_integral_sing(ngl :usize,
 
             let xvec = Vector3::new(x, y, z);
 
-            let (g, dg) = lgf_3d_fs(xvec, p1);
+            let (g, _dg) = lgf_3d_fs(xvec, p1);
 
             let cf = r * ww[j];
 
@@ -463,7 +462,7 @@ pub fn lslp_3d(npts :usize, nelm :usize,
                                                               zz, ww);
 
                     ptl += pptl;
-                    srf_area += arelm;
+                    srf_area = srf_area + arelm;
 
                 }
                 else if i == i2 {
@@ -847,7 +846,7 @@ pub fn lsdlpp_3d(_npts :usize, nelm :usize, mint :usize,
                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
                  p0 :Vector3<f64>) -> f64 {
-    ///Evaluates the value of the potential at given point p0 given distribution f, dfdn
+    //Evaluates the value of the potential at given point p0 given distribution f, dfdn
     let mut f0 = 0.0;
 
     for k in 0..nelm {
@@ -931,7 +930,7 @@ pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> f64 {
 
-    ///Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
+    //Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
 
     let mut f0 = 0.0;
 
@@ -950,5 +949,97 @@ pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
     f0
 }
 
+pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>,
+                      k :usize, mint :usize,
+                      f :&DVector<f64>, df :&DVector<f64>,
+                      p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                      alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                      xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> (f64, f64) {
+
+    let mut area = 0.0;
+    let mut sdlp = 0.0;
+
+    let i1 = n[(k, 0)] - 1;
+    let i2 = n[(k, 1)] - 1;
+    let i3 = n[(k, 2)] - 1;
+    let i4 = n[(k, 3)] - 1;
+    let i5 = n[(k, 4)] - 1;
+    let i6 = n[(k, 5)] - 1;
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+    let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
+    let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
+    let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
+
+    let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
+    let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
+    let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
+    let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
+    let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
+    let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
+
+    let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
+
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+
+        let (xi, eta) = (xiq[i], etq[i]);
+
+        let (xvec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+                                                               vna1, vna2, vna3, vna4, vna5, vna6,
+                                                               f1, f2, f3, f4, f5, f6,
+                                                               df1, df2, df3, df4, df5, df6,
+                                                               al, be, ga, xi, eta);
+
+
+        let (dG, ddG) =
+            if (xvec - p0).norm() > eps {
+                d_lgf_3d_fs(&xvec, p0, dxi)
+        } else {
+                (0.0, Vector3::new(0.0, 0.0, 0.0))
+            };
+
+        let cf = 0.5 * hs * wq[i];
+
+        area += cf;
+
+        let rint = -dfdn_int * dG + fint * vn.dot(&ddG);
+
+        sdlp += rint * cf;
+    }
+
+    (sdlp, area)
+}
+
+pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
+             f :&DVector<f64>, dfdn :&DVector<f64>,
+             p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+             alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+             xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+             p0 :&Vector3<f64>, dxi :&Vector3<f64>) -> f64 {
+
+    //Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
+
+    let mut f0 = 0.0;
+
+    for k in 0..nelm {
+
+
+        let (sdlp, _arelm) = grad_3d_integral(p0 , dxi,
+                                              k, mint,
+                                              f, dfdn,
+                                              p, n, vna,
+                                              alpha, beta, gamma,
+                                              xiq, etq, wq);
+
+        f0 += sdlp;
+    }
+
+    f0
+}
 
 
