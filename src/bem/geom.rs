@@ -1,7 +1,7 @@
 use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
-
+#[feature(destructuring_assignment)]
 ///Generates a grid for a given ellipsoid
 pub fn ellip_gridder(ndiv : u32, req :f64,
                      shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>)

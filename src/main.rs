@@ -1,5 +1,6 @@
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 use std::rc::Rc;
+use std::sync::Arc;
 use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Quaternion, Vector3, Vector4};
 use multi_ellip::ellipsoids::body::Body;
@@ -81,7 +82,7 @@ fn main() {
     let ndiv = 3;
     println!("Building simulation");
     // Building System for simulation
-    let sys = Rc::new(Simulation::new(
+    let sys  = Arc::new(Simulation::new(
         fluid,
         body1,
         body2,
@@ -101,9 +102,9 @@ fn main() {
     let ndiv = 3;
     let (nq, mint) = (12_usize, 13_usize);
 
-    // let sing_par = Instant::now();
-    // let f = f_1body(&body1, ndiv, nq, mint);
-    // let sing_par_t = sing_par.elapsed();
+    let sing_par = Instant::now();
+    let f = f_1body(&body1, ndiv, nq, mint);
+    let sing_par_t = sing_par.elapsed();
     //
     // let sing_ser = Instant::now();
     // let f = phi_1body_serial(&body1, ndiv, nq, mint);

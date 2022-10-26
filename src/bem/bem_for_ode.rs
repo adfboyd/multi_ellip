@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use indicatif::ParallelProgressIterator;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, U1, UnitQuaternion, Vector3};
 use rayon::prelude::*;
@@ -22,15 +22,11 @@ type PhiState = OMatrix<f64, Dynamic, U1>;
 
 
 pub struct PhiCalculate {
-    pub system: Rc<Simulation>,
+    pub system: Arc<Simulation>,
 }
 
 pub struct ForceCalculate {
-    pub system: Rc<Simulation>,
-}
-
-pub struct AngForceCalculate {
-    pub system: Rc<Simulation>,
+    pub system: Arc<Simulation>,
 }
 
 
@@ -129,7 +125,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 }
 
 impl crate::ode::System2<State> for ForceCalculate {
-    fn system(&self, _x: f64, y: &State) -> (na::Vector6<f64>, na::Vector6<f64>) {
+    fn system(&mut self, _x: f64, y: &State) -> State {
 
 
 
@@ -137,8 +133,8 @@ impl crate::ode::System2<State> for ForceCalculate {
         //
         // let (_, v) = y;
         //
-        // let dx0 = m * v;
-        // let dx1 = na::Vector3::zeros();
+        let dx0 = na::Vector3::zeros();
+        let dx1 = na::Vector3::zeros();
 
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = self.system.ndiv;
@@ -308,13 +304,13 @@ impl crate::ode::System2<State> for ForceCalculate {
 
             let pressure = -u_square;
 
-            let linearity = vn.dot(&x_cen);
-            let perpendicularity = vn.cross(&x_cen).norm();
+            let linearity = vn.dot(&x_body);
+            let perpendicularity = vn.cross(&x_body).norm();
 
             let lin_pressure = pressure * linearity;
             let ang_pressure = pressure * perpendicularity;
 
-            let torque_vec = vn.cross(&x_cen);
+            let torque_vec = vn.cross(&x_body);
             // let angular_vec = x_cen.cross(&perp_vec);
 
             let lin_inc = lin_pressure * vn;
@@ -337,10 +333,9 @@ impl crate::ode::System2<State> for ForceCalculate {
 
         let results = (linearForceTotal, angularForceTotal);
 
+        self.system.body1.position = na::Vector3::new(0.0, 0.0, 0.0);
 
-
-
-        results
+        (dx0, dx1)
 
 
     }

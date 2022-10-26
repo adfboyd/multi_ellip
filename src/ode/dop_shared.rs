@@ -19,7 +19,7 @@ pub trait System<V> {
 pub trait System2<V> {
     /// System of ordinary differential equations.
 
-    fn system(&self, x: f64, y: &V) -> V;
+    fn system(&mut self, x: f64, y: &V) -> V;
 }
 
 pub trait System3<V, W, Z> {

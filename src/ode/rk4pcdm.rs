@@ -157,10 +157,10 @@ Rk4PCDM<
         phi
     }
 
-    fn force_get(&mut self) -> (na::Vector6<f64>, na::Vector6<f64>) {
-        let force = (Vector6::zeros(), Vector6::zeros());
-        force
-    }
+    // fn force_get(&mut self) -> (na::Vector6<f64>, na::Vector6<f64>) {
+    //     let force = (Vector6::zeros(), Vector6::zeros());
+    //     force
+    // }
 
     //Computes the linear motion of the ellipsoid with RK4 integration
     fn rk4_step(&mut self) -> (f64, (na::OVector<f64, D>, na::OVector<f64, D>)) {
