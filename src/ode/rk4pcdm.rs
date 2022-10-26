@@ -1,5 +1,5 @@
 use nalgebra as na;
-use nalgebra::{Dynamic, OMatrix, U1};
+use nalgebra::{Dynamic, OMatrix, U1, Vector6};
 
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System3, System4};
 use crate::ode::pcdm::accel_get;
@@ -155,6 +155,11 @@ Rk4PCDM<
     fn phi_calc(&mut self) -> OMatrix<f64, Dynamic, U1> {
         let phi = self.i.system();
         phi
+    }
+
+    fn force_get(&mut self) -> (na::Vector6<f64>, na::Vector6<f64>) {
+        let force = (Vector6::zeros(), Vector6::zeros());
+        force
     }
 
     //Computes the linear motion of the ellipsoid with RK4 integration

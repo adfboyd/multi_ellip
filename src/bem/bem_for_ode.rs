@@ -25,7 +25,7 @@ pub struct PhiCalculate {
     pub system: Rc<Simulation>,
 }
 
-pub struct LinForceCalculate {
+pub struct ForceCalculate {
     pub system: Rc<Simulation>,
 }
 
@@ -128,17 +128,17 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 
 }
 
-impl crate::ode::System2<State> for LinForceCalculate {
-    fn system(&self, _x: f64, y: &State) -> State {
+impl crate::ode::System2<State> for ForceCalculate {
+    fn system(&self, _x: f64, y: &State) -> (na::Vector6<f64>, na::Vector6<f64>) {
 
 
 
-        let (m, i) = self.system.body1.inertia_tensor(self.system.fluid.density);
-
-        let (_, v) = y;
-
-        let dx0 = m * v;
-        let dx1 = na::Vector3::zeros();
+        // let (m, i) = self.system.body1.inertia_tensor(self.system.fluid.density);
+        //
+        // let (_, v) = y;
+        //
+        // let dx0 = m * v;
+        // let dx1 = na::Vector3::zeros();
 
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = self.system.ndiv;
@@ -266,7 +266,7 @@ impl crate::ode::System2<State> for LinForceCalculate {
 
             let (xi, eta) = (1.0/3.0, 1.0/3.0);
 
-            let (x_cen, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+            let (x_vec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                                   vna1, vna2, vna3, vna4, vna5, vna6,
                                                                   f1, f2, f3, f4, f5, f6,
                                                                   df1, df2, df3, df4, df5, df6,
@@ -277,7 +277,17 @@ impl crate::ode::System2<State> for LinForceCalculate {
             let dx_1 = vn.cross(&testvec).normalize(); //Generate set of three perpendicular directions.
             let dx_2 = vn.cross(&dx_1).normalize();
 
-            let p0 = x_cen * 1.01;
+            let x_body = if k < nelm1 {
+                x_vec - self.system.body1.position
+            } else {
+                x_vec - self.system.body2.position
+            };
+
+            let p0 = if k < nelm1 {
+                self.system.body1.position + x_body * 1.01
+            } else {
+                self.system.body2.position + x_body * 1.01
+            };
 
             let u1 = grad_3d(npts, nelm, mint,
                                     &f, &dfdn, &p, &n, &vna,
@@ -319,10 +329,18 @@ impl crate::ode::System2<State> for LinForceCalculate {
 
         }
 
+        let linearForceTotal = na::Vector6::new(linear_pressure1[0], linear_pressure1[1], linear_pressure1[2],
+                    linear_pressure2[0], linear_pressure2[1], linear_pressure2[2]);
+
+        let angularForceTotal = na::Vector6::new(angular_pressure1[0], angular_pressure1[1], angular_pressure1[2],
+                                                 angular_pressure2[0], angular_pressure2[1], angular_pressure2[2]);
+
+        let results = (linearForceTotal, angularForceTotal);
 
 
 
-        (dx0, dx1)
+
+        results
 
 
     }
