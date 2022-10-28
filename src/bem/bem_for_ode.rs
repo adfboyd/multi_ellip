@@ -22,31 +22,32 @@ type PhiState = OMatrix<f64, Dynamic, U1>;
 
 
 pub struct PhiCalculate {
-    pub system: Arc<Simulation>,
+    pub system: Arc<Mutex<Simulation>>,
 }
 
 pub struct ForceCalculate {
-    pub system: Arc<Simulation>,
+    pub system: Arc<Mutex<Simulation>>,
 }
 
 
 impl crate::ode::System4<PhiState> for PhiCalculate {
     fn system(&self) -> PhiState {
+        let mut sys_ref = self.system.lock().unwrap();
 
         let (nq, mint) = (12_usize, 13_usize);
-        let ndiv = self.system.ndiv;
-        let s1 = self.system.body1.shape;
-        let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
-        // self.system.body1.linear_momentum = self.system.body1.linear_momentum * 0.5;
+        let ndiv = sys_ref.ndiv;
+        let s1 = sys_ref.body1.shape;
+        let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
+        // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
-        let orientation1 = UnitQuaternion::from_quaternion(self.system.body1.orientation);
-        let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, self.system.body1.shape, self.system.body1.position, orientation1);
+        let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
+        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1);
 
-        let s2 = self.system.body2.shape;
-        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
+        let s2 = sys_ref.body2.shape;
+        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
-        let orientation2 = UnitQuaternion::from_quaternion(self.system.body2.orientation);
-        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, self.system.body2.shape, self.system.body2.position, orientation2);
+        let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
+        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2);
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -73,15 +74,14 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
             }
         };
 
-        let dfdn_1 = dfdn_single(&self.system.body1.position, &self.system.body1.linear_velocity(), &self.system.body1.angular_velocity().imag(), npts1, &p1, &vna1);
-        let dfdn_2 = dfdn_single(&self.system.body2.position, &self.system.body2.linear_velocity(), &self.system.body2.angular_velocity().imag(), npts2, &p2, &vna2);
+        let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
+        let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn = vec_concat(&dfdn_1, &dfdn_2);
 
         let rhs = lslp_3d(npts, nelm, mint, nq,
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
-
 
 
         // println!("Grids created");
@@ -125,11 +125,9 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 }
 
 impl crate::ode::System2<State> for ForceCalculate {
-    fn system(&mut self, _x: f64, y: &State) -> State {
-
-
-
-        // let (m, i) = self.system.body1.inertia_tensor(self.system.fluid.density);
+    fn system(&self, _x: f64, y: &State) -> State {
+        let mut sys_ref = self.system.lock().unwrap();
+        // let (m, i) = sys_ref.body1.inertia_tensor(sys_ref.fluid.density);
         //
         // let (_, v) = y;
         //
@@ -137,19 +135,19 @@ impl crate::ode::System2<State> for ForceCalculate {
         let dx1 = na::Vector3::zeros();
 
         let (nq, mint) = (12_usize, 13_usize);
-        let ndiv = self.system.ndiv;
-        let s1 = self.system.body1.shape;
-        let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
-        // self.system.body1.linear_momentum = self.system.body1.linear_momentum * 0.5;
+        let ndiv = sys_ref.ndiv;
+        let s1 = sys_ref.body1.shape;
+        let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
+        // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
-        let orientation1 = UnitQuaternion::from_quaternion(self.system.body1.orientation);
-        let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, self.system.body1.shape, self.system.body1.position, orientation1);
+        let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
+        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1);
 
-        let s2 = self.system.body2.shape;
-        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
+        let s2 = sys_ref.body2.shape;
+        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
-        let orientation2 = UnitQuaternion::from_quaternion(self.system.body2.orientation);
-        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, self.system.body2.shape, self.system.body2.position, orientation2);
+        let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
+        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2);
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -176,15 +174,14 @@ impl crate::ode::System2<State> for ForceCalculate {
             }
         };
 
-        let dfdn_1 = dfdn_single(&self.system.body1.position, &self.system.body1.linear_velocity(), &self.system.body1.angular_velocity().imag(), npts1, &p1, &vna1);
-        let dfdn_2 = dfdn_single(&self.system.body2.position, &self.system.body2.linear_velocity(), &self.system.body2.angular_velocity().imag(), npts2, &p2, &vna2);
+        let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
+        let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn = vec_concat(&dfdn_1, &dfdn_2);
 
         let rhs = lslp_3d(npts, nelm, mint, nq,
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
-
 
 
         // println!("Grids created");
@@ -274,15 +271,15 @@ impl crate::ode::System2<State> for ForceCalculate {
             let dx_2 = vn.cross(&dx_1).normalize();
 
             let x_body = if k < nelm1 {
-                x_vec - self.system.body1.position
+                x_vec - sys_ref.body1.position
             } else {
-                x_vec - self.system.body2.position
+                x_vec - sys_ref.body2.position
             };
 
             let p0 = if k < nelm1 {
-                self.system.body1.position + x_body * 1.01
+                sys_ref.body1.position + x_body * 1.01
             } else {
-                self.system.body2.position + x_body * 1.01
+                sys_ref.body2.position + x_body * 1.01
             };
 
             let u1 = grad_3d(npts, nelm, mint,
@@ -333,7 +330,7 @@ impl crate::ode::System2<State> for ForceCalculate {
 
         let results = (linearForceTotal, angularForceTotal);
 
-        self.system.body1.position = na::Vector3::new(0.0, 0.0, 0.0);
+        sys_ref.body1.position = na::Vector3::new(0.0, 0.0, 0.0);
 
         (dx0, dx1)
 
