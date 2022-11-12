@@ -1,24 +1,35 @@
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Quaternion, Vector3, Vector4};
+use nalgebra::{DMatrix, DVector, Quaternion, Vector3, Vector4, Vector6};
 use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
+use multi_ellip::bem::bem_for_ode;
 use multi_ellip::bem::potentials::{ke_1body, f_1body, phi_1body_serial, f_2body, f_2body_serial, f_finder, phi_eval_1body};
 use std::time::Instant;
+use multi_ellip::bem::bem_for_ode::{AngularUpdate, LinearUpdate};
+use multi_ellip::ode::rk4pcdm;
 use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::system::Simulation;
+use multi_ellip::utils::SimName;
 
 type State = (na::OVector<f64, na::U3>, na::OVector<f64, na::U3>);
 type State2 = (Quaternion<f64>, Quaternion<f64>);
 type State3 = na::OVector<f64, na::U3>;
+
+
+type Linear2State = (Vector6<f64>, Vector6<f64>);
+type Angular2State = (State2, State2);
+
 type Time = f64;
 
 
 
 fn main() {
     println!("Hello, world!");
+
+    let comment = format!("Testing results");
 
     let den = 1.0;
     let s = na::Vector3::new(1.0, 0.8, 0.6);
@@ -44,16 +55,12 @@ fn main() {
 
     body1.linear_momentum = body1.linear_momentum_from_vel(Vector3::new(1.0, 0.0, 0.0));
 
-    body1.print_vel();
-    body1.print_mass();
-    body1.print_lin_mom();
+
     //Normalise initial conditions
     let init_frequency = body1.rotational_frequency();
-    println!("{:?}", init_frequency);
-    body1.print_ang_mom();
 
     body1.angular_momentum = body1.angular_momentum / init_frequency;
-    body1.print_ang_mom();
+
 
     let init_direction = body1.linear_momentum;
     body1.linear_momentum = body1.ic_generator(init_direction, ratio);
@@ -79,10 +86,10 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 3;
+    let ndiv = 1;
     println!("Building simulation");
     // Building System for simulation
-    let sys  = Arc::new(Simulation::new(
+    let sys  = Arc::new(Mutex::new(  Simulation::new(
         fluid,
         body1,
         body2,
@@ -91,13 +98,92 @@ fn main() {
         ndiv,
         10000,
         ratio,
-    ));
+    )));
     println!("Simulation Built");
 
-    let v = na::Vector6::new(0.0, 1.0, 1.0, 1.0, 0.0, 0.0);
-    let v4 = na::Vector4::new(v[0], v[1], v[2], v[3]);
-    println!("{:?}", v4);
-    // let vq = na::Quaternion::from_vector(v4);
+    let linear_system = bem_for_ode::LinearUpdate{
+        system: sys.clone()
+    };
+
+    let angular_system = bem_for_ode::AngularUpdate{
+        system: sys.clone(),
+    };
+
+    let forcing_system = bem_for_ode::ForceCalculate{
+        system: sys.clone(),
+    };
+
+    let sys_mutex = sys.lock().unwrap();
+
+    let p1 = sys_mutex.body1.position;
+    let p2 = sys_mutex.body2.position;
+    let p = Vector6::new(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
+
+    let v1 = sys_mutex.body1.linear_velocity();
+    let v2 = sys_mutex.body2.linear_velocity();
+    let v = Vector6::new(v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]);
+
+    let x = (p, v);
+
+    let q1 = sys_mutex.body1.orientation;
+    let q2 = sys_mutex.body2.orientation;
+    let q = (q1, q2);
+
+    let omega1 = sys_mutex.body1.angular_velocity();
+    let omega2 = sys_mutex.body2.angular_velocity();
+    let omega = (omega1, omega2);
+
+    let o = (q, omega);
+
+    let inertia1 = sys_mutex.body1.inertia;
+    let inertia2 = sys_mutex.body2.inertia;
+
+
+    let mut stepper = rk4pcdm::Rk4PCDM::new(
+        linear_system,
+        angular_system,
+        forcing_system,
+        0.0,
+        x,
+        (q1, omega1),
+        (q2, omega2),
+        inertia1,
+        inertia2,
+        100.0,
+        0.1,
+        10);
+
+    println!("Solver initialised");
+
+    let res = stepper.integrate();
+
+    match res {
+        Ok(_) => {
+
+            let path_base_str = format!("./output/");
+
+            match std::fs::create_dir_all(path_base_str.clone()) {
+                Ok(_) => {}
+                Err(_) => {
+                    panic!("Could not create output directories\n")
+                }
+            }
+
+            let path_base = Path::new(&path_base_str);
+            let sim_name = SimName::new(path_base);
+
+            save(
+                &stepper.t_out,
+                &stepper.x_out,
+                &stepper.o_out,
+                &stepper.o_lab_out,
+                &sim_name,
+                &comment,
+            );
+        }
+        Err(e) => println!("An error occurred {:?}", e),
+
+    }
 
     let ndiv = 3;
     let (nq, mint) = (12_usize, 13_usize);
@@ -131,7 +217,7 @@ fn main() {
     // println!("Phi value is {:?}", phi_val);
     //
     // println!("Serial code took {:?}", ser_time);
-    // println!("Parallel code took {:?}", par_time);
+    println!("Parallel code took {:?}", par_time);
 }
 
 
@@ -139,15 +225,14 @@ fn main() {
 //Saving results
 pub fn save(
     times: &Vec<Time>,
-    states1: &Vec<State>,
-    states2: &Vec<State2>,
-    states3: &Vec<State3>,
-    states4: &Vec<Vector3<f64>>,
+    states1: &Vec<Linear2State>,
+    states2: &Vec<Angular2State>,
+    states4: &Vec<Vector6<f64>>,
 
-    filename: &Path,
-    comment: String,
+    filename: &SimName,
+    comment: &str,
 ) {
-    let file5 = match File::create(filename) {
+    let file1 = match File::create(filename.complete_path()) {
         Err(e) => {
             println!("Could not open file. Error: {:?}", e);
             return;
@@ -155,9 +240,9 @@ pub fn save(
         Ok(buf) => buf,
     };
 
-    let mut buf = BufWriter::new(file5);
+    let mut buf = BufWriter::new(file1);
     buf.write_fmt(format_args!(
-        "time,p1,p2,p3,v1,v2,v3,q1,q2,q3,q0,o1,o2,o3,o0,pfix1,pfix2,pfix3,ofix1,ofix2,ofix3\n"
+        "time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2\n"
     ))
         .unwrap();
     buf.write_fmt(format_args!("{}", comment)).unwrap();
@@ -176,17 +261,23 @@ pub fn save(
         }
         //write angular quantities
         let state2 = states2[i];
-        for val in state2.0.as_vector().iter() {
+        for val in state2.0.0.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
-        for val in state2.1.as_vector().iter() {
+        for val in state2.0.1.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
-        //write lab frame position
-        let state3 = states3[i];
-        for val in state3.iter() {
+        for val in state2.1.0.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
+        for val in state2.1.1.as_vector().iter() {
+            buf.write_fmt(format_args!(", {}", val)).unwrap();
+        }
+        // //write lab frame position
+        // let state3 = states3[i];
+        // for val in state3.iter() {
+        //     buf.write_fmt(format_args!(", {}", val)).unwrap();
+        // }
         //write lab orientation
         let state4 = states4[i];
         for val in state4.iter() {

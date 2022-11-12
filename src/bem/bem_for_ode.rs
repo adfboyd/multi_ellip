@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use indicatif::ParallelProgressIterator;
-use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, U1, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Quaternion, U1, UnitQuaternion, Vector3, Vector6};
 use rayon::prelude::*;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
@@ -10,13 +10,14 @@ use crate::system::system::Simulation;
 
 use nalgebra as na;
 
-type State = (na::Vector3<f64>, na::Vector3<f64>);
+type State = (Vector3<f64>,   Vector3<f64>);
 type State2 = (na::Quaternion<f64>, na::Quaternion<f64>);
-type State3 = na::Vector3<f64>;
+type State3 = Vector3<f64>;
+type State4 = (na::Vector6<f64>, na::Vector6<f64>);
 type Time = f64;
 
-type DoubleState = (State, State);
-type DoubleState2 = (State2, State2);
+type Linear2State = (Vector6<f64>, Vector6<f64>);
+type Angular2State = (State2, State2);
 type PhiState = OMatrix<f64, Dynamic, U1>;
 
 
@@ -26,6 +27,14 @@ pub struct PhiCalculate {
 }
 
 pub struct ForceCalculate {
+    pub system: Arc<Mutex<Simulation>>,
+}
+
+pub struct LinearUpdate {
+    pub system: Arc<Mutex<Simulation>>,
+}
+
+pub struct AngularUpdate {
     pub system: Arc<Mutex<Simulation>>,
 }
 
@@ -124,15 +133,23 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 
 }
 
-impl crate::ode::System2<State> for ForceCalculate {
-    fn system(&self, _x: f64, y: &State) -> State {
+impl crate::ode::System4<State4> for ForceCalculate {
+    fn system(&self) -> State4 {
+
+        println!("In force calculate");
+        let mut e = match self.system.lock() {
+            Ok(e) => e,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        println!("Trying to unlock");
         let mut sys_ref = self.system.lock().unwrap();
+        // println!("Unlocked mutex, {:?}", e);
         // let (m, i) = sys_ref.body1.inertia_tensor(sys_ref.fluid.density);
         //
         // let (_, v) = y;
         //
-        let dx0 = na::Vector3::zeros();
-        let dx1 = na::Vector3::zeros();
+        // let dx0 = na::Vector3::zeros();
+        // let dx1 = na::Vector3::zeros();
 
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = sys_ref.ndiv;
@@ -184,7 +201,7 @@ impl crate::ode::System2<State> for ForceCalculate {
                           &xiq, &etq, &wq, &zz, &ww);
 
 
-        // println!("Grids created");
+        println!("Grids created");
         let amat_1 = DMatrix::zeros(npts, npts);
         let amat = Mutex::from(amat_1);
 
@@ -217,7 +234,7 @@ impl crate::ode::System2<State> for ForceCalculate {
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         let df = dfdn.clone();
-        // println!("Linear system solved!");
+        println!("Linear system solved!");
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -322,18 +339,73 @@ impl crate::ode::System2<State> for ForceCalculate {
 
         }
 
-        let linearForceTotal = na::Vector6::new(linear_pressure1[0], linear_pressure1[1], linear_pressure1[2],
-                    linear_pressure2[0], linear_pressure2[1], linear_pressure2[2]);
 
-        let angularForceTotal = na::Vector6::new(angular_pressure1[0], angular_pressure1[1], angular_pressure1[2],
-                                                 angular_pressure2[0], angular_pressure2[1], angular_pressure2[2]);
+        let m1 = sys_ref.body1.mass();
+        let m2 = sys_ref.body2.mass();
 
-        let results = (linearForceTotal, angularForceTotal);
+        let lin_accel_1 = linear_pressure1 / m1;
+        let lin_accel_2 = linear_pressure2 / m2;
 
-        sys_ref.body1.position = na::Vector3::new(0.0, 0.0, 0.0);
+        let torque1 = angular_pressure1;
+        let torque2 = angular_pressure2;
 
-        (dx0, dx1)
+        let lin_accel = Vector6::new(lin_accel_1[0], lin_accel_1[1], lin_accel_1[2], lin_accel_2[0], lin_accel_2[1], lin_accel_2[2]);
+        let ang_accel = Vector6::new(torque1[0], torque1[1], torque1[2], torque2[0], torque2[1], torque2[2]);
+
+        (lin_accel, ang_accel)
 
 
+    }
+}
+
+impl crate::ode::System2<Linear2State> for LinearUpdate {
+    fn system(&self, x: f64, y: &Linear2State) -> Linear2State {
+
+        let mut sys_ref = self.system.lock().unwrap();
+
+        let (p, v) = y.clone();
+
+        let p1 = Vector3::new(p[0], p[1], p[2]);
+        let p2 = Vector3::new(p[3], p[4], p[5]);
+
+        let v1 = Vector3::new(v[0], v[1], v[2]);
+        let v2 = Vector3::new(v[3], v[4], v[5]);
+
+        sys_ref.body1.position = p1;
+        sys_ref.body2.position = p1;
+
+        sys_ref.body1.linear_momentum = v1 * sys_ref.body1.mass();
+        sys_ref.body2.linear_momentum = v2 * sys_ref.body2.mass();
+
+        (p, v)
+    }
+}
+
+impl crate::ode::System2<Angular2State> for AngularUpdate {
+    fn system(&self, x: f64, y: &Angular2State) -> Angular2State {
+
+        let mut sys_ref = self.system.lock().unwrap();
+
+        let (q, omega) = y.clone();
+
+        let (q1, q2) = q;
+        let (omega1, omega2) = omega;
+
+        sys_ref.body1.orientation = q1;
+        sys_ref.body2.orientation = q2;
+
+        let i1 = sys_ref.body1.inertia;
+        let i2 = sys_ref.body2.inertia;
+
+        let o1_vec = omega1.vector();
+        let o2_vec = omega2.vector();
+
+        let ang_mom_vec1 = i1.try_inverse().unwrap() * o1_vec;
+        sys_ref.body1.angular_momentum = Quaternion::from_imag(ang_mom_vec1);
+
+        let ang_mom_vec2 =  i2.try_inverse().unwrap() * o2_vec;
+        sys_ref.body2.angular_momentum = Quaternion::from_imag(ang_mom_vec2);
+
+        (q, omega)
     }
 }
