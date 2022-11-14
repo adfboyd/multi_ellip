@@ -1,8 +1,9 @@
 use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
-#[feature(destructuring_assignment)]
+
 ///Generates a grid for a given ellipsoid
+// #[feature(destructuring_assignment)]
 pub fn ellip_gridder(ndiv : u32, req :f64,
                      shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>)
     -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
@@ -230,7 +231,7 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
             p[(i, 2)] = scale * p[(i, 2)] * coa;
 
             // p.set_row(i, )
-            let prow = na::Vector3::new(p.row(i)[0], p.row(i)[1], p.row(i)[2]);
+            let prow = Vector3::new(p.row(i)[0], p.row(i)[1], p.row(i)[2]);
             let p1 = orient.transform_vector(&prow);
             for j in 0..3 {
                 p[(i, j)] = p1[j]

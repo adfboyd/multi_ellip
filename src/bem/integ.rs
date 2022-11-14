@@ -27,7 +27,7 @@ pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f
     let r = ri.norm();
     let dgdx = dg.dot(&xi);
 
-    let mut ddG = Matrix3::zeros();
+    let mut dd_g = Matrix3::zeros();
 
     for i in 0..3 {
         for j in 0..3 {
@@ -35,13 +35,13 @@ pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f
             if i==j {
                 delta = 1f64;
             }
-            ddG[(i,j)] = delta / r.powi(3) - ( 3.0 / (4.0 * PI * r.powi(5))) * ri[i] * ri[j];
+            dd_g[(i, j)] = delta / r.powi(3) - ( 3.0 / (4.0 * PI * r.powi(5))) * ri[i] * ri[j];
         }
     }
 
 
-    let ddGdx2 = ddG * xi;
-    (dgdx, ddGdx2)
+    let dd_gdx2 = dd_g * xi;
+    (dgdx, dd_gdx2)
 }
 
 ///Interpolates over the triangle, also interpolates the force f.
@@ -315,7 +315,7 @@ pub fn lslp_3d_integral_sing(ngl :usize,
 
     let mut asm = 0.0;
     let mut slp = 0.0;
-    let pi = std::f64::consts::PI;
+    let pi = PI;
 
     for i in 0..ngl {
 
@@ -996,7 +996,7 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                                                                al, be, ga, xi, eta);
 
 
-        let (dG, ddG) =
+        let (d_g, dd_g) =
             if (xvec - p0).norm() > eps {
                 d_lgf_3d_fs(&xvec, p0, dxi)
         } else {
@@ -1007,7 +1007,7 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         area += cf;
 
-        let rint = -dfdn_int * dG + fint * vn.dot(&ddG);
+        let rint = -dfdn_int * d_g + fint * vn.dot(&dd_g);
 
         sdlp += rint * cf;
     }

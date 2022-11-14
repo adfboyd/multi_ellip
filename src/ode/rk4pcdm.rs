@@ -1,7 +1,7 @@
 use nalgebra as na;
-use nalgebra::{Dynamic, OMatrix, OVector, Quaternion, U1, Vector3, Vector6};
+use nalgebra::{Quaternion, Vector3, Vector6};
 
-use crate::ode::dop_shared::{IntegrationError, Stats, System2, System3, System4};
+use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 
 
@@ -65,7 +65,7 @@ Rk4PCDM<
         f: F,
         g: G,
         i: I,
-        t: f64,
+        t_begin: f64,
         x: (Vector6<f64>, Vector6<f64>), // (position, velocity)
         o1: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 1
         o2: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 2
@@ -79,14 +79,14 @@ Rk4PCDM<
             f,
             g,
             i,
-            t,
+            t: t_begin,
             x,
             // x_lab: na::OVector::zeros(),
             o: ((o1.0, o2.0), (o1.1, o2.1)),
             o_lab: Vector6::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
             inertia,
             inertia2,
-            t_begin: t,
+            t_begin,
             t_end,
             step_size,
             half_step: step_size * 0.5,
@@ -108,9 +108,9 @@ Rk4PCDM<
         // self.x_lab_out.push(self.x_lab.clone());
         self.o_lab_out.push(self.o_lab.clone());
 
-        let num_steps = ((self.t_end - self.t) / self.step_size).ceil() as usize;
+        let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let steps_per_sec = (1.0) as usize;
+        let steps_per_sec = 1 as usize;
 
         for i in 0..num_steps {
             if i % steps_per_sec == 0 {

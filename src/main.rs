@@ -1,22 +1,19 @@
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
-use std::rc::Rc;
+// use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Quaternion, Vector3, Vector4, Vector6};
+use nalgebra::{Quaternion, Vector3, Vector6};
 use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::bem_for_ode;
-use multi_ellip::bem::potentials::{ke_1body, f_1body, phi_1body_serial, f_2body, f_2body_serial, f_finder, phi_eval_1body};
+use multi_ellip::bem::potentials::*;
 use std::time::Instant;
-use multi_ellip::bem::bem_for_ode::{AngularUpdate, LinearUpdate};
 use multi_ellip::ode::rk4pcdm;
 use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::system::Simulation;
 use multi_ellip::utils::SimName;
 
-type State = (na::OVector<f64, na::U3>, na::OVector<f64, na::U3>);
 type State2 = (Quaternion<f64>, Quaternion<f64>);
-type State3 = na::OVector<f64, na::U3>;
 
 
 type Linear2State = (Vector6<f64>, Vector6<f64>);
@@ -32,12 +29,12 @@ fn main() {
     let comment = format!("Testing results");
 
     let den = 1.0;
-    let s = na::Vector3::new(1.0, 0.8, 0.6);
-    let q = na::Quaternion::from_parts(1.0, na::Vector3::new(1.0, 0.5, 0.0));
-    let o_vec = na::Vector3::new(-1.0, 0.0, 0.0).normalize();
-    let o_vec2 = na::Vector3::new(1.0, 1.0, -1.0).normalize();
+    let s = Vector3::new(1.0, 0.8, 0.6);
+    let q = Quaternion::from_parts(1.0, Vector3::new(1.0, 0.5, 0.0));
+    let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
+    let o_vec2 = Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();
-    let ang_mom_q = na::Quaternion::from_imag(init_ang_mom);
+    let ang_mom_q = Quaternion::from_imag(init_ang_mom);
     let q0 = Quaternion::from_real(0.0);
 
     let ratio= 20.0;
@@ -67,7 +64,7 @@ fn main() {
 
 
 
-    let mut body2 = Body {
+    let body2 = Body {
         density: 1.0,
         shape: s,
         position: Vector3::new(1.0, 0.0, 0.0),
@@ -89,7 +86,7 @@ fn main() {
     let ndiv = 1;
     println!("Building simulation");
     // Building System for simulation
-    let sys  = Arc::new(Mutex::new(  Simulation::new(
+    let sys  =Simulation::new(
         fluid,
         body1,
         body2,
@@ -98,45 +95,48 @@ fn main() {
         ndiv,
         10000,
         ratio,
-    )));
+    );
+
     println!("Simulation Built");
 
-    let linear_system = bem_for_ode::LinearUpdate{
-        system: sys.clone()
-    };
 
-    let angular_system = bem_for_ode::AngularUpdate{
-        system: sys.clone(),
-    };
 
-    let forcing_system = bem_for_ode::ForceCalculate{
-        system: sys.clone(),
-    };
-
-    let sys_mutex = sys.lock().unwrap();
-
-    let p1 = sys_mutex.body1.position;
-    let p2 = sys_mutex.body2.position;
+    let p1 = sys.body1.position;
+    let p2 = sys.body2.position;
     let p = Vector6::new(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
 
-    let v1 = sys_mutex.body1.linear_velocity();
-    let v2 = sys_mutex.body2.linear_velocity();
+    let v1 = sys.body1.linear_velocity();
+    let v2 = sys.body2.linear_velocity();
     let v = Vector6::new(v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]);
 
     let x = (p, v);
 
-    let q1 = sys_mutex.body1.orientation;
-    let q2 = sys_mutex.body2.orientation;
-    let q = (q1, q2);
+    let q1 = sys.body1.orientation;
+    let q2 = sys.body2.orientation;
+    // let q = (q1, q2);
 
-    let omega1 = sys_mutex.body1.angular_velocity();
-    let omega2 = sys_mutex.body2.angular_velocity();
-    let omega = (omega1, omega2);
+    let omega1 = sys.body1.angular_velocity();
+    let omega2 = sys.body2.angular_velocity();
+    // let omega = (omega1, omega2);
 
-    let o = (q, omega);
+    // let o = (q, omega);
 
-    let inertia1 = sys_mutex.body1.inertia;
-    let inertia2 = sys_mutex.body2.inertia;
+    let inertia1 = sys.body1.inertia;
+    let inertia2 = sys.body2.inertia;
+
+    let sys_mutex = Arc::new(Mutex::new(sys));
+
+    let linear_system = bem_for_ode::LinearUpdate{
+        system: sys_mutex.clone()
+    };
+
+    let angular_system = bem_for_ode::AngularUpdate{
+        system: sys_mutex.clone(),
+    };
+
+    let forcing_system = bem_for_ode::ForceCalculate{
+        system: sys_mutex.clone(),
+    };
 
 
     let mut stepper = rk4pcdm::Rk4PCDM::new(
@@ -188,9 +188,9 @@ fn main() {
     let ndiv = 3;
     let (nq, mint) = (12_usize, 13_usize);
 
-    let sing_par = Instant::now();
-    let f = f_1body(&body1, ndiv, nq, mint);
-    let sing_par_t = sing_par.elapsed();
+    // let sing_par = Instant::now();
+    // let f = f_1body(&body1, ndiv, nq, mint);
+    // let sing_par_t = sing_par.elapsed();
     //
     // let sing_ser = Instant::now();
     // let f = phi_1body_serial(&body1, ndiv, nq, mint);
@@ -206,7 +206,7 @@ fn main() {
     // let phi_val = phi_eval_1body(&body1, ndiv, nq, mint, p0);
 
     let par_before = Instant::now();
-    let double_d = f_2body(&body1, &body2, ndiv, nq, mint);
+    let _double_d = f_2body(&body1, &body2, ndiv, nq, mint);
     let par_time = par_before.elapsed();
 
 

@@ -100,14 +100,14 @@ impl Body {
     }
 
 
-    pub(crate) fn kinetic_energy(&self) -> f64 {
-        let lin_mom = self.linear_momentum;
-        let ang_mom = self.angular_momentum.imag();
-        let ang_vel_q = self.angular_velocity();
-        let ang_vel = ang_vel_q.vector();
-
-        lin_mom.dot(&lin_mom) / (2.0 * self.mass()) + 0.5 * ang_vel.dot(&ang_mom)
-    }
+    // pub(crate) fn kinetic_energy(&self) -> f64 {
+    //     let lin_mom = self.linear_momentum;
+    //     let ang_mom = self.angular_momentum.imag();
+    //     let ang_vel_q = self.angular_velocity();
+    //     let ang_vel = ang_vel_q.vector();
+    //
+    //     lin_mom.dot(&lin_mom) / (2.0 * self.mass()) + 0.5 * ang_vel.dot(&ang_mom)
+    // }
 
     pub fn energy_ratio(&self) -> f64 {
         let lin_energy = self.linear_energy();

@@ -1,7 +1,7 @@
 // use std::f64::consts::PI;
 // use std::rc::Rc;
 
-use std::ops::{Deref, DerefMut};
+// use std::ops::{Deref, DerefMut};
 // use csv;
 use nalgebra as na;
 use crate::ellipsoids::body::Body;
@@ -36,8 +36,8 @@ pub struct Simulation {
 impl Simulation {
     pub fn new(
         fluid: Fluid,
-        mut body1: Body,
-        mut body2: Body,
+        body1: Body,
+        body2: Body,
         t_end: f64,
         t_delta: f64,
         ndiv: u32,
@@ -133,11 +133,11 @@ impl Simulation {
     //     )
     // }
 
-
-    fn time_steps(&self) -> i64 {
-        let time_diff = self.t_end - self.t_begin;
-        (time_diff / self.t_delta).ceil() as i64
-    }
+    //
+    // fn time_steps(&self) -> i64 {
+    //     let time_diff = self.t_end - self.t_begin;
+    //     (time_diff / self.t_delta).ceil() as i64
+    // }
 
     // fn advance(
     //     &mut self,

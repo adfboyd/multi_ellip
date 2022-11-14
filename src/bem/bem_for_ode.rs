@@ -1,6 +1,6 @@
-use std::rc::Rc;
+// use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use indicatif::ParallelProgressIterator;
+// use indicatif::ParallelProgressIterator;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Quaternion, U1, UnitQuaternion, Vector3, Vector6};
 use rayon::prelude::*;
 use crate::bem::geom::*;
@@ -8,13 +8,9 @@ use crate::bem::integ::*;
 use crate::bem::potentials::{dfdn_single, vec_concat};
 use crate::system::system::Simulation;
 
-use nalgebra as na;
 
-type State = (Vector3<f64>,   Vector3<f64>);
-type State2 = (na::Quaternion<f64>, na::Quaternion<f64>);
-type State3 = Vector3<f64>;
-type State4 = (na::Vector6<f64>, na::Vector6<f64>);
-type Time = f64;
+type State2 = (Quaternion<f64>, Quaternion<f64>);
+
 
 type Linear2State = (Vector6<f64>, Vector6<f64>);
 type Angular2State = (State2, State2);
@@ -41,7 +37,7 @@ pub struct AngularUpdate {
 
 impl crate::ode::System4<PhiState> for PhiCalculate {
     fn system(&self) -> PhiState {
-        let mut sys_ref = self.system.lock().unwrap();
+        let sys_ref = self.system.lock().unwrap();
 
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = sys_ref.ndiv;
@@ -133,16 +129,17 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 
 }
 
-impl crate::ode::System4<State4> for ForceCalculate {
-    fn system(&self) -> State4 {
+impl crate::ode::System4<Linear2State> for ForceCalculate {
+    ///Returns ((linear force on body1, body2), (torque on body1, body2))
+    fn system(&self) -> Linear2State {
 
         println!("In force calculate");
-        let mut e = match self.system.lock() {
+        let _e = match self.system.lock() {
             Ok(e) => e,
             Err(poisoned) => poisoned.into_inner(),
         };
         println!("Trying to unlock");
-        let mut sys_ref = self.system.lock().unwrap();
+        let sys_ref = self.system.lock().unwrap();
         // println!("Unlocked mutex, {:?}", e);
         // let (m, i) = sys_ref.body1.inertia_tensor(sys_ref.fluid.density);
         //
@@ -276,7 +273,7 @@ impl crate::ode::System4<State4> for ForceCalculate {
 
             let (xi, eta) = (1.0/3.0, 1.0/3.0);
 
-            let (x_vec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+            let (x_vec, vn, _hs, _fint, _dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                                   vna1, vna2, vna3, vna4, vna5, vna6,
                                                                   f1, f2, f3, f4, f5, f6,
                                                                   df1, df2, df3, df4, df5, df6,
@@ -359,7 +356,7 @@ impl crate::ode::System4<State4> for ForceCalculate {
 }
 
 impl crate::ode::System2<Linear2State> for LinearUpdate {
-    fn system(&self, x: f64, y: &Linear2State) -> Linear2State {
+    fn system(&self, _x: f64, y: &Linear2State) -> Linear2State {
 
         let mut sys_ref = self.system.lock().unwrap();
 
@@ -372,7 +369,7 @@ impl crate::ode::System2<Linear2State> for LinearUpdate {
         let v2 = Vector3::new(v[3], v[4], v[5]);
 
         sys_ref.body1.position = p1;
-        sys_ref.body2.position = p1;
+        sys_ref.body2.position = p2;
 
         sys_ref.body1.linear_momentum = v1 * sys_ref.body1.mass();
         sys_ref.body2.linear_momentum = v2 * sys_ref.body2.mass();
@@ -382,7 +379,7 @@ impl crate::ode::System2<Linear2State> for LinearUpdate {
 }
 
 impl crate::ode::System2<Angular2State> for AngularUpdate {
-    fn system(&self, x: f64, y: &Angular2State) -> Angular2State {
+    fn system(&self, _x: f64, y: &Angular2State) -> Angular2State {
 
         let mut sys_ref = self.system.lock().unwrap();
 
