@@ -214,8 +214,11 @@ Rk4PCDM<
         let inertia1 = self.inertia;
         let inertia2 = self.inertia2;
 
+        println!("Doin ang half step");
+
         let omega_b1 = self.body_to_lab(&omega_lab1, &q1);
         let omega_b2 = self.body_to_lab(&omega_lab2, &q2);
+        println!("Done ang half step");
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);

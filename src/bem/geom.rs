@@ -639,7 +639,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
             let m = n[(k, i)] - 1;
 
             for j in 0..3 {
-                vna[(m, j)] = vn[j];
+                vna[(m, j)] += vn[j];
             }
 
             itally[m] += 1.0;
@@ -656,6 +656,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
         }
 
         let par = vna.row(i).norm();
+        // let par = Vector3::new(vna[(i,0)], vna[(i,1)], vna[(i,2)]).norm();
 
         for j in 0..3 {
             vna[(i, j)] = vna[(i, j)] / par;

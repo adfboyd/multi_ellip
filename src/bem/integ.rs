@@ -692,8 +692,9 @@ pub fn lslp_3d(npts :usize, nelm :usize,
             }
         }
         slp[i] = ptl;
-    }
+        // println!("Surface area = {:?}", srf_area);
 
+    }
     slp
 }
 
@@ -737,6 +738,8 @@ pub fn lsdlpp_3d_interp(p1 :Vector3<f64>,
     let f = f1*ph1 + f2 * ph2 + f3 * ph3 + f4 * ph4 + f5 * ph5 + f6 * ph6;
     let df = df1 * ph1 + df2 * ph2 + df3 * ph3 + df4 * ph4 + df5 * ph5 + df6 * ph6;
 
+
+
     //Interpolate the normal vectors (vx, vy, vz)
     let vx = v1[0]*ph1 + v2[0]*ph2 + v3[0]*ph3 + v4[0]*ph4 + v5[0]*ph5 + v6[0]*ph6;
     let vy = v1[1]*ph1 + v2[1]*ph2 + v3[1]*ph3 + v4[1]*ph4 + v5[1]*ph5 + v6[1]*ph6;
@@ -771,7 +774,7 @@ pub fn lsdlpp_3d_interp(p1 :Vector3<f64>,
     let dz_det = p1[2]*pph1 + p2[2]*pph2 + p3[2]*pph3 + p4[2]*pph4 + p5[2]*pph5 + p6[2]*pph6;
     let ddet = Vector3::new(dx_det, dy_det, dz_det);
 
-    let vn = ddxi.cross(&ddet);
+    let mut vn = ddxi.cross(&ddet);
     let hs = vn.norm();
 
     // vn = vn.normalize();
@@ -845,23 +848,24 @@ pub fn lsdlpp_3d(_npts :usize, nelm :usize, mint :usize,
                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                 p0 :Vector3<f64>) -> f64 {
+                 p0 :Vector3<f64>) -> (f64, f64) {
     //Evaluates the value of the potential at given point p0 given distribution f, dfdn
     let mut f0 = 0.0;
+    let mut srf_area = 0.0;
 
     for k in 0..nelm {
 
 
-        let (sdlp, _arelm) = lsdlpp_3d_integral(p0, k, mint,
+        let (sdlp, arelm) = lsdlpp_3d_integral(p0, k, mint,
                                                f, dfdn,
                                                p, n, vna,
                                                alpha, beta, gamma,
                                                xiq, etq, wq);
-
+        srf_area += arelm;
         f0 += sdlp;
     }
 
-    f0
+    (srf_area, f0)
 }
 
 ///Integrates the kinetic energy of the fluid over the surface of an element
@@ -908,7 +912,8 @@ pub fn ke_3d_integral(k :usize, mint :usize,
                                                              vna1, vna2, vna3, vna4, vna5, vna6,
                                                              f1, f2, f3, f4, f5, f6,
                                                              df1, df2, df3, df4, df5, df6,
-                                                             al, be, ga, xi, eta);
+                                                             al, be, ga,
+                                                             xi, eta);
 
 
         let cf = 0.5 * hs * wq[i];
@@ -928,25 +933,27 @@ pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
                  f :&DVector<f64>, dfdn :&DVector<f64>,
                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                 xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> f64 {
+                 xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> (f64, f64) {
 
     //Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
 
+    let mut srf_area = 0.0;
     let mut f0 = 0.0;
 
     for k in 0..nelm {
 
 
-        let (sdlp, _arelm) = ke_3d_integral(k, mint,
+        let (sdlp, arelm) = ke_3d_integral(k, mint,
                                                 f, dfdn,
                                                 p, n, vna,
                                                 alpha, beta, gamma,
                                                 xiq, etq, wq);
 
+        srf_area += arelm;
         f0 += sdlp;
     }
 
-    f0
+    (srf_area, f0)
 }
 
 pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
@@ -1038,7 +1045,6 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
 
         f0 += sdlp;
     }
-
     f0
 }
 

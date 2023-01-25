@@ -41,6 +41,12 @@ impl Body {
         na::Quaternion::from_imag(vec)
     }
 
+    pub fn set_linear_velocity(&mut self, v :Vector3<f64>) {
+        let linear_momentum = self.linear_momentum_from_vel(v);
+
+        self.linear_momentum = linear_momentum;
+    }
+
     pub fn q(&self) -> State {
         let q = State {
             v: self.position,
@@ -157,8 +163,16 @@ impl Body {
     pub fn print_ang_mom(&self) {
         println!("Angular momentum is {:?}", self.angular_momentum);
     }
-    pub fn print_mass(&self) {
-        println!("mass is {:?}", self.mass());
+    pub fn print_mass(&self) { println!("mass is {:?}", self.mass()); }
 
+    pub fn surface_area_estimate(&self) -> f64 {
+        let (a, b, c) = (self.shape[0], self.shape[1], self.shape[2]);
+
+        let p = 1.605;
+
+        let numerator = (a * b).powf(p) + (a * c).powf(p) + (b * c).powf(p);
+        let frac = (numerator / 3.0).powf(1.0/p);
+
+        4.0 * PI * frac
     }
 }

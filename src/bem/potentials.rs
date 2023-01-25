@@ -36,11 +36,15 @@ pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
 
     let mut v = DVector::zeros(npts1 + npts2);
 
+    println!("v2 = {:?}", v2);
+
     for i in 0..npts1 {
         v[i] = v1[i];
+        // println!("i = {:?}, v[i] = {:?}", i, v1[i]);
     }
     for i in 0..npts2 {
         v[i + npts1] = v2[i];
+        // println!("i = {:?}, v[i] = {:?}", i + npts1, v2[i]);
     }
 
     v
@@ -240,10 +244,11 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
 }
 
+///Evaluates phi at given point p0 of body.
 pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector3<f64>) -> f64 {
 
     let s = body.shape;
-    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0); //equivalent radius
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
@@ -303,8 +308,21 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
 
     println!("Linear system solved!");
 
-    let phi_val = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, p0);
+    let (srf_area,phi_val) = lsdlpp_3d(npts, nelm, mint,
+                                       &f, &dfdn,
+                                       &p, &n, &vna,
+                                       &alpha, &beta, &gamma,
+                                       &xiq, &etq, &wq,
+                                       p0);
 
+    let (srf_area2, ke) = ke_3d(npts, nelm, mint,
+                                   &f, &dfdn,
+                                   &p, &n, &vna,
+                                   &alpha, &beta, &gamma,
+                                   &xiq, &etq, &wq);
+
+    println!("srf_area = {:?}", srf_area);
+    println!("srf_area2 = {:?}, ke = {:?}", srf_area2, ke);
     phi_val
 
 }
@@ -333,7 +351,7 @@ pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
     let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
 
 
-    let ke = ke_3d(npts, nelm, mint, &f, &dfdn,&p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+    let (_sa, ke) = ke_3d(npts, nelm, mint, &f, &dfdn,&p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
 
     ke
 }

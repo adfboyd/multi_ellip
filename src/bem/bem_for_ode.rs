@@ -134,10 +134,10 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
     fn system(&self) -> Linear2State {
 
         println!("In force calculate");
-        let _e = match self.system.lock() {
-            Ok(e) => e,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        // let _e = match self.system.lock() {
+        //     Ok(e) => e,
+        //     Err(poisoned) => poisoned.into_inner(),
+        // };
         println!("Trying to unlock");
         let sys_ref = self.system.lock().unwrap();
         // println!("Unlocked mutex, {:?}", e);
@@ -232,6 +232,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         let df = dfdn.clone();
         println!("Linear system solved!");
+        // println!("F = {:?}", f);
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -312,6 +313,12 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                              &xiq, &etq, &wq, &p0, &dx_2, eps);
 
             let u_square = u1.powi(2) + u2.powi(2) + u3.powi(2);
+            println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
+            println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
+
+            let concat_test = vec_concat(&dfdn_1, &dfdn_2);
+            println!("{:?}",dfdn_2);
+            println!("dfdn= {:?}", concat_test);
 
             let pressure = -u_square;
 
@@ -351,6 +358,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         (lin_accel, ang_accel)
 
+        // let v1 = Vector6::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+        // let v2 = Vector6::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+        // (v1, v2)
 
     }
 }
