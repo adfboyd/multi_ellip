@@ -123,6 +123,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         println!("Linear system solved!");
 
+
         f
 
     }
@@ -133,20 +134,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
     ///Returns ((linear force on body1, body2), (torque on body1, body2))
     fn system(&self) -> Linear2State {
 
-        println!("In force calculate");
-        // let _e = match self.system.lock() {
-        //     Ok(e) => e,
-        //     Err(poisoned) => poisoned.into_inner(),
-        // };
-        println!("Trying to unlock");
+
         let sys_ref = self.system.lock().unwrap();
-        // println!("Unlocked mutex, {:?}", e);
-        // let (m, i) = sys_ref.body1.inertia_tensor(sys_ref.fluid.density);
-        //
-        // let (_, v) = y;
-        //
-        // let dx0 = na::Vector3::zeros();
-        // let dx1 = na::Vector3::zeros();
+
 
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = sys_ref.ndiv;
@@ -191,6 +181,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn = vec_concat(&dfdn_1, &dfdn_2);
+        // sys_ref.body2.print_stats();
+        // println!("dfdn_2 = {:?}", dfdn_2);
+        // println!("dfdn = {:?}", dfdn);
 
         let rhs = lslp_3d(npts, nelm, mint, nq,
                           &dfdn, &p, &n, &vna,
@@ -240,10 +233,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 
-        let nelm1 = nelm / 2;
         let eps = 0.01;
 
-        for k in 0..nelm1 {
+        for k in 0..nelm {
 
             let i1 = n[(k, 0)] - 1;
             let i2 = n[(k, 1)] - 1;
@@ -285,7 +277,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let dx_1 = vn.cross(&testvec).normalize(); //Generate set of three perpendicular directions.
             let dx_2 = vn.cross(&dx_1).normalize();
 
-            let x_body = if k < nelm1 {
+            let x_body = if k < nelm1 {  //Change frame of reference to each individual body
                 x_vec - sys_ref.body1.position
             } else {
                 x_vec - sys_ref.body2.position
@@ -313,12 +305,12 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                              &xiq, &etq, &wq, &p0, &dx_2, eps);
 
             let u_square = u1.powi(2) + u2.powi(2) + u3.powi(2);
-            println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
-            println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
+            // println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
+            // println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
 
-            let concat_test = vec_concat(&dfdn_1, &dfdn_2);
-            println!("{:?}",dfdn_2);
-            println!("dfdn= {:?}", concat_test);
+            // let concat_test = vec_concat(&dfdn_1, &dfdn_2);
+            // println!("{:?}",dfdn_2);
+            // println!("dfdn= {:?}", concat_test);
 
             let pressure = -u_square;
 
@@ -343,6 +335,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         }
 
+        println!("Body1 force = {:?}, {:?}", linear_pressure1, angular_pressure1);
+        println!("Body2 force = {:?}, {:?}", linear_pressure2, angular_pressure2);
 
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();

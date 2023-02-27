@@ -78,7 +78,7 @@ fn main() {
         position: Vector3::new(1.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: o_vec2,
-        angular_momentum: q0,
+        angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
@@ -91,7 +91,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 1;
+    let ndiv = 3;
     println!("Building simulation");
     // Building System for simulation
     let sys  = Simulation::new(

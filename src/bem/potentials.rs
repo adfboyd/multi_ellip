@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
 use crate::ellipsoids::body::Body;
-
+use crate::bem::stacking::*;
 
 
 ///Calculates correct Neumann boundary conditions for a given discretized body with specified linear and rotational velocity.
@@ -31,21 +31,22 @@ pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npt
 ///Concatenates two vectors vertically
 pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
 
-    let npts1 = v1.shape().0;
-    let npts2 = v2.shape().0;
-
-    let mut v = DVector::zeros(npts1 + npts2);
-
-    println!("v2 = {:?}", v2);
-
-    for i in 0..npts1 {
-        v[i] = v1[i];
-        // println!("i = {:?}, v[i] = {:?}", i, v1[i]);
-    }
-    for i in 0..npts2 {
-        v[i + npts1] = v2[i];
-        // println!("i = {:?}, v[i] = {:?}", i + npts1, v2[i]);
-    }
+    // let npts1 = v1.shape().0;
+    // let npts2 = v2.shape().0;
+    //
+    // let mut v = DVector::zeros(npts1 + npts2);
+    //
+    // println!("v2 = {:?}", v2);
+    //
+    // for i in 0..npts1 {
+    //     v[i] = v1[i];
+    //     // println!("i = {:?}, v[i] = {:?}", i, v1[i]);
+    // }
+    // for i in 0..npts2 {
+    //     v[i + npts1] = v2[i];
+    //     // println!("i = {:?}, v[i] = {:?}", i + npts1, v2[i]);
+    // }
+    let v = vstack((v1, v2));
 
     v
 

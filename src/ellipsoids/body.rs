@@ -163,7 +163,18 @@ impl Body {
     pub fn print_ang_mom(&self) {
         println!("Angular momentum is {:?}", self.angular_momentum);
     }
-    pub fn print_mass(&self) { println!("mass is {:?}", self.mass()); }
+    pub fn print_mass(&self) { println!("Mass is {:?}", self.mass()); }
+    pub fn print_position(&self) { println!("Position is {:?}", self.position); }
+    pub fn print_orientation(&self) { println!("Orientation is {:?}", self.orientation); }
+
+    pub fn print_stats(&self) {
+
+        self.print_position();
+        self.print_orientation();
+        self.print_vel();
+        self.print_omega();
+
+    }
 
     pub fn surface_area_estimate(&self) -> f64 {
         let (a, b, c) = (self.shape[0], self.shape[1], self.shape[2]);
