@@ -118,9 +118,9 @@ Rk4PCDM<
             };
 
             //Get (lin,ang) forces for bodies 1 & 2.
-            let (linear_force, angular_force) = self.force_get();
-            println!("{:?}, {:?}", linear_force, angular_force);
-            let (p_half, v_half) = self.lin_half_step(&linear_force);
+            let (linear_accel, angular_force) = self.force_get();
+            println!("{:?}, {:?}", linear_accel, angular_force);
+            let (p_half, v_half) = self.lin_half_step(&linear_accel);
 
             let (q_half, o_half) = self.ang_half_step(&angular_force);
 

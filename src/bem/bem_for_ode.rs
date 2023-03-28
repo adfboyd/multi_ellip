@@ -277,16 +277,16 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let dx_1 = vn.cross(&testvec).normalize(); //Generate set of three perpendicular directions.
             let dx_2 = vn.cross(&dx_1).normalize();
 
-            let x_body = if k < nelm1 {  //Change frame of reference to each individual body
+            let x_vec_body = if k < nelm1 {  //Change frame of reference to each individual body
                 x_vec - sys_ref.body1.position
             } else {
                 x_vec - sys_ref.body2.position
             };
 
             let p0 = if k < nelm1 {
-                sys_ref.body1.position + x_body * 1.01
+                sys_ref.body1.position + x_vec_body * 1.0
             } else {
-                sys_ref.body2.position + x_body * 1.01
+                sys_ref.body2.position + x_vec_body * 1.01
             };
 
             let u1 = grad_3d(npts, nelm, mint,
@@ -314,13 +314,13 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let pressure = -u_square;
 
-            let linearity = vn.dot(&x_body);
-            let perpendicularity = vn.cross(&x_body).norm();
+            let linearity = vn.dot(&x_vec_body);
+            let perpendicularity = vn.cross(&x_vec_body).norm();
 
             let lin_pressure = pressure * linearity;
             let ang_pressure = pressure * perpendicularity;
 
-            let torque_vec = vn.cross(&x_body);
+            let torque_vec = vn.cross(&x_vec_body);
             // let angular_vec = x_cen.cross(&perp_vec);
 
             let lin_inc = lin_pressure * vn;
@@ -377,6 +377,9 @@ impl crate::ode::System2<Linear2State> for LinearUpdate {
 
         sys_ref.body1.linear_momentum = v1 * sys_ref.body1.mass();
         sys_ref.body2.linear_momentum = v2 * sys_ref.body2.mass();
+
+        sys_ref.body1.print_stats();
+        sys_ref.body2.print_stats();
 
         (p, v)
     }
