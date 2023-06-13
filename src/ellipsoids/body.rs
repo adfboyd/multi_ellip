@@ -5,6 +5,7 @@ use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
+use crate::ode::pcdm::{body_to_lab, lab_to_body};
 use crate::system::hamiltonian::{calc_shape_factor, if_calc, is_calc, mf_calc};
 
 #[derive(Debug, Copy, Clone, Serialize)]
@@ -186,4 +187,34 @@ impl Body {
 
         4.0 * PI * frac
     }
+
+    pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> Vector3<f64> {
+        ///Decides for a point p0 on the ellipsoid, which plane in the orientation of the body to split the surface by.
+        /// outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
+
+        let p0_quaternion = na::Quaternion::from_imag(*p0);
+        let p0_body = lab_to_body(&p0_quaternion, &self.orientation);
+        let shape = self.shape;
+
+        let mut scaled_p0 = Vector3::new(0.0, 0.0, 0.0);
+
+        for i in 0..2 {
+            scaled_p0[i] = p0_body[i+1] / shape[i];
+        };
+
+        let mut max_abs_val = scaled_p0[0];
+        let mut max_abs_ind :usize = 0;
+        for i in 1..2 {
+            if max_abs_val.abs() < scaled_p0[i].abs() {
+                max_abs_val = scaled_p0[i];
+                max_abs_ind = i;
+            }
+        }
+
+        let mut result_vec = Vector3::new(0.0, 0.0, 0.0);
+        result_vec[max_abs_ind] = max_abs_val / max_abs_val.abs();
+
+        result_vec
+    }
+
 }

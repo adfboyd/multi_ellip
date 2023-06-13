@@ -7,6 +7,13 @@ pub fn body_to_lab(p_body: &na::Quaternion<f64>, q: &na::Quaternion<f64>) -> na:
     p_space
 }
 
+pub fn lab_to_body(p_lab: &na::Quaternion<f64>, q: &na::Quaternion<f64>) -> na::Quaternion<f64> {
+    // let &q_quaternion = q.quaternion();
+    let q_inv = q.try_inverse().unwrap();
+    let p_body = q_inv * (p_lab * q);
+    p_body
+}
+
 pub fn accel_get(
     omega: &na::Quaternion<f64>,
     inertia: &na::Matrix3<f64>,

@@ -1,5 +1,5 @@
 use std::f64::consts::PI;
-use nalgebra::{DMatrix, DVector, Matrix3, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3, Vector6};
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
 pub fn lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>) -> (f64, Vector3<f64>) {
@@ -225,7 +225,7 @@ pub fn lslp_3d_integral(x0 :Vector3<f64>, k :usize,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (x, hs, fint) = lslp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (x, hs, f_int) = lslp_3d_interp(p1, p2, p3, p4, p5, p6,
                                            f1, f2, f3, f4, f5, f6,
                                            al, be, ga, xi, eta);
 
@@ -236,7 +236,7 @@ pub fn lslp_3d_integral(x0 :Vector3<f64>, k :usize,
         let cf = 0.5 * hs * wq[i];
 
         area += cf;
-        slp += fint * g * cf;
+        slp += f_int * g * cf;
     }
     (slp, area)
 }
@@ -822,7 +822,7 @@ pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, v, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, v, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                  vna1, vna2, vna3, vna4, vna5, vna6,
                                                  f1, f2, f3, f4, f5, f6,
                                                  df1, df2, df3, df4, df5, df6,
@@ -834,9 +834,9 @@ pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
 
         area += cf;
 
-        let rint = -dfdn_int * g + fint * v.dot(&dg);
+        let r_int= -dfdn_int * g + f_int * v.dot(&dg);
 
-        sdlp += rint * cf;
+        sdlp += r_int* cf;
     }
 
     (sdlp, area)
@@ -908,7 +908,7 @@ pub fn ke_3d_integral(k :usize, mint :usize,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (_xvec, _v, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (_xvec, _v, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                              vna1, vna2, vna3, vna4, vna5, vna6,
                                                              f1, f2, f3, f4, f5, f6,
                                                              df1, df2, df3, df4, df5, df6,
@@ -920,9 +920,9 @@ pub fn ke_3d_integral(k :usize, mint :usize,
 
         area += cf;
 
-        let rint = -dfdn_int * fint;
+        let r_int= -dfdn_int * f_int;
 
-        sdlp += rint * cf;
+        sdlp += r_int* cf;
     }
 
     (sdlp, area)
@@ -996,7 +996,7 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, vn, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                                vna1, vna2, vna3, vna4, vna5, vna6,
                                                                f1, f2, f3, f4, f5, f6,
                                                                df1, df2, df3, df4, df5, df6,
@@ -1010,9 +1010,9 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         area += cf;
 
-        let rint = -dfdn_int * d_g + fint * vn.dot(&dd_g);
+        let r_int= -dfdn_int * d_g + f_int * vn.dot(&dd_g);
 
-        sdlp += rint * cf;
+        sdlp += r_int * cf;
     }
 
     (sdlp, area)
@@ -1042,6 +1042,26 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
         f0 += sdlp;
     }
     f0
+}
+
+pub fn grad_3d_integral_l1(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+                        k :usize, mint :usize,
+                        f :&DVector<f64>, df :&DVector<f64>,
+                        p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                        alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                        xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                        dfdn_xi :&Vector3<f64>) -> (f64, f64) {
+    ///Does the integral on line 1 of eq(28). Carried out on outer subsurface.
+
+    let (sdlp, area) = grad_3d_integral(p0, dxi, eps,
+                                                k, mint,
+                                                f, df,
+                                                p, n ,vna,
+                                                alpha, beta, gamma,
+                                                xiq, etq, wq);
+
+    (sdlp, area)
+
 }
 
 pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
@@ -1086,11 +1106,11 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
-                                                              vna1, vna2, vna3, vna4, vna5, vna6,
-                                                              f1, f2, f3, f4, f5, f6,
-                                                              df1, df2, df3, df4, df5, df6,
-                                                              al, be, ga, xi, eta);
+        let (xvec, vn, hs, _f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+                                                                vna1, vna2, vna3, vna4, vna5, vna6,
+                                                                f1, f2, f3, f4, f5, f6,
+                                                                df1, df2, df3, df4, df5, df6,
+                                                                al, be, ga, xi, eta);
 
 
         let (g, dg) = lgf_3d_fs(&xvec, p0);
@@ -1150,7 +1170,7 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, vn, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                               vna1, vna2, vna3, vna4, vna5, vna6,
                                                               f1, f2, f3, f4, f5, f6,
                                                               df1, df2, df3, df4, df5, df6,
@@ -1164,7 +1184,7 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         area += cf;
 
-        let r_int = (fint - f_xi) * vn.dot(&dd_g);
+        let r_int = (f_int - f_xi) * vn.dot(&dd_g);
 
         sdlp += r_int * cf;
     }
@@ -1214,7 +1234,7 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, fint, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, vn, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                               vna1, vna2, vna3, vna4, vna5, vna6,
                                                               f1, f2, f3, f4, f5, f6,
                                                               df1, df2, df3, df4, df5, df6,
@@ -1236,3 +1256,4 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
     (sdlp, area)
 }
+
