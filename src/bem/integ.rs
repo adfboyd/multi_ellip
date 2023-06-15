@@ -1050,7 +1050,7 @@ pub fn grad_3d_integral_l1(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        dfdn_xi :&Vector3<f64>) -> (f64, f64) {
+                        dfdn_xi :f64) -> (f64, f64) {
     ///Does the integral on line 1 of eq(28). Carried out on outer subsurface.
 
     let (sdlp, area) = grad_3d_integral(p0, dxi, eps,
@@ -1070,7 +1070,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        dfdn_xi :&Vector3<f64>) -> (f64, f64) {
+                        dfdn_xi :f64) -> (f64, f64) {
     ///Does the integral on line 2 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
@@ -1134,7 +1134,7 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           dfdn_xi :&Vector3<f64>) -> (f64, f64) {
+                           f_xi :f64, dfdn_xi :f64) -> (f64, f64) {
     ///Does the integral on line 3 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
@@ -1198,7 +1198,7 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
+                           f_xi :f64, dfdn_xi :f64, n_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
     ///Does the integral on line 5 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
