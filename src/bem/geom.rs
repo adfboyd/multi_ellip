@@ -9,218 +9,11 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
     -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
     {
 
-        let mut nelm :usize = 8;
-        let eps = 1e-8;
-        let nelm_end = nelm * 4_usize.pow(ndiv);
-        let npts_end  = nelm_end * 2 + 2;
-
-
-
         let (a, b, c) = (shape[0], shape[1], shape[2]);
         let (boa, coa) = (b/a, c/a);
 
-        type MatrixU3 = DMatrix<usize>;
-        type MatrixF6 = DMatrix<f64>;
+        let (nelm, npts, mut p, n) = ellip_gridder_no_rotation(ndiv);
 
-        let mut x = MatrixF6::zeros(nelm_end, 6);
-        let mut y = MatrixF6::zeros(nelm_end, 6);
-        let mut z = MatrixF6::zeros(nelm_end, 6);
-
-        let mut xn = MatrixF6::zeros(nelm_end, 6);
-        let mut yn = MatrixF6::zeros(nelm_end, 6);
-        let mut zn = MatrixF6::zeros(nelm_end, 6);
-
-        let mut p = MatrixF6::zeros(npts_end, 3);
-        let mut n = MatrixU3::zeros(nelm_end, 6);
-
-
-    //     Set initial 8 elements (ie faces)
-
-        //Element 1
-        (x[(0,0)], y[(0,0)], z[(0,0)]) = (0.0, 0.0, 1.0);
-        (x[(0,1)], y[(0,1)], z[(0,1)]) = (1.0, 0.0, 0.0);
-        (x[(0,2)], y[(0,2)], z[(0,2)]) = (0.0, 1.0, 0.0);
-        //Element 5
-        (x[(4,0)], y[(4,0)], z[(4,0)]) = (1.0, 0.0, 0.0);
-        (x[(4,1)], y[(4,1)], z[(4,1)]) = (0.0, 0.0, -1.0);
-        (x[(4,2)], y[(4,2)], z[(4,2)]) = (0.0, 1.0, 0.0);
-        //Element 6
-        (x[(5,0)], y[(5,0)], z[(5,0)]) = (0.0, 0.0, -1.0);
-        (x[(5,1)], y[(5,1)], z[(5,1)]) = (-1.0, 0.0, 0.0);
-        (x[(5,2)], y[(5,2)], z[(5,2)]) = (0.0, 1.0, 0.0);
-        //Element 2
-        (x[(1,0)], y[(1,0)], z[(1,0)]) = (-1.0, 0.0, 0.0);
-        (x[(1,1)], y[(1,1)], z[(1,1)]) = (0.0, 0.0, 1.0);
-        (x[(1,2)], y[(1,2)], z[(1,2)]) = (0.0, 1.0, 0.0);
-        //Corner points - lower half of xz plane
-        //Element 4
-        (x[(3,0)], y[(3,0)], z[(3,0)]) = (0.0, 0.0, 1.0);
-        (x[(3,1)], y[(3,1)], z[(3,1)]) = (0.0, -1.0, 0.0);
-        (x[(3,2)], y[(3,2)], z[(3,2)]) = (1.0, 0.0, 0.0);
-        //Element 8
-        (x[(7,0)], y[(7,0)], z[(7,0)]) = (1.0, 0.0, 0.0);
-        (x[(7,1)], y[(7,1)], z[(7,1)]) = (0.0, -1.0, 0.0);
-        (x[(7,2)], y[(7,2)], z[(7,2)]) = (0.0, 0.0, -1.0);
-        //Element 7
-        (x[(6,0)], y[(6,0)], z[(6,0)]) = (0.0, 0.0, -1.0);
-        (x[(6,1)], y[(6,1)], z[(6,1)]) = (0.0, -1.0, 0.0);
-        (x[(6,2)], y[(6,2)], z[(6,2)]) = (-1.0, 0.0, 0.0);
-        //Element 3
-        (x[(2,0)], y[(2,0)], z[(2,0)]) = (-1.0, 0.0, 0.0);
-        (x[(2,1)], y[(2,1)], z[(2,1)]) = (0.0, -1.0, 0.0);
-        (x[(2,2)], y[(2,2)], z[(2,2)]) = (0.0, 0.0, 1.0);
-
-        //Compute midpoints of sides
-        for i in 0..nelm as usize {
-
-            x[(i, 3)] = 0.5 * (x[(i, 0)] + x[(i, 1)]);
-            y[(i, 3)] = 0.5 * (y[(i, 0)] + y[(i, 1)]);
-            z[(i, 3)] = 0.5 * (z[(i, 0)] + z[(i, 1)]);
-
-            x[(i, 4)] = 0.5 * (x[(i, 1)] + x[(i, 2)]);
-            y[(i, 4)] = 0.5 * (y[(i, 1)] + y[(i, 2)]);
-            z[(i, 4)] = 0.5 * (z[(i, 1)] + z[(i, 2)]);
-
-            x[(i, 5)] = 0.5 * (x[(i, 2)] + x[(i, 0)]);
-            y[(i, 5)] = 0.5 * (y[(i, 2)] + y[(i, 0)]);
-            z[(i, 5)] = 0.5 * (z[(i, 2)] + z[(i, 0)]);
-
-        }
-
-        //Compute node coords on each element for discretization
-        // levels 1 through ndiv
-
-        for _ in 0..ndiv {
-
-            let mut num :usize = 0;
-
-            for j in 0..nelm {
-
-                //Assign corner points to sub-elements
-                //1st sub-element
-                (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 0)], y[(j, 0)], z[(j, 0)]);
-                (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
-                (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
-
-                xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
-                yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
-                zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
-
-                xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
-                yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
-                zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
-
-                xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
-                yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
-                zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
-
-                num += 1;
-
-                (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
-                (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 1)], y[(j, 1)], z[(j, 1)]);
-                (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
-
-                xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
-                yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
-                zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
-
-                xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
-                yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
-                zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
-
-                xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
-                yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
-                zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
-
-                num += 1;
-
-                (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
-                (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
-                (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 2)], y[(j, 2)], z[(j, 2)]);
-
-                xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
-                yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
-                zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
-
-                xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
-                yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
-                zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
-
-                xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
-                yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
-                zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
-
-                num += 1;
-
-                (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
-                (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
-                (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
-
-                xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
-                yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
-                zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
-
-                xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
-                yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
-                zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
-
-                xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
-                yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
-                zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
-
-                num += 1;
-
-            }
-            nelm *= 4;
-            //Rename new points and place them in master list
-            for k in 0..nelm {
-                for l in 0..6 {
-
-                    (x[(k, l)], y[(k, l)], z[(k, l)]) = (xn[(k, l)], yn[(k, l)], zn[(k, l)]);
-                    (xn[(k, l)], yn[(k, l)], zn[(k, l)]) = (0.0, 0.0, 0.0); //Just in case
-
-                    let rad = (x[(k, l)].powi(2) + y[(k, l)].powi(2) + z[(k, l)].powi(2)).sqrt();
-
-                    (x[(k, l)], y[(k, l)], z[(k, l)]) = (x[(k, l)] / rad, y[(k, l)] / rad, z[(k, l)] / rad)
-                }
-            }
-        }
-
-        //Generate a list of global nodes by looping over all elements
-        // and adding in new ones
-        // n[(i,j)] is jth node of i+1th element
-        // First size nodes of first element are entered manually
-
-        for i in 0..6 {
-            (p[(i, 0)], p[(i, 1)], p[(i, 2)]) = (x[(0, i)], y[(0, i)], z[(0, i)]);
-
-            n[(0, i)] = i + 1;
-        }
-
-        let mut npts = 6;
-
-        for i in 0..nelm {
-            for j in 0..6 {
-                let mut iflag = true; //Is current point new?
-
-                for k in 0..npts {
-                    if (x[(i,j)] - p[(k,0)]).abs() < eps {
-                        if (y[(i,j)] - p[(k,1)]).abs() < eps {
-                            if (z[(i,j)] - p[(k,2)]).abs() < eps {
-                                iflag = false;
-                                n[(i, j)] = k + 1;
-                            }
-                        }
-                    }
-                }
-                if iflag {
-                    (p[(npts, 0)], p[(npts, 1)], p[(npts, 2)]) = (x[(i, j)], y[(i, j)], z[(i, j)]);
-                    n[(i, j)] = npts + 1;
-                    npts += 1;
-
-                }
-            }
-        }
 
         let scale = req / (boa * coa).powf(1.0/3.0);
 
@@ -230,7 +23,7 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
             p[(i, 1)] = scale * p[(i, 1)] * boa;
             p[(i, 2)] = scale * p[(i, 2)] * coa;
 
-            // p.set_row(i, )
+            // Rotate point by orientation
             let prow = Vector3::new(p.row(i)[0], p.row(i)[1], p.row(i)[2]);
             let p1 = orient.transform_vector(&prow);
             for j in 0..3 {
@@ -243,6 +36,343 @@ pub fn ellip_gridder(ndiv : u32, req :f64,
         }
         (nelm, npts, p, n)
     }
+
+pub fn ellip_gridder_no_rotation(ndiv : u32)
+                     -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
+{
+
+    let mut nelm :usize = 8;
+    let eps = 1e-8;
+    let nelm_end = nelm * 4_usize.pow(ndiv);
+
+
+    let npts_end  = nelm_end * 2 + 2;
+
+
+
+    type MatrixU3 = DMatrix<usize>;
+    type MatrixF6 = DMatrix<f64>;
+
+    let mut x = MatrixF6::zeros(nelm_end, 6);
+    let mut y = MatrixF6::zeros(nelm_end, 6);
+    let mut z = MatrixF6::zeros(nelm_end, 6);
+
+    let mut xn = MatrixF6::zeros(nelm_end, 6);
+    let mut yn = MatrixF6::zeros(nelm_end, 6);
+    let mut zn = MatrixF6::zeros(nelm_end, 6);
+
+    let mut p = MatrixF6::zeros(npts_end, 3);
+    let mut n = MatrixU3::zeros(nelm_end, 6);
+
+
+
+    //     Set initial 8 elements (ie faces)
+
+    //Element 1
+    (x[(0,0)], y[(0,0)], z[(0,0)]) = (0.0, 0.0, 1.0);
+    (x[(0,1)], y[(0,1)], z[(0,1)]) = (1.0, 0.0, 0.0);
+    (x[(0,2)], y[(0,2)], z[(0,2)]) = (0.0, 1.0, 0.0);
+    //Element 5
+    (x[(4,0)], y[(4,0)], z[(4,0)]) = (1.0, 0.0, 0.0);
+    (x[(4,1)], y[(4,1)], z[(4,1)]) = (0.0, 0.0, -1.0);
+    (x[(4,2)], y[(4,2)], z[(4,2)]) = (0.0, 1.0, 0.0);
+    //Element 6
+    (x[(5,0)], y[(5,0)], z[(5,0)]) = (0.0, 0.0, -1.0);
+    (x[(5,1)], y[(5,1)], z[(5,1)]) = (-1.0, 0.0, 0.0);
+    (x[(5,2)], y[(5,2)], z[(5,2)]) = (0.0, 1.0, 0.0);
+    //Element 2
+    (x[(1,0)], y[(1,0)], z[(1,0)]) = (-1.0, 0.0, 0.0);
+    (x[(1,1)], y[(1,1)], z[(1,1)]) = (0.0, 0.0, 1.0);
+    (x[(1,2)], y[(1,2)], z[(1,2)]) = (0.0, 1.0, 0.0);
+    //Corner points - lower half of xz plane
+    //Element 4
+    (x[(3,0)], y[(3,0)], z[(3,0)]) = (0.0, 0.0, 1.0);
+    (x[(3,1)], y[(3,1)], z[(3,1)]) = (0.0, -1.0, 0.0);
+    (x[(3,2)], y[(3,2)], z[(3,2)]) = (1.0, 0.0, 0.0);
+    //Element 8
+    (x[(7,0)], y[(7,0)], z[(7,0)]) = (1.0, 0.0, 0.0);
+    (x[(7,1)], y[(7,1)], z[(7,1)]) = (0.0, -1.0, 0.0);
+    (x[(7,2)], y[(7,2)], z[(7,2)]) = (0.0, 0.0, -1.0);
+    //Element 7
+    (x[(6,0)], y[(6,0)], z[(6,0)]) = (0.0, 0.0, -1.0);
+    (x[(6,1)], y[(6,1)], z[(6,1)]) = (0.0, -1.0, 0.0);
+    (x[(6,2)], y[(6,2)], z[(6,2)]) = (-1.0, 0.0, 0.0);
+    //Element 3
+    (x[(2,0)], y[(2,0)], z[(2,0)]) = (-1.0, 0.0, 0.0);
+    (x[(2,1)], y[(2,1)], z[(2,1)]) = (0.0, -1.0, 0.0);
+    (x[(2,2)], y[(2,2)], z[(2,2)]) = (0.0, 0.0, 1.0);
+
+    //Compute midpoints of sides
+    for i in 0..nelm as usize {
+
+        x[(i, 3)] = 0.5 * (x[(i, 0)] + x[(i, 1)]);
+        y[(i, 3)] = 0.5 * (y[(i, 0)] + y[(i, 1)]);
+        z[(i, 3)] = 0.5 * (z[(i, 0)] + z[(i, 1)]);
+
+        x[(i, 4)] = 0.5 * (x[(i, 1)] + x[(i, 2)]);
+        y[(i, 4)] = 0.5 * (y[(i, 1)] + y[(i, 2)]);
+        z[(i, 4)] = 0.5 * (z[(i, 1)] + z[(i, 2)]);
+
+        x[(i, 5)] = 0.5 * (x[(i, 2)] + x[(i, 0)]);
+        y[(i, 5)] = 0.5 * (y[(i, 2)] + y[(i, 0)]);
+        z[(i, 5)] = 0.5 * (z[(i, 2)] + z[(i, 0)]);
+
+    }
+
+    //Compute node coords on each element for discretization
+    // levels 1 through ndiv
+
+    for _ in 0..ndiv {
+
+        let mut num :usize = 0;
+
+        for j in 0..nelm {
+
+            //Assign corner points to sub-elements
+            //1st sub-element
+            (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 0)], y[(j, 0)], z[(j, 0)]);
+            (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
+            (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
+
+            xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
+            yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
+            zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
+
+            xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
+            yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
+            zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
+
+            xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
+            yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
+            zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
+
+            num += 1;
+
+            (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
+            (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 1)], y[(j, 1)], z[(j, 1)]);
+            (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
+
+            xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
+            yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
+            zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
+
+            xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
+            yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
+            zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
+
+            xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
+            yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
+            zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
+
+            num += 1;
+
+            (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
+            (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
+            (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 2)], y[(j, 2)], z[(j, 2)]);
+
+            xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
+            yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
+            zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
+
+            xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
+            yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
+            zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
+
+            xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
+            yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
+            zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
+
+            num += 1;
+
+            (xn[(num, 0)], yn[(num, 0)], zn[(num, 0)]) = (x[(j, 3)], y[(j, 3)], z[(j, 3)]);
+            (xn[(num, 1)], yn[(num, 1)], zn[(num, 1)]) = (x[(j, 4)], y[(j, 4)], z[(j, 4)]);
+            (xn[(num, 2)], yn[(num, 2)], zn[(num, 2)]) = (x[(j, 5)], y[(j, 5)], z[(j, 5)]);
+
+            xn[(num, 3)] = 0.5 * (xn[(num, 0)] + xn[(num, 1)]);
+            yn[(num, 3)] = 0.5 * (yn[(num, 0)] + yn[(num, 1)]);
+            zn[(num, 3)] = 0.5 * (zn[(num, 0)] + zn[(num, 1)]);
+
+            xn[(num, 4)] = 0.5 * (xn[(num, 1)] + xn[(num, 2)]);
+            yn[(num, 4)] = 0.5 * (yn[(num, 1)] + yn[(num, 2)]);
+            zn[(num, 4)] = 0.5 * (zn[(num, 1)] + zn[(num, 2)]);
+
+            xn[(num, 5)] = 0.5 * (xn[(num, 2)] + xn[(num, 0)]);
+            yn[(num, 5)] = 0.5 * (yn[(num, 2)] + yn[(num, 0)]);
+            zn[(num, 5)] = 0.5 * (zn[(num, 2)] + zn[(num, 0)]);
+
+            num += 1;
+
+        }
+        nelm *= 4;
+        //Rename new points and place them in master list
+        for k in 0..nelm {
+            for l in 0..6 {
+
+                (x[(k, l)], y[(k, l)], z[(k, l)]) = (xn[(k, l)], yn[(k, l)], zn[(k, l)]);
+                (xn[(k, l)], yn[(k, l)], zn[(k, l)]) = (0.0, 0.0, 0.0); //Just in case
+
+                let rad = (x[(k, l)].powi(2) + y[(k, l)].powi(2) + z[(k, l)].powi(2)).sqrt();
+
+                (x[(k, l)], y[(k, l)], z[(k, l)]) = (x[(k, l)] / rad, y[(k, l)] / rad, z[(k, l)] / rad)
+            }
+        }
+    }
+
+    //Generate a list of global nodes by looping over all elements
+    // and adding in new ones
+    // n[(i,j)] is jth node of i+1th element
+    // First size nodes of first element are entered manually
+
+    for i in 0..6 {
+        (p[(i, 0)], p[(i, 1)], p[(i, 2)]) = (x[(0, i)], y[(0, i)], z[(0, i)]);
+
+        n[(0, i)] = i + 1;
+    }
+
+    let mut npts = 6;
+
+    for i in 0..nelm {
+        for j in 0..6 {
+            let mut iflag = true; //Is current point new?
+
+            for k in 0..npts {
+                if (x[(i,j)] - p[(k,0)]).abs() < eps {
+                    if (y[(i,j)] - p[(k,1)]).abs() < eps {
+                        if (z[(i,j)] - p[(k,2)]).abs() < eps {
+                            iflag = false; //If all coordinates match with a pre-recorded point, no.
+                            n[(i, j)] = k + 1;
+                        }
+                    }
+                }
+            }
+            if iflag {
+                (p[(npts, 0)], p[(npts, 1)], p[(npts, 2)]) = (x[(i, j)], y[(i, j)], z[(i, j)]);
+                n[(i, j)] = npts + 1;
+                npts += 1;
+
+            }
+        }
+
+    }
+    (nelm, npts, p, n)
+}
+
+pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
+                     shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>,
+                     split_axis :Vector3<i32>)
+                     -> (usize, usize, DMatrix<f64>, DMatrix<usize>, DMatrix<usize>, Vec<usize>, Vec<usize>)
+{
+
+
+    let eps = 1e-8;
+
+
+    let (a, b, c) = (shape[0], shape[1], shape[2]);
+    let (boa, coa) = (b/a, c/a);
+
+    type MatrixU3 = DMatrix<usize>;
+
+
+    let (npts, nelm, mut p, n) = ellip_gridder_no_rotation(ndiv);
+
+    let npts_line = 4_usize * 2_usize.pow(ndiv);
+    let mut n_line = MatrixU3::zeros(npts_line, 3);
+
+    ///Add in capability to split surface into halves.
+
+    //Set component for splitting
+    let mut axis_index = 0_usize;
+    for a in 0..3 {
+        if split_axis[a].abs() > 0 {
+            axis_index = a;
+        }
+    }
+    //Set direction for splitting
+    let mut axis_direction = 0_f64;
+    if split_axis[axis_index] > 0 {
+        axis_direction = 1_f64;
+    } else {
+        axis_direction = -1_f64;
+    };
+
+
+    //Check that any two points are both on the axis (x)
+    for i in 0..nelm{
+
+        let i1 = n[(i, 0)];
+        let i2 = n[(i, 1)];
+        let i3 = n[(i, 2)];
+
+        let i4 = n[(i, 3)];
+        let i5 = n[(i, 4)];
+        let i6 = n[(i, 5)];
+
+        let p1_x = p[(i1, axis_index)];
+        let p2_x = p[(i2, axis_index)];
+        let p3_x = p[(i3, axis_index)];
+
+        if (p1_x.abs() < eps) && (p2_x.abs() < eps) {
+            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i1, i4, i2)
+        };
+        if (p2_x.abs() < eps) && (p3_x.abs() < eps) {
+            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i2, i5, i3)
+        };
+        if (p1_x.abs() < eps) && (p3_x.abs() < eps) {
+            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i1, i6, i3)
+        };
+    }
+
+
+    //New list of elements on the singular side
+    let mut sing_elms :Vec<usize> = Vec::new();
+    for i in 0..nelm {
+        let i1 = n[(i, 0)];
+        let i2 = n[(i, 1)];
+        let i3 = n[(i, 2)];
+
+        if (p[(i1, axis_index)]*axis_direction < 0.0) ||
+            (p[(i2, axis_index)]*axis_direction < 0.0) ||
+            (p[(i3, axis_index)]*axis_direction < 0.0) {
+            sing_elms.push(i)
+        }
+    }
+
+    //New list of elements on the non-singular side
+    let mut non_sing_elms :Vec<usize> = Vec::new();
+    for i in 0..nelm {
+        let i1 = n[(i, 0)];
+        let i2 = n[(i, 1)];
+        let i3 = n[(i, 2)];
+
+        if (p[(i1, axis_index)]*axis_direction > 0.0) ||
+            (p[(i2, axis_index)]*axis_direction > 0.0) ||
+            (p[(i3, axis_index)]*axis_direction > 0.0) {
+            non_sing_elms.push(i)
+        }
+    }
+
+
+    let scale = req / (boa * coa).powf(1.0/3.0);
+
+    for i in 0..npts {
+        //Reshape to ellipsoid
+        p[(i, 0)] = scale * p[(i, 0)];
+        p[(i, 1)] = scale * p[(i, 1)] * boa;
+        p[(i, 2)] = scale * p[(i, 2)] * coa;
+
+        // Rotate point by orientation
+        let prow = Vector3::new(p.row(i)[0], p.row(i)[1], p.row(i)[2]);
+        let p1 = orient.transform_vector(&prow);
+        for j in 0..3 {
+            p[(i, j)] = p1[j]
+        }
+        //Translate from centre
+        for j in 0..3 {
+            p[(i, j)] += centre[j];
+        }
+    }
+    (nelm, npts, p, n, n_line, sing_elms, non_sing_elms)
+}
 
 ///Combines grids for 2 different ellipsoids.
 pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
@@ -257,6 +387,7 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     let mut n = DMatrix::zeros(nelm, 6);
     let mut p = DMatrix::zeros(npts, 3);
 
+    //Make the combined n matrix
     for i in 0..nelm1 {
         for j in 0..6 {
             n[(i,j)] = n1[(i, j)];
@@ -269,6 +400,7 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
         }
     }
 
+    //Make the combined p matrix
     for i in 0..npts1 {
         for j in 0..3 {
             p[(i, j)] = p1[(i, j)];
@@ -283,6 +415,60 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
 
     (nelm, npts, p, n)
 }
+
+pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
+                         n_line_1 :DMatrix<usize>, n_line_2 :DMatrix<usize>,
+                         sing_elms_1 :Vec<usize>, sing_elms_2 :Vec<usize>,
+                         nonsing_elms_1 :Vec<usize>, nonsing_elms_2 :Vec<usize>) -> (usize, usize,
+                                                                                      DMatrix<usize>,
+                                                                                      Vec<usize>, Vec<usize>) {
+
+    let nelm = nelm1 + nelm2;
+    let npts = npts1 + npts2;
+
+
+    let mut n_line = DMatrix::zeros(nelm, 3);
+    //Combine n_line matrix
+    for i in 0..nelm1 {
+        for j in 0..6 {
+            n_line[(i,j)] = n_line_1[(i, j)];
+        }
+    }
+
+    for i in 0..nelm2 {
+        for j in 0..6 {
+            n_line[(i + nelm1, j)] = n_line_2[(i, j)] + npts1;
+        }
+    };
+
+    let mut sing_elms :Vec<usize> = Vec::new();
+
+    for &i in &sing_elms_1 {
+        sing_elms.push(i);
+    };
+
+    for &i in &sing_elms_2 {
+        let i2 = i + npts1;
+        sing_elms.push(i2);
+    };
+
+    let mut nonsing_elms :Vec<usize> = Vec::new();
+
+    for &i in &nonsing_elms_1 {
+        nonsing_elms.push(i);
+    };
+
+    for &i in &nonsing_elms_2 {
+        let i2 = i + npts1;
+        nonsing_elms.push(i2);
+    };
+
+    (nelm, npts, n_line, sing_elms, nonsing_elms)
+
+
+
+}
+
 
 ///Computes gaussian quadrature constants
 pub fn gauss_leg(nq:usize) -> (DVector<f64>, DVector<f64>) {

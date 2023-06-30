@@ -189,7 +189,7 @@ impl Body {
     }
 
     pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> Vector3<f64> {
-        ///Decides for a point p0 on the ellipsoid, which plane in the orientation of the body to split the surface by.
+        ///Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the orientation of the body to split the surface by.
         /// outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
 
         let p0_quaternion = na::Quaternion::from_imag(*p0);

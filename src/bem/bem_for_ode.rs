@@ -45,14 +45,23 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
         // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
+        let split_axis_x = Vector3::new(1, 0, 0);
+        let split_axis_y = Vector3::new(0, 1, 0);
+        let split_axis_z = Vector3::new(0, 0, 1);
+
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1);
+        let (nelm1, npts1, p1, n1, n1_xline, x_elms_pos, x_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_x);
+        let (nelm1, npts1, p1, n1, n1_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_y);
+        let (nelm1, npts1, p1, n1, n1_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_z);
+
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2);
+        let (nelm2, npts2, p2, n2, n2_xline, x_elms_pos, x_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_x);
+        let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
+        let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -144,16 +153,43 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
         // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
+
+        let split_axis_x = Vector3::new(1, 0, 0);
+        let split_axis_y = Vector3::new(0, 1, 0);
+        let split_axis_z = Vector3::new(0, 0, 1);
+
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1);
+        let (nelm1, npts1, p1, n1, n1_xline, x_elms_pos_1, x_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_x);
+        let (nelm1, npts1, p1, n1, n1_yline, y_elms_pos_1, y_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_y);
+        let (nelm1, npts1, p1, n1, n1_zline, z_elms_pos_1, z_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_z);
+
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2);
+        let (nelm2, npts2, p2, n2, n2_xline, x_elms_pos_2, x_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_x);
+        let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos_2, y_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
+        let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos_2, z_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
+
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
+
+        let (nelm, npts, n_xline, x_elms_pos, x_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+                                                                              n1_xline, n2_xline,
+                                                                              x_elms_pos_1, x_elms_pos_2,
+                                                                              x_elms_neg_1, x_elms_neg_2);
+
+        let (nelm, npts, n_yline, y_elms_pos, y_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+                                                                              n1_yline, n2_yline,
+                                                                              y_elms_pos_1, y_elms_pos_2,
+                                                                              y_elms_neg_1, y_elms_neg_2);
+
+        let (nelm, npts, n_zline, z_elms_pos, z_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+                                                                              n1_zline, n2_zline,
+                                                                              z_elms_pos_1, z_elms_pos_2,
+                                                                              z_elms_neg_1, z_elms_neg_2);
+
 
         let (zz, ww) = gauss_leg(nq);
         let (xiq, etq, wq) = gauss_trgl(mint);

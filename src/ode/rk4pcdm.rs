@@ -120,11 +120,13 @@ Rk4PCDM<
             //Get (lin,ang) forces for bodies 1 & 2.
             let (linear_accel, angular_force) = self.force_get();
             println!("{:?}, {:?}", linear_accel, angular_force);
+
+            //Calculate new positions and velocities at half time-step
             let (p_half, v_half) = self.lin_half_step(&linear_accel);
 
             let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-            //Update the bodies' positions are velocities
+            //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &(p_half, v_half));
             let _ = self.g.system(0.0, &(q_half, o_half));
 
