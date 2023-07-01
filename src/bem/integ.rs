@@ -1,5 +1,6 @@
 use std::f64::consts::PI;
 use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3, Vector6};
+use num_traits::ToPrimitive;
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
 pub fn lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>) -> (f64, Vector3<f64>) {
@@ -43,6 +44,31 @@ pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f
     let dd_gdx2 = dd_g * xi;
     (dgdx, dd_gdx2)
 }
+
+    pub fn d_lgf_3d_fs_full(x :&Vector3<f64>, x0 :&Vector3<f64>) -> (Vector3<f64>, Matrix3<f64>) {
+
+        let ri = x - x0;
+        let r = ri.norm();
+
+        let mut dg = Vector3::zeros();
+        for i in 0..3 {
+            dg[i] = - ri[i] / r;
+        }
+
+        let mut dd_g = Matrix3::zeros();
+
+        for i in 0..3 {
+            for j in 0..3 {
+                let mut delta = 0f64;
+                if i==j {
+                    delta = 1f64;
+                }
+                dd_g[(i, j)] = delta / r.powi(3) - ( 3.0 / (4.0 * PI * r.powi(5))) * ri[i] * ri[j];
+            }
+        }
+
+        (dg, dd_g)
+    }
 
 ///Interpolates over the triangle, also interpolates the force f.
 pub fn lslp_3d_interp(p1 :Vector3<f64>,
@@ -202,12 +228,12 @@ pub fn lslp_3d_integral(x0 :Vector3<f64>, k :usize,
     let mut area = 0.0;
     let mut slp = 0.0;
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -252,12 +278,12 @@ pub fn ldlp_3d_integral (x0 :Vector3<f64>, k :usize,
     let mut area = 0.0;
     let mut ptl = 0.0;
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -388,12 +414,12 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
 
         for k in 0..nelm {
 
-            let i1 = n[(k, 0)] - 1;
-            let i2 = n[(k, 1)] - 1;
-            let i3 = n[(k, 2)] - 1;
-            let i4 = n[(k, 3)] - 1;
-            let i5 = n[(k, 4)] - 1;
-            let i6 = n[(k, 5)] - 1;
+            let i1 = n[(k, 0)];
+            let i2 = n[(k, 1)];
+            let i3 = n[(k, 2)];
+            let i4 = n[(k, 3)];
+            let i5 = n[(k, 4)];
+            let i6 = n[(k, 5)];
 
             let (q1, q2, q3, q4, q5, q6) = (q[i1], q[i2], q[i3], q[i4], q[i5], q[i6]);
 
@@ -436,12 +462,12 @@ pub fn lslp_3d(npts :usize, nelm :usize,
 
         for k in 0..nelm {
 
-            let i1 = n[(k, 0)] - 1;
-            let i2 = n[(k, 1)] - 1;
-            let i3 = n[(k, 2)] - 1;
-            let i4 = n[(k, 3)] - 1;
-            let i5 = n[(k, 4)] - 1;
-            let i6 = n[(k, 5)] - 1;
+            let i1 = n[(k, 0)];
+            let i2 = n[(k, 1)];
+            let i3 = n[(k, 2)];
+            let i4 = n[(k, 3)];
+            let i5 = n[(k, 4)];
+            let i6 = n[(k, 5)];
 
             let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
 
@@ -782,6 +808,42 @@ pub fn lsdlpp_3d_interp(p1 :Vector3<f64>,
     (xvec, v, hs, f, df)
 }
 
+fn line_interp_vector(p1 :Vector3<f64>, p2 :Vector3<f64>,
+                      xi :f64) -> Vector3<f64> {
+    let p = (1.0 - xi) * p1 + xi * p2;
+    p
+}
+
+fn line_interp_scalar(f1 :f64, f2 :f64, xi :f64) -> f64 {
+    let f = (1.0 - xi) * f1 + xi * f2;
+    f
+}
+
+pub fn line_interp(p1 :Vector3<f64>,
+                   p2 :Vector3<f64>,
+                   p3 :Vector3<f64>,
+                   f1 :f64, f2 :f64, f3 :f64,
+                   df1 :f64, df2 :f64, df3 :f64,
+                   xi :f64) -> (Vector3<f64>, f64, f64) {
+
+    //Interpolate position vector
+
+    let mut p = Vector3::zeros();
+    let mut f = 0.0;
+    let mut df = 0.0;
+    if xi < 0.5 {
+        let p = line_interp_vector(p1, p2, xi * 2.0);
+        let f = line_interp_scalar(f1, f2, xi * 2.0);
+        let df = line_interp_scalar(df1, df2, xi * 2.0);
+    } else {
+        let p = line_interp_vector(p2, p3, (xi - 0.5) * 2.0);
+        let f = line_interp_scalar(f2, f3, (xi - 0.5) * 2.0);
+        let df = line_interp_scalar(df2, df3, (xi - 0.5) * 2.0);
+    }
+
+    (p, f, df)
+}
+
 ///Integrates single and double- layer potentials for given f and df/dn.
 pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
                            mint :usize, f :&DVector<f64>, df :&DVector<f64>,
@@ -792,12 +854,12 @@ pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
     let mut area = 0.0;
     let mut sdlp = 0.0;
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -878,12 +940,12 @@ pub fn ke_3d_integral(k :usize, mint :usize,
     let mut area = 0.0;
     let mut sdlp = 0.0;
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -956,22 +1018,22 @@ pub fn ke_3d(_npts :usize, nelm :usize, mint :usize,
     (srf_area, f0)
 }
 
-pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+pub fn grad_3d_integral(p0 :&Vector3<f64>,
                       k :usize, mint :usize,
                       f :&DVector<f64>, df :&DVector<f64>,
                       p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                       alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                      xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> (f64, f64) {
+                      xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> (Vector3<f64>, f64) {
 
     let mut area = 0.0;
-    let mut sdlp = 0.0;
+    let mut sdlp = Vector3::zeros();
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -1003,16 +1065,16 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                                                                al, be, ga, xi, eta);
 
 
-        let (d_g, dd_g) = d_lgf_3d_fs(&xvec, p0, dxi);
+        let (d_g, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
 
         let cf = 0.5 * hs * wq[i];
 
         area += cf;
 
-        let r_int= -dfdn_int * d_g + f_int * vn.dot(&dd_g);
+        let r_int= (-dfdn_int * d_g) + (f_int * dd_g * vn);
 
-        sdlp += r_int * cf;
+        sdlp += cf * r_int;
     }
 
     (sdlp, area)
@@ -1023,16 +1085,16 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
              p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
              alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
              xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-             p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64) -> f64 {
+             p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64) -> Vector3<f64> {
 
     //Calculates the gradient of phi in the given direction dxi at point p0.
 
-    let mut f0 = 0.0;
+    let mut f0 = Vector3::zeros();
 
     for k in 0..nelm {
 
 
-        let (sdlp, _arelm) = grad_3d_integral(p0 , dxi, eps,
+        let (sdlp, _arelm) = grad_3d_integral(p0 ,
                                               k, mint,
                                               f, dfdn,
                                               p, n, vna,
@@ -1044,16 +1106,16 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
     f0
 }
 
-pub fn grad_3d_integral_l1(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+pub fn grad_3d_integral_l1(p0 :&Vector3<f64>,
                         k :usize, mint :usize,
                         f :&DVector<f64>, df :&DVector<f64>,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        dfdn_xi :f64) -> (f64, f64) {
+                        dfdn_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
     ///Does the integral on line 1 of eq(28). Carried out on outer subsurface.
 
-    let (sdlp, area) = grad_3d_integral(p0, dxi, eps,
+    let (sdlp, area) = grad_3d_integral(p0,
                                                 k, mint,
                                                 f, df,
                                                 p, n ,vna,
@@ -1070,18 +1132,18 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        dfdn_xi :f64) -> (f64, f64) {
+                        f_xi :f64, dfdn_xi :f64) -> (Vector3<f64>, f64) {
     ///Does the integral on line 2 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
-    let mut sdlp = 0.0;
+    let mut sdlp = Vector3::zeros();
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -1120,7 +1182,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         area += cf;
 
-        let r_int = (dfdn_int - dfdn_xi) * vn.dot(&dg);
+        let r_int = (dfdn_int - dfdn_xi) * dg;
 
         sdlp += r_int * cf;
     }
@@ -1134,18 +1196,19 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :f64, dfdn_xi :f64) -> (f64, f64) {
+                           f_xi :f64, dfdn_xi :f64) -> (Vector3<f64>, f64) {
     ///Does the integral on line 3 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
+    ///(Only the part that does not need to be rearranged) I have included the negative sign outside the integral.
 
     let mut area = 0.0;
-    let mut sdlp = 0.0;
+    let mut sdlp = Vector3::zeros();
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -1177,6 +1240,71 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                                                               al, be, ga, xi, eta);
 
 
+        let (dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
+
+
+        let cf = 0.5 * hs * wq[i];
+
+        area += cf;
+
+        let r_int = Matrix3::from_diagonal_element(-(f_int - f_xi)) * dd_g * vn;
+
+        sdlp += Matrix3::from_diagonal_element(cf) * r_int ;
+    }
+
+    (sdlp, area)
+}
+
+pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+                           k :usize, mint :usize,
+                           f :&DVector<f64>, df :&DVector<f64>,
+                           p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                           alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                           xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                           f_xi :f64, dfdn_xi :f64) -> (Matrix3<f64>, f64) {
+    ///Does the integral on line 3 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
+    ///(Only the part that does need to be rearranged)
+    ///
+    let mut area = 0.0;
+    let mut sdlp = Matrix3::zeros();
+
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+    let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
+    let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
+    let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
+
+    let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
+    let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
+    let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
+    let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
+    let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
+    let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
+
+    let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
+
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+
+        let (xi, eta) = (xiq[i], etq[i]);
+
+        let (xvec, vn, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+                                                               vna1, vna2, vna3, vna4, vna5, vna6,
+                                                               f1, f2, f3, f4, f5, f6,
+                                                               df1, df2, df3, df4, df5, df6,
+                                                               al, be, ga, xi, eta);
+
+
         let (dg, dd_g) = d_lgf_3d_fs(&xvec, p0, dxi);
 
 
@@ -1184,13 +1312,14 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         area += cf;
 
-        let r_int = (f_int - f_xi) * vn.dot(&dd_g);
-
-        sdlp += r_int * cf;
+        let r_int = dd_g * (xvec - p0).transpose() ;
+        let cf_mat = Matrix3::from_diagonal_element(cf);
+        sdlp += cf_mat * r_int;
     }
 
     (sdlp, area)
 }
+
 
 pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                            k :usize, mint :usize,
@@ -1198,18 +1327,18 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :f64, dfdn_xi :f64, n_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
+                           f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Matrix3<f64>, f64) {
     ///Does the integral on line 5 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
-    let mut sdlp = Vector3::new(0.0, 0.0, 0.0);
+    let mut sdlp = Matrix3::zeros();
 
-    let i1 = n[(k, 0)] - 1;
-    let i2 = n[(k, 1)] - 1;
-    let i3 = n[(k, 2)] - 1;
-    let i4 = n[(k, 3)] - 1;
-    let i5 = n[(k, 4)] - 1;
-    let i6 = n[(k, 5)] - 1;
+    let i1 = n[(k, 0)];
+    let i2 = n[(k, 1)];
+    let i3 = n[(k, 2)];
+    let i4 = n[(k, 3)];
+    let i5 = n[(k, 4)];
+    let i6 = n[(k, 5)];
 
     let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -1241,19 +1370,135 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                                                               al, be, ga, xi, eta);
 
 
-        let (dg, dd_g) = d_lgf_3d_fs(&xvec, p0, dxi);
+        let (g, d_g) = lgf_3d_fs(&xvec, p0);
 
 
         let cf = 0.5 * hs * wq[i];
 
         area += cf;
 
-        let r_int = dg * (vn - n_xi);
+        let r_int = d_g * (vn - n_xi).transpose();
 
 
-        sdlp += r_int * cf;
+        sdlp += Matrix3::from_diagonal_element(cf) * r_int;
     }
 
     (sdlp, area)
 }
 
+fn grad_3d_integral_l4_1(p0 :&Vector3<f64>,
+                         k :usize,
+                         f :&DVector<f64>, df :&DVector<f64>,
+                         p :&DMatrix<f64>, n_line :&DMatrix<usize>, vna :&DMatrix<f64>,
+                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                         f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
+    ///Does the first line integral on line 4.
+
+
+    let i1 = n_line[(k, 0)];
+    let i2 = n_line[(k, 1)];
+    let i3 = n_line[(k, 2)];
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+
+    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
+    let (df1, df2, df3) = (df[i1], df[i2], df[i3]);
+
+
+
+
+    let p12 = line_interp_vector(p1, p2, 0.5);
+    let p23 = line_interp_vector(p2, p3, 0.5);
+
+    let f12 = line_interp_scalar(f1, f2, 0.5);
+    let f23 = line_interp_scalar(f2, f3, 0.5);
+
+    let df12 = line_interp_scalar(df1, df2, 0.5);
+    let df23 = line_interp_scalar(df2, df3, 0.5);
+
+
+    let h1 = (p1 - p2);
+    let h2 = (p2 - p3);
+
+    let (g1, dg1) = lgf_3d_fs(&p12, p0);
+    let (g2, dg2) = lgf_3d_fs(&p23, p0);
+
+    let r1 = g1 * h1;
+    let r2 = g2 * h2;
+
+    let integral = r1 + r2;
+    let length = h1.norm() + h2.norm();
+
+    (integral, length)
+}
+
+fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
+                         k :usize,
+                         f :&DVector<f64>, df :&DVector<f64>,
+                         p :&DMatrix<f64>, n_line :&DMatrix<usize>, vna :&DMatrix<f64>,
+                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                         f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Matrix3<Matrix3<f64>>, f64) {
+    ///Does the second line integral on line 4. Returns a 3x3x3 Tensor.
+
+
+    let i1 = n_line[(k, 0)];
+    let i2 = n_line[(k, 1)];
+    let i3 = n_line[(k, 2)];
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+
+    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
+    let (df1, df2, df3) = (df[i1], df[i2], df[i3]);
+
+
+
+
+    let p12 = line_interp_vector(p1, p2, 0.5);
+    let p23 = line_interp_vector(p2, p3, 0.5);
+
+    let f12 = line_interp_scalar(f1, f2, 0.5);
+    let f23 = line_interp_scalar(f2, f3, 0.5);
+
+    let df12 = line_interp_scalar(df1, df2, 0.5);
+    let df23 = line_interp_scalar(df2, df3, 0.5);
+
+
+    let h1 = (p1 - p2);
+    let h2 = (p2 - p3);
+
+    let (g1, dg1) = lgf_3d_fs(&p12, p0);
+    let (g2, dg2) = lgf_3d_fs(&p23, p0);
+
+    let r1 = p12 - p0;
+
+    let mut outer_product1: Matrix3<Matrix3<f64>> = Matrix3::zeros();
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                outer_product1[(i,j)][k] = dg1[i] * r1[j] * h1[k];
+            }
+        }
+    };
+
+
+    let r2 = p23 - p0;
+
+    let mut outer_product2: Matrix3<Matrix3<f64>> = Matrix3::zeros();
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in 0..3 {
+                outer_product2[(i,j)][k] = dg2[i] * r2[j] * h2[k];
+            }
+        }
+    };
+    let integral = outer_product1 + outer_product2;
+    let length = h1.norm() + h2.norm();
+
+    (integral, length)
+}

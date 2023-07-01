@@ -159,8 +159,13 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let split_axis_z = Vector3::new(0, 0, 1);
 
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
+        println!("Splitting in x axis");
         let (nelm1, npts1, p1, n1, n1_xline, x_elms_pos_1, x_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_x);
+        println!("Splitting in y axis");
+
         let (nelm1, npts1, p1, n1, n1_yline, y_elms_pos_1, y_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_y);
+        println!("Splitting in z axis");
+
         let (nelm1, npts1, p1, n1, n1_zline, z_elms_pos_1, z_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_z);
 
 
@@ -168,8 +173,12 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
+        println!("Splitting in x axis");
+
         let (nelm2, npts2, p2, n2, n2_xline, x_elms_pos_2, x_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_x);
+        println!("Splitting in y axis");
         let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos_2, y_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
+        println!("Splitting in z axis");
         let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos_2, z_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
 
 
@@ -236,7 +245,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         println!("Computing columns of influence matrix");
 
         js.par_iter().for_each(|&j|  {
-            // println!("Computing column {} of the influence matrix", j);
+            println!("Computing column {} of the influence matrix", j);
             let mut q = DVector::zeros(npts);
             q[j] = 1.0;
 
@@ -273,12 +282,12 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         for k in 0..nelm {
 
-            let i1 = n[(k, 0)] - 1;
-            let i2 = n[(k, 1)] - 1;
-            let i3 = n[(k, 2)] - 1;
-            let i4 = n[(k, 3)] - 1;
-            let i5 = n[(k, 4)] - 1;
-            let i6 = n[(k, 5)] - 1;
+            let i1 = n[(k, 0)];
+            let i2 = n[(k, 1)];
+            let i3 = n[(k, 2)];
+            let i4 = n[(k, 3)];
+            let i5 = n[(k, 4)];
+            let i6 = n[(k, 5)];
 
             let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
             let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -325,22 +334,14 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 sys_ref.body2.position + x_vec_body * 1.01
             };
 
-            let u1 = grad_3d(npts, nelm, mint,
+            let u = grad_3d(npts, nelm, mint,
                                     &f, &dfdn, &p, &n, &vna,
                                     &alpha, &beta, &gamma,
                                     &xiq, &etq, &wq, &p0, &vn, eps);
 
-            let u2 = grad_3d(npts, nelm, mint,
-                             &f, &dfdn, &p, &n, &vna,
-                             &alpha, &beta, &gamma,
-                             &xiq, &etq, &wq, &p0, &dx_1, eps);
 
-            let u3 = grad_3d(npts, nelm, mint,
-                             &f, &dfdn, &p, &n, &vna,
-                             &alpha, &beta, &gamma,
-                             &xiq, &etq, &wq, &p0, &dx_2, eps);
 
-            let u_square = u1.powi(2) + u2.powi(2) + u3.powi(2);
+            let u_square = u.norm_squared();
             // println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
             // println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
 

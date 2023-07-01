@@ -1,6 +1,7 @@
 use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
+use num_traits::Signed;
 
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
@@ -123,7 +124,6 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
     // levels 1 through ndiv
 
     for _ in 0..ndiv {
-
         let mut num :usize = 0;
 
         for j in 0..nelm {
@@ -226,7 +226,7 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
     for i in 0..6 {
         (p[(i, 0)], p[(i, 1)], p[(i, 2)]) = (x[(0, i)], y[(0, i)], z[(0, i)]);
 
-        n[(0, i)] = i + 1;
+        n[(0, i)] = i;
     }
 
     let mut npts = 6;
@@ -240,21 +240,21 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
                     if (y[(i,j)] - p[(k,1)]).abs() < eps {
                         if (z[(i,j)] - p[(k,2)]).abs() < eps {
                             iflag = false; //If all coordinates match with a pre-recorded point, no.
-                            n[(i, j)] = k + 1;
+                            n[(i, j)] = k;
                         }
                     }
                 }
             }
             if iflag {
                 (p[(npts, 0)], p[(npts, 1)], p[(npts, 2)]) = (x[(i, j)], y[(i, j)], z[(i, j)]);
-                n[(i, j)] = npts + 1;
+                n[(i, j)] = npts;
                 npts += 1;
 
             }
         }
 
     }
-    (nelm, npts, p, n)
+    (npts, nelm, p, n)
 }
 
 pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
@@ -263,8 +263,8 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
                      -> (usize, usize, DMatrix<f64>, DMatrix<usize>, DMatrix<usize>, Vec<usize>, Vec<usize>)
 {
 
-
     let eps = 1e-8;
+
 
 
     let (a, b, c) = (shape[0], shape[1], shape[2]);
@@ -283,7 +283,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
     //Set component for splitting
     let mut axis_index = 0_usize;
     for a in 0..3 {
-        if split_axis[a].abs() > 0 {
+        if (split_axis[a]).abs() > 0 {
             axis_index = a;
         }
     }
@@ -294,34 +294,6 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
     } else {
         axis_direction = -1_f64;
     };
-
-
-    //Check that any two points are both on the axis (x)
-    for i in 0..nelm{
-
-        let i1 = n[(i, 0)];
-        let i2 = n[(i, 1)];
-        let i3 = n[(i, 2)];
-
-        let i4 = n[(i, 3)];
-        let i5 = n[(i, 4)];
-        let i6 = n[(i, 5)];
-
-        let p1_x = p[(i1, axis_index)];
-        let p2_x = p[(i2, axis_index)];
-        let p3_x = p[(i3, axis_index)];
-
-        if (p1_x.abs() < eps) && (p2_x.abs() < eps) {
-            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i1, i4, i2)
-        };
-        if (p2_x.abs() < eps) && (p3_x.abs() < eps) {
-            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i2, i5, i3)
-        };
-        if (p1_x.abs() < eps) && (p3_x.abs() < eps) {
-            (n_line[(i, 0)], n_line[(i, 1)], n_line[(i,2)]) = (i1, i6, i3)
-        };
-    }
-
 
     //New list of elements on the singular side
     let mut sing_elms :Vec<usize> = Vec::new();
@@ -336,6 +308,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
             sing_elms.push(i)
         }
     }
+    println!("singelms = {:?}", sing_elms);
 
     //New list of elements on the non-singular side
     let mut non_sing_elms :Vec<usize> = Vec::new();
@@ -350,6 +323,45 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
             non_sing_elms.push(i)
         }
     }
+
+    println!("Nonsingelms = {:?}", non_sing_elms);
+
+    let mut i_count = 0_usize;
+
+    //Check that any two points from this half (to avoid duplicates) are both on the axis (x) and add that index to n_line
+    for &i in sing_elms.iter(){
+        // println!("i = {:?} out of {:?}, n_shape is {:?}", i, nelm, n.shape());
+        let i1 = n[(i, 0)];
+        let i2 = n[(i, 1)];
+        let i3 = n[(i, 2)];
+
+        let i4 = n[(i, 3)];
+        let i5 = n[(i, 4)];
+        let i6 = n[(i, 5)];
+
+        let p1_x = p[(i1, axis_index)];
+        let p2_x = p[(i2, axis_index)];
+        let p3_x = p[(i3, axis_index)];
+
+        // println!("Coords = {:?}, {:?}, {:?}", p1_x, p2_x, p3_x);
+        // println!("Nodes = {:?}, {:?}, {:?}", i1, i2, i3);
+
+
+        if (p1_x.abs() < eps) && (p2_x.abs() < eps) {
+            (n_line[(i_count, 0)], n_line[(i_count, 1)], n_line[(i_count,2)]) = (i1, i4, i2);
+            i_count += 1;
+        }
+        else if (p2_x.abs() < eps) && (p3_x.abs() < eps) {
+            (n_line[(i_count, 0)], n_line[(i_count, 1)], n_line[(i_count,2)]) = (i2, i5, i3);
+            i_count += 1;
+        }
+        else if (p1_x.abs() < eps) && (p3_x.abs() < eps) {
+            (n_line[(i_count, 0)], n_line[(i_count, 1)], n_line[(i_count,2)]) = (i1, i6, i3);
+            i_count += 1;
+        };
+
+    }
+    // println!("i_count = {}, shape = {:?}", i_count, n_line.shape());
 
 
     let scale = req / (boa * coa).powf(1.0/3.0);
@@ -426,18 +438,24 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     let nelm = nelm1 + nelm2;
     let npts = npts1 + npts2;
 
+    let nelm_line_1 = n_line_1.shape().0;
+    let nelm_line_2 = n_line_2.shape().0;
 
-    let mut n_line = DMatrix::zeros(nelm, 3);
+    let nelm_line = nelm_line_1 + nelm_line_2;
+
+
+    let mut n_line = DMatrix::zeros(nelm_line, 3);
     //Combine n_line matrix
-    for i in 0..nelm1 {
-        for j in 0..6 {
+    for i in 0..nelm_line_1 {
+        for j in 0..3 {
             n_line[(i,j)] = n_line_1[(i, j)];
         }
     }
 
-    for i in 0..nelm2 {
-        for j in 0..6 {
-            n_line[(i + nelm1, j)] = n_line_2[(i, j)] + npts1;
+    for i in 0..nelm_line_2 {
+        for j in 0..3 {
+            // println!("Attempting to assign to index {:?}, shape of {:?} - or index {:?}, shape of {:?}", (i + nelm))
+            n_line[(i + nelm_line_1, j)] = n_line_2[(i, j)] + npts1;
         }
     };
 
@@ -654,12 +672,12 @@ pub fn abc_vec(nelm :usize,
 
     for k in 0..nelm {
 
-        let i1 = n[(k, 0)] - 1;
-        let i2 = n[(k, 1)] - 1;
-        let i3 = n[(k, 2)] - 1;
-        let i4 = n[(k, 3)] - 1;
-        let i5 = n[(k, 4)] - 1;
-        let i6 = n[(k, 5)] - 1;
+        let i1 = n[(k, 0)];
+        let i2 = n[(k, 1)];
+        let i3 = n[(k, 2)];
+        let i4 = n[(k, 3)];
+        let i5 = n[(k, 4)];
+        let i6 = n[(k, 5)];
 
         let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
         let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -763,12 +781,12 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
     for k in 0..nelm {
 
-        let i1 = n[(k, 0)] - 1;
-        let i2 = n[(k, 1)] - 1;
-        let i3 = n[(k, 2)] - 1;
-        let i4 = n[(k, 3)] - 1;
-        let i5 = n[(k, 4)] - 1;
-        let i6 = n[(k, 5)] - 1;
+        let i1 = n[(k, 0)];
+        let i2 = n[(k, 1)];
+        let i3 = n[(k, 2)];
+        let i4 = n[(k, 3)];
+        let i5 = n[(k, 4)];
+        let i6 = n[(k, 5)];
 
         let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
         let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
@@ -822,7 +840,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
                                           al, be, ga,
                                           xi, eta);
 
-            let m = n[(k, i)] - 1;
+            let m = n[(k, i)];
 
             for j in 0..3 {
                 vna[(m, j)] += vn[j];

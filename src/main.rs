@@ -57,7 +57,6 @@ fn main() {
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
-
     body1.linear_momentum = body1.linear_momentum_from_vel(Vector3::new(1.0, 0.0, 0.0));
 
 
@@ -91,7 +90,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv =3;
+    let ndiv = 1;
     println!("Building simulation");
     // Building System for simulation
     let sys  = Simulation::new(
