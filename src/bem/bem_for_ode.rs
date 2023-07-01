@@ -337,7 +337,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let u = grad_3d(npts, nelm, mint,
                                     &f, &dfdn, &p, &n, &vna,
                                     &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq, &p0, &vn, eps);
+                                    &xiq, &etq, &wq, &p0);
 
 
 

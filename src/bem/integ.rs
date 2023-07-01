@@ -832,13 +832,13 @@ pub fn line_interp(p1 :Vector3<f64>,
     let mut f = 0.0;
     let mut df = 0.0;
     if xi < 0.5 {
-        let p = line_interp_vector(p1, p2, xi * 2.0);
-        let f = line_interp_scalar(f1, f2, xi * 2.0);
-        let df = line_interp_scalar(df1, df2, xi * 2.0);
+        p = line_interp_vector(p1, p2, xi * 2.0);
+        f = line_interp_scalar(f1, f2, xi * 2.0);
+        df = line_interp_scalar(df1, df2, xi * 2.0);
     } else {
-        let p = line_interp_vector(p2, p3, (xi - 0.5) * 2.0);
-        let f = line_interp_scalar(f2, f3, (xi - 0.5) * 2.0);
-        let df = line_interp_scalar(df2, df3, (xi - 0.5) * 2.0);
+        p = line_interp_vector(p2, p3, (xi - 0.5) * 2.0);
+        f = line_interp_scalar(f2, f3, (xi - 0.5) * 2.0);
+        df = line_interp_scalar(df2, df3, (xi - 0.5) * 2.0);
     }
 
     (p, f, df)
@@ -1085,7 +1085,7 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
              p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
              alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
              xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-             p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64) -> Vector3<f64> {
+             p0 :&Vector3<f64>) -> Vector3<f64> {
 
     //Calculates the gradient of phi in the given direction dxi at point p0.
 
@@ -1126,7 +1126,7 @@ pub fn grad_3d_integral_l1(p0 :&Vector3<f64>,
 
 }
 
-pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
                         k :usize, mint :usize,
                         f :&DVector<f64>, df :&DVector<f64>,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -1168,14 +1168,14 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, _f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, _vn, hs, _f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                                 vna1, vna2, vna3, vna4, vna5, vna6,
                                                                 f1, f2, f3, f4, f5, f6,
                                                                 df1, df2, df3, df4, df5, df6,
                                                                 al, be, ga, xi, eta);
 
 
-        let (g, dg) = lgf_3d_fs(&xvec, p0);
+        let (_g, dg) = lgf_3d_fs(&xvec, p0);
 
 
         let cf = 0.5 * hs * wq[i];
@@ -1190,7 +1190,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
     (sdlp, area)
 }
 
-pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+pub fn grad_3d_integral_l3(p0 :&Vector3<f64>,
                            k :usize, mint :usize,
                            f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -1233,14 +1233,14 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, vn, hs, f_int, dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+        let (xvec, vn, hs, f_int, _dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                               vna1, vna2, vna3, vna4, vna5, vna6,
                                                               f1, f2, f3, f4, f5, f6,
                                                               df1, df2, df3, df4, df5, df6,
                                                               al, be, ga, xi, eta);
 
 
-        let (dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
+        let (_dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
 
         let cf = 0.5 * hs * wq[i];
