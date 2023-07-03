@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 // use csv::*;
 use nalgebra as na;
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Quaternion, Vector3};
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
@@ -188,13 +188,22 @@ impl Body {
         4.0 * PI * frac
     }
 
+    pub fn lab_body_convert(&self, v :&Vector3<f64>) -> Vector3<f64>{
+
+        let v_lin = v - self.position;
+        let v_lin_quaternion = Quaternion::from_imag(v_lin);
+        let v_body = lab_to_body(&v_lin_quaternion, &self.orientation);
+
+        v_body.imag()
+
+    }
+
     pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> (usize, usize) {
         ///Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the orientation of the body to split the surface by.
         /// outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
 
         let p0_lin_transformed = p0 - self.position;
         let p0_quaternion = na::Quaternion::from_imag(p0_lin_transformed);
-        println!("Shape orientation = {:?}", self.orientation);
         let p0_body = lab_to_body(&p0_quaternion, &self.orientation);
         let shape = self.shape;
 
@@ -202,14 +211,17 @@ impl Body {
         println!("Point in body frame is {:?}", p0_lin_transformed);
         println!("Point rotated is {:?}", p0_body);
 
-        let mut scaled_p0 = Vector3::new(0.0, 0.0, 0.0);
+        let mut scaled_p0 = p0_body.imag();
 
-        for i in 0..3 {
-            scaled_p0[i] = p0_body.imag()[i];
-        };
 
         println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
         println!("scaled p0 = {:?}", scaled_p0);
+
+        let mut check = 0.0;
+        for i in 0..3 {
+            check += (scaled_p0[i]/shape[i]).powi(2);
+        }
+        println!("Check = {:?}", check);
 
         let mut max_abs_val = scaled_p0[0];
         let mut max_abs_ind :usize = 0;

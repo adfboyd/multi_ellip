@@ -38,7 +38,7 @@ fn main() {
     let den = 1.0;
     let s = Vector3::new(1.0, 0.8, 0.6);
     let s0 = Vector3::new(1.0, 1.0, 1.0);
-    let q = Quaternion::from_parts(-1.0, Vector3::new(1.0, 1.0, 1.0));
+    let q = Quaternion::from_parts(1.0, Vector3::new(0.0, 0.0, 0.0));
     let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
     let o_vec2 = Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();
@@ -50,9 +50,9 @@ fn main() {
     let mut body1 = Body {
         density: 1.0,
         shape: s,
-        position: Vector3::new(1.0, 0.0, 0.0),
+        position: Vector3::new(0.0, 0.0, 0.0),
         orientation: q.normalize(),
-        linear_momentum: o_vec * 6.0,
+        linear_momentum: o_vec * 0.0,
         angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
@@ -74,7 +74,7 @@ fn main() {
     let body2 = Body {
         density: 1.0,
         shape: s0,
-        position: Vector3::new(1.0, 0.0, 0.0),
+        position: Vector3::new(3.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: o_vec2,
         angular_momentum: ang_mom_q,

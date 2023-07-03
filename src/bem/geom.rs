@@ -216,6 +216,8 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
                 (x[(k, l)], y[(k, l)], z[(k, l)]) = (x[(k, l)] / rad, y[(k, l)] / rad, z[(k, l)] / rad)
             }
         }
+
+
     }
 
     //Generate a list of global nodes by looping over all elements
@@ -365,6 +367,8 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
 
 
     let scale = req / (boa * coa).powf(1.0/3.0);
+    println!("Scale = {:?}, boa, coa = {:?}, {:?}", scale, boa, coa);
+
 
     for i in 0..npts {
         //Reshape to ellipsoid
