@@ -188,23 +188,32 @@ impl Body {
         4.0 * PI * frac
     }
 
-    pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> Vector3<f64> {
+    pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> (usize, usize) {
         ///Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the orientation of the body to split the surface by.
         /// outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
 
-        let p0_quaternion = na::Quaternion::from_imag(*p0);
+        let p0_lin_transformed = p0 - self.position;
+        let p0_quaternion = na::Quaternion::from_imag(p0_lin_transformed);
+        println!("Shape orientation = {:?}", self.orientation);
         let p0_body = lab_to_body(&p0_quaternion, &self.orientation);
         let shape = self.shape;
 
+        println!("Point in lab frame is {:?}", p0);
+        println!("Point in body frame is {:?}", p0_lin_transformed);
+        println!("Point rotated is {:?}", p0_body);
+
         let mut scaled_p0 = Vector3::new(0.0, 0.0, 0.0);
 
-        for i in 0..2 {
-            scaled_p0[i] = p0_body[i+1] / shape[i];
+        for i in 0..3 {
+            scaled_p0[i] = p0_body.imag()[i];
         };
+
+        println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
+        println!("scaled p0 = {:?}", scaled_p0);
 
         let mut max_abs_val = scaled_p0[0];
         let mut max_abs_ind :usize = 0;
-        for i in 1..2 {
+        for i in 1..3 {
             if max_abs_val.abs() < scaled_p0[i].abs() {
                 max_abs_val = scaled_p0[i];
                 max_abs_ind = i;
@@ -214,7 +223,12 @@ impl Body {
         let mut result_vec = Vector3::new(0.0, 0.0, 0.0);
         result_vec[max_abs_ind] = max_abs_val / max_abs_val.abs();
 
-        result_vec
+        let mut is_positive = 0_usize;
+        if max_abs_val > 0.0 {
+            is_positive = 1_usize
+        }
+
+        (max_abs_ind, is_positive)
     }
 
 }

@@ -56,7 +56,7 @@ pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
 pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, orientation :UnitQuaternion<f64>,
                   velocity :Vector3<f64>, omega :Vector3<f64>, nq :usize, mint :usize) -> DVector<f64> {
 
-    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, shape, centre, orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &shape, &centre, &orientation);
 
     let (zz, ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
@@ -121,7 +121,7 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
     let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
-    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
 
     let (zz, ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
@@ -184,7 +184,7 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
     let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
-    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
 
     let (zz, ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
@@ -252,7 +252,7 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
     let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0); //equivalent radius
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
-    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
 
     let (zz, ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
@@ -337,7 +337,7 @@ pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
     let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
-    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, body.shape, body.position, orientation);
+    let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
 
     let (_zz, _ww) = gauss_leg(nq);
     let (xiq, etq, wq) = gauss_trgl(mint);
@@ -364,13 +364,13 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
     let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
 
     let orientation1 = UnitQuaternion::from_quaternion(body1.orientation);
-    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, body1.shape, body1.position, orientation1);
+    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
 
     let s2 = body2.shape;
     let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
 
     let orientation2 = UnitQuaternion::from_quaternion(body2.orientation);
-    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, body2.shape, body2.position, orientation2);
+    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
 
     let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -457,13 +457,13 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
     let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
 
     let orientation1 = UnitQuaternion::from_quaternion(body1.orientation);
-    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, body1.shape, body1.position, orientation1);
+    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
 
     let s2 = body2.shape;
     let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
 
     let orientation2 = UnitQuaternion::from_quaternion(body2.orientation);
-    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, body2.shape, body2.position, orientation2);
+    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
 
     let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 

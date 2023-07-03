@@ -6,7 +6,7 @@ use num_traits::Signed;
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
 pub fn ellip_gridder(ndiv : u32, req :f64,
-                     shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>)
+                     shape :&Vector3<f64>, centre :&Vector3<f64>, orient : &na::UnitQuaternion<f64>)
     -> (usize, usize, DMatrix<f64>, DMatrix<usize>)
     {
 
@@ -258,8 +258,8 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
 }
 
 pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
-                     shape :Vector3<f64>, centre :Vector3<f64>, orient : na::UnitQuaternion<f64>,
-                     split_axis :Vector3<i32>)
+                     shape :&Vector3<f64>, centre :&Vector3<f64>, orient : &na::UnitQuaternion<f64>,
+                     split_axis :&Vector3<i32>)
                      -> (usize, usize, DMatrix<f64>, DMatrix<usize>, DMatrix<usize>, Vec<usize>, Vec<usize>)
 {
 
@@ -429,9 +429,9 @@ pub fn combiner(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
 }
 
 pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
-                         n_line_1 :DMatrix<usize>, n_line_2 :DMatrix<usize>,
-                         sing_elms_1 :Vec<usize>, sing_elms_2 :Vec<usize>,
-                         nonsing_elms_1 :Vec<usize>, nonsing_elms_2 :Vec<usize>) -> (usize, usize,
+                         n_line_1 :&DMatrix<usize>, n_line_2 :&DMatrix<usize>,
+                         sing_elms_1 :&Vec<usize>, sing_elms_2 :&Vec<usize>,
+                         nonsing_elms_1 :&Vec<usize>, nonsing_elms_2 :&Vec<usize>) -> (usize, usize,
                                                                                       DMatrix<usize>,
                                                                                       Vec<usize>, Vec<usize>) {
 
@@ -461,22 +461,22 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
 
     let mut sing_elms :Vec<usize> = Vec::new();
 
-    for &i in &sing_elms_1 {
+    for &i in sing_elms_1 {
         sing_elms.push(i);
     };
 
-    for &i in &sing_elms_2 {
+    for &i in sing_elms_2 {
         let i2 = i + npts1;
         sing_elms.push(i2);
     };
 
     let mut nonsing_elms :Vec<usize> = Vec::new();
 
-    for &i in &nonsing_elms_1 {
+    for &i in nonsing_elms_1 {
         nonsing_elms.push(i);
     };
 
-    for &i in &nonsing_elms_2 {
+    for &i in nonsing_elms_2 {
         let i2 = i + npts1;
         nonsing_elms.push(i2);
     };

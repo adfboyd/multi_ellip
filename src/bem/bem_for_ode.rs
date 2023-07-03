@@ -50,18 +50,16 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         let split_axis_z = Vector3::new(0, 0, 1);
 
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        let (nelm1, npts1, p1, n1, n1_xline, x_elms_pos, x_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_x);
-        let (nelm1, npts1, p1, n1, n1_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_y);
-        let (nelm1, npts1, p1, n1, n1_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_z);
+        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position, &orientation1);
 
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        let (nelm2, npts2, p2, n2, n2_xline, x_elms_pos, x_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_x);
-        let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
-        let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
+        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position, &orientation2);
+        // let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
+        // let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -160,44 +158,104 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
         println!("Splitting in x axis");
-        let (nelm1, npts1, p1, n1, n1_xline, x_elms_pos_1, x_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_x);
+        let (nelm1, npts1, p1, n1,
+            n1_xline, x_elms_pos_1, x_elms_neg_1)
+            = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
+                                     &orientation1, &split_axis_x);
         println!("Splitting in y axis");
 
-        let (nelm1, npts1, p1, n1, n1_yline, y_elms_pos_1, y_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_y);
+        let (nelm1, npts1, p1, n1,
+            n1_yline, y_elms_pos_1, y_elms_neg_1)
+            = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
+                                     &orientation1, &split_axis_y);
         println!("Splitting in z axis");
 
-        let (nelm1, npts1, p1, n1, n1_zline, z_elms_pos_1, z_elms_neg_1) = ellip_gridder_splitter(ndiv, req1, sys_ref.body1.shape, sys_ref.body1.position, orientation1, split_axis_z);
+        let (nelm1, npts1, p1, n1,
+            n1_zline, z_elms_pos_1, z_elms_neg_1)
+            = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
+                                     &orientation1, &split_axis_z);
+
+        let mut body1_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
+        body1_lines.push(n1_xline.clone());
+        body1_lines.push(n1_yline.clone());
+        body1_lines.push(n1_zline.clone());
+
+        let mut body1_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
+        body1_elms_pos.push(x_elms_pos_1.clone());
+        body1_elms_pos.push(y_elms_pos_1.clone());
+        body1_elms_pos.push(z_elms_pos_1.clone());
+
+        let mut body1_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
+        body1_elms_neg.push(x_elms_neg_1.clone());
+        body1_elms_neg.push(y_elms_neg_1.clone());
+        body1_elms_neg.push(z_elms_neg_1.clone());
+
+        let mut body1_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
+        body1_elms_all.push(body1_elms_neg.clone());
+        body1_elms_all.push(body1_elms_pos.clone());
+
+
 
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        println!("Splitting in x axis");
+        //"Splitting in x axis
+        let (nelm2, npts2, p2, n2,
+            n2_xline, x_elms_pos_2, x_elms_neg_2)
+            = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
+                                     &orientation2, &split_axis_x);
+        //println!("Splitting in y axis");
+        let (nelm2, npts2, p2, n2,
+            n2_yline, y_elms_pos_2, y_elms_neg_2)
+            = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
+                                     &orientation2, &split_axis_y);
+        //println!("Splitting in z axis");
+        let (nelm2, npts2, p2, n2,
+            n2_zline, z_elms_pos_2, z_elms_neg_2)
+            = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
+                                     &orientation2, &split_axis_z);
 
-        let (nelm2, npts2, p2, n2, n2_xline, x_elms_pos_2, x_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_x);
-        println!("Splitting in y axis");
-        let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos_2, y_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
-        println!("Splitting in z axis");
-        let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos_2, z_elms_neg_2) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
+        let mut body2_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
+        body2_lines.push(n2_xline.clone());
+        body2_lines.push(n2_yline.clone());
+        body2_lines.push(n2_zline.clone());
+
+        let mut body2_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
+        body2_elms_pos.push(x_elms_pos_2.clone());
+        body2_elms_pos.push(y_elms_pos_2.clone());
+        body2_elms_pos.push(z_elms_pos_2.clone());
+
+        let mut body2_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
+        body2_elms_neg.push(x_elms_neg_2.clone());
+        body2_elms_neg.push(y_elms_neg_2.clone());
+        body2_elms_neg.push(z_elms_neg_2.clone());
+
+        let mut body2_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
+        body2_elms_all.push(body2_elms_neg.clone());
+        body2_elms_all.push(body2_elms_pos.clone());
+
+        let body1_elms :Vec<usize> = (0..nelm1).collect();
+        let body2_elms :Vec<usize> = (nelm1..(nelm1+nelm2)).collect();
 
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
         let (nelm, npts, n_xline, x_elms_pos, x_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              n1_xline, n2_xline,
-                                                                              x_elms_pos_1, x_elms_pos_2,
-                                                                              x_elms_neg_1, x_elms_neg_2);
+                                                                              &n1_xline, &n2_xline,
+                                                                              &x_elms_pos_1, &x_elms_pos_2,
+                                                                              &x_elms_neg_1, &x_elms_neg_2);
 
         let (nelm, npts, n_yline, y_elms_pos, y_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              n1_yline, n2_yline,
-                                                                              y_elms_pos_1, y_elms_pos_2,
-                                                                              y_elms_neg_1, y_elms_neg_2);
+                                                                              &n1_yline, &n2_yline,
+                                                                              &y_elms_pos_1, &y_elms_pos_2,
+                                                                              &y_elms_neg_1, &y_elms_neg_2);
 
         let (nelm, npts, n_zline, z_elms_pos, z_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              n1_zline, n2_zline,
-                                                                              z_elms_pos_1, z_elms_pos_2,
-                                                                              z_elms_neg_1, z_elms_neg_2);
+                                                                              &n1_zline,&n2_zline,
+                                                                              &z_elms_pos_1, &z_elms_pos_2,
+                                                                              &z_elms_neg_1, &z_elms_neg_2);
 
 
         let (zz, ww) = gauss_leg(nq);
@@ -245,7 +303,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         println!("Computing columns of influence matrix");
 
         js.par_iter().for_each(|&j|  {
-            println!("Computing column {} of the influence matrix", j);
+            // println!("Computing column {} of the influence matrix", j);
             let mut q = DVector::zeros(npts);
             q[j] = 1.0;
 
@@ -277,10 +335,10 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
+//should be 0..nelm
+        for k in 0..1 {
 
-        let eps = 0.01;
-
-        for k in 0..nelm {
+            println!("Iterating over {:?}th element", k);
 
             let i1 = n[(k, 0)];
             let i2 = n[(k, 1)];
@@ -311,33 +369,93 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let (xi, eta) = (1.0/3.0, 1.0/3.0);
 
-            let (x_vec, vn, _hs, _fint, _dfdn_int) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
+            let (p0, vn, _hs, f_p0, dfdn_p0) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
                                                                   vna1, vna2, vna3, vna4, vna5, vna6,
                                                                   f1, f2, f3, f4, f5, f6,
                                                                   df1, df2, df3, df4, df5, df6,
                                                                   al, be, ga, xi, eta);
 
-            let testvec = Vector3::new(1.0, 1.0, 1.0);
 
-            let dx_1 = vn.cross(&testvec).normalize(); //Generate set of three perpendicular directions.
-            let dx_2 = vn.cross(&dx_1).normalize();
 
-            let x_vec_body = if k < nelm1 {  //Change frame of reference to each individual body
-                x_vec - sys_ref.body1.position
+            let p0_n = vn; //Another name for the normal vector at p0.
+
+            let which_body = if k < nelm1 {  //Which body is the point we are integrating round on?
+                1
             } else {
-                x_vec - sys_ref.body2.position
+                2
             };
 
-            let p0 = if k < nelm1 {
-                sys_ref.body1.position + x_vec_body * 1.0
+
+
+            let (mut axis_index, mut axis_direction) = (0_usize, 0_usize); //axis_index gives index of the axis. axis_direction = 0 if negative, 1 if positive.
+            if which_body == 1_usize {
+                (axis_index, axis_direction) = sys_ref.body1.surface_splitter(&p0);
+            } else if which_body == 2_usize {
+                (axis_index, axis_direction) = sys_ref.body2.surface_splitter(&p0);
             } else {
-                sys_ref.body2.position + x_vec_body * 1.01
+                panic!("Not in either body?!!")
             };
 
-            let u = grad_3d(npts, nelm, mint,
-                                    &f, &dfdn, &p, &n, &vna,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq, &p0);
+            println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
+
+            let mut n_line  = if which_body == 1 {
+                body1_lines.get(axis_index).unwrap().clone()
+            } else if which_body == 2 {
+                body2_lines.get(axis_index).unwrap().clone()
+            } else {
+                panic!("Not in either body?!!")
+            };
+
+            let mut sing_elms = if which_body == 1 {
+                let correct_direction_vec = body1_elms_all.get(axis_direction).unwrap().clone();
+                correct_direction_vec.get(axis_index).unwrap().clone()
+            } else if which_body == 2 {
+                let correct_direction_vec = body2_elms_all.get(axis_direction).unwrap().clone();
+                correct_direction_vec.get(axis_index).unwrap().clone()
+            } else {
+                panic!("Not in either body?!!")
+            };
+
+            println!("Singular elements are {:?}", sing_elms);
+
+            let mut non_sing_elms = if which_body == 1 {
+                let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
+                let mut sing_body_elms = correct_direction_vec.get(axis_index).unwrap().clone();
+                sing_body_elms.extend(body2_elms.clone());
+                sing_body_elms
+            } else if which_body == 2 {
+                let correct_direction_vec = body2_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
+                let mut sing_body_elms = correct_direction_vec.get(axis_index).unwrap().clone();
+                sing_body_elms.extend(body1_elms.clone());
+                sing_body_elms
+            } else {
+                panic!("Not in either body?!!")
+            };
+
+
+
+            let rhs = grad_3d_all_rhs(&sing_elms, &non_sing_elms, mint,
+                                      &f, &dfdn,
+                                      &p, &n, &n_line,  &vna,
+                                      &alpha, &beta, &gamma,
+                                      &xiq, &etq, &wq,
+                                      &p0,  f_p0, dfdn_p0);
+
+            let lhs_matrix = grad_3d_all_lhs(&sing_elms, &non_sing_elms, mint,
+                                              &f, &dfdn,
+                                              &p, &n, &n_line, &vna,
+                                              &alpha, &beta, &gamma,
+                                              &xiq, &etq, &wq,
+                                              &p0, &p0_n, f_p0, dfdn_p0);
+
+
+
+
+            let decomp_lhs = lhs_matrix.lu();
+            let u = decomp_lhs.solve(&rhs).expect("Linear resolution of eq(28) failed");
+            println!("rhs = {:?}", rhs);
+            println!("lhs = {:?}", lhs_matrix);
+            println!("At this element the fluid velocity is {:?}", u);
 
 
 
@@ -351,13 +469,21 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let pressure = -u_square;
 
-            let linearity = vn.dot(&x_vec_body);
-            let perpendicularity = vn.cross(&x_vec_body).norm();
+            let p0_lab = if which_body == 1 {
+                p0 - sys_ref.body1.position
+            } else if which_body == 2 {
+                p0 - sys_ref.body2.position
+            } else {
+                panic!("Not in either body?!!")
+            };
+
+            let linearity = vn.dot(&p0_lab);
+            let perpendicularity = vn.cross(&p0_lab).norm();
 
             let lin_pressure = pressure * linearity;
             let ang_pressure = pressure * perpendicularity;
 
-            let torque_vec = vn.cross(&x_vec_body);
+            let torque_vec = vn.cross(&p0_lab);
             // let angular_vec = x_cen.cross(&perp_vec);
 
             let lin_inc = lin_pressure * vn;

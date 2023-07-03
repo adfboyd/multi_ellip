@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Quaternion, UnitQuaternion, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, UnitQuaternion, Vector3, Vector6};
 use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::bem_for_ode;
@@ -38,7 +38,7 @@ fn main() {
     let den = 1.0;
     let s = Vector3::new(1.0, 0.8, 0.6);
     let s0 = Vector3::new(1.0, 1.0, 1.0);
-    let q = Quaternion::from_parts(1.0, Vector3::new(1.0, 0.5, 0.0));
+    let q = Quaternion::from_parts(-1.0, Vector3::new(1.0, 1.0, 1.0));
     let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
     let o_vec2 = Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();

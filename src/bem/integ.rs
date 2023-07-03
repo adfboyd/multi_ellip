@@ -1,5 +1,6 @@
 use std::f64::consts::PI;
-use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3, Vector6};
+use std::process::id;
+use nalgebra::{DMatrix, DVector, Matrix, Matrix3, Quaternion, Vector3, Vector6};
 use num_traits::ToPrimitive;
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
@@ -1064,9 +1065,11 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>,
                                                                df1, df2, df3, df4, df5, df6,
                                                                al, be, ga, xi, eta);
 
+        println!("p0 = {:?}, x = {:?}", p0, xvec);
 
         let (d_g, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
+        println!("dg = {:?}", d_g);
 
         let cf = 0.5 * hs * wq[i];
 
@@ -1080,7 +1083,7 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>,
     (sdlp, area)
 }
 
-pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
+pub fn grad_3d(nelm :usize, mint :usize,
              f :&DVector<f64>, dfdn :&DVector<f64>,
              p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
              alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
@@ -1108,21 +1111,51 @@ pub fn grad_3d(_npts :usize, nelm :usize, mint :usize,
 
 pub fn grad_3d_integral_l1(p0 :&Vector3<f64>,
                         k :usize, mint :usize,
-                        f :&DVector<f64>, df :&DVector<f64>,
+                        f :&DVector<f64>, dfdn :&DVector<f64>,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                        xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        dfdn_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
+                        xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>)
+    -> (Vector3<f64>, f64) {
     ///Does the integral on line 1 of eq(28). Carried out on outer subsurface.
 
     let (sdlp, area) = grad_3d_integral(p0,
                                                 k, mint,
-                                                f, df,
+                                                f, dfdn,
                                                 p, n ,vna,
                                                 alpha, beta, gamma,
                                                 xiq, etq, wq);
 
     (sdlp, area)
+
+}
+
+pub fn grad_3d_l1(nonsing_elms :&Vec<usize>, mint :usize,
+                  f :&DVector<f64>, dfdn :&DVector<f64>,
+                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                  p0 :&Vector3<f64>) -> Vector3<f64> {
+
+    let mut f0 = Vector3::zeros();
+
+    for k in 0..1 { //nonsing_elms {
+
+
+        let (sdlp, area) =  grad_3d_integral_l1(p0,
+                                         k, mint,
+                                         f, dfdn,
+                                         p, n ,vna,
+                                         alpha, beta, gamma,
+                                         xiq, etq, wq);
+        println!("k = {:?}, sdlp = {:?}", k, sdlp);
+
+
+        f0 += sdlp
+    }
+
+    f0
+
+
 
 }
 
@@ -1132,7 +1165,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
                         p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                        f_xi :f64, dfdn_xi :f64) -> (Vector3<f64>, f64) {
+                        dfdn_xi :f64) -> (Vector3<f64>, f64) {
     ///Does the integral on line 2 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
@@ -1190,13 +1223,36 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
     (sdlp, area)
 }
 
-pub fn grad_3d_integral_l3(p0 :&Vector3<f64>,
+pub fn grad_3d_l2(sing_elms :&Vec<usize>, mint :usize,
+                  f :&DVector<f64>, dfdn :&DVector<f64>,
+                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                  p0 :&Vector3<f64>, dfdn_xi :f64) -> Vector3<f64> {
+
+    let mut f0 = Vector3::zeros();
+
+    for &k in sing_elms {
+
+        let (sdlp, area) =  grad_3d_integral_l2(p0,
+                                                k, mint,
+                                                f, dfdn,
+                                                p, n ,vna,
+                                                alpha, beta, gamma,
+                                                xiq, etq, wq, dfdn_xi);
+
+        f0 += sdlp
+    }
+    f0
+}
+
+pub fn grad_3d_integral_l3_1(p0 :&Vector3<f64>,
                            k :usize, mint :usize,
                            f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :f64, dfdn_xi :f64) -> (Vector3<f64>, f64) {
+                           f_xi :f64) -> (Vector3<f64>, f64) {
     ///Does the integral on line 3 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
     ///(Only the part that does not need to be rearranged) I have included the negative sign outside the integral.
 
@@ -1255,13 +1311,36 @@ pub fn grad_3d_integral_l3(p0 :&Vector3<f64>,
     (sdlp, area)
 }
 
-pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+pub fn grad_3d_l3_1(sing_elms :&Vec<usize>, mint :usize,
+                  f :&DVector<f64>, dfdn :&DVector<f64>,
+                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                  p0 :&Vector3<f64>, f_xi :f64) -> Vector3<f64> {
+
+    let mut f0 = Vector3::zeros();
+
+    for &k in sing_elms {
+
+        let (sdlp, area) =  grad_3d_integral_l3_1(p0,
+                                                k, mint,
+                                                f, dfdn,
+                                                p, n ,vna,
+                                                alpha, beta, gamma,
+                                                xiq, etq, wq, f_xi);
+
+        f0 += sdlp
+    }
+    f0
+}
+
+pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
                            k :usize, mint :usize,
                            f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                           xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :f64, dfdn_xi :f64) -> (Matrix3<f64>, f64) {
+                           xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>)
+    -> (Matrix3<f64>, f64) {
     ///Does the integral on line 3 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
     ///(Only the part that does need to be rearranged)
     ///
@@ -1305,14 +1384,14 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
                                                                al, be, ga, xi, eta);
 
 
-        let (dg, dd_g) = d_lgf_3d_fs(&xvec, p0, dxi);
+        let (dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
-
+        let dd_g_dn = dd_g * vn;
         let cf = 0.5 * hs * wq[i];
 
         area += cf;
 
-        let r_int = dd_g * (xvec - p0).transpose() ;
+        let r_int = dd_g_dn * (xvec - p0).transpose() ;
         let cf_mat = Matrix3::from_diagonal_element(cf);
         sdlp += cf_mat * r_int;
     }
@@ -1320,14 +1399,37 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
     (sdlp, area)
 }
 
+pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
+                    f :&DVector<f64>, dfdn :&DVector<f64>,
+                    p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                    alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                    xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                    p0 :&Vector3<f64>) -> Matrix3<f64> {
 
-pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
+    let mut f0 = Matrix3::zeros();
+
+    for &k in sing_elms {
+
+        let (sdlp, area) =  grad_3d_integral_l3_2(p0,
+                                                  k, mint,
+                                                  f, dfdn,
+                                                  p, n ,vna,
+                                                  alpha, beta, gamma,
+                                                  xiq, etq, wq);
+
+        f0 += sdlp
+    }
+    f0
+}
+
+
+pub fn grad_3d_integral_l5(p0 :&Vector3<f64>,
                            k :usize, mint :usize,
                            f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                            xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                           f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Matrix3<f64>, f64) {
+                           n_xi :&Vector3<f64>) -> (Matrix3<f64>, f64) {
     ///Does the integral on line 5 of eq(28) of Hyp-singular integrals paper. Carried out on the inner subsurface
 
     let mut area = 0.0;
@@ -1386,13 +1488,32 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>, dxi :&Vector3<f64>, eps :f64,
     (sdlp, area)
 }
 
+pub fn grad_3d_l5(sing_elms :&Vec<usize>, mint :usize,
+                    f :&DVector<f64>, dfdn :&DVector<f64>,
+                    p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                    alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                    xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                    p0 :&Vector3<f64>, p0_n :&Vector3<f64>) -> Matrix3<f64> {
+
+    let mut f0 = Matrix3::zeros();
+
+    for &k in sing_elms {
+
+        let (sdlp, area) =  grad_3d_integral_l5(p0,
+                                                  k, mint,
+                                                  f, dfdn,
+                                                  p, n ,vna,
+                                                  alpha, beta, gamma,
+                                                  xiq, etq, wq, p0_n);
+
+        f0 += sdlp
+    }
+    f0
+}
+
 fn grad_3d_integral_l4_1(p0 :&Vector3<f64>,
                          k :usize,
-                         f :&DVector<f64>, df :&DVector<f64>,
-                         p :&DMatrix<f64>, n_line :&DMatrix<usize>, vna :&DMatrix<f64>,
-                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                         f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Vector3<f64>, f64) {
+                         p :&DMatrix<f64>, n_line :&DMatrix<usize>) -> (Vector3<f64>, f64) {
     ///Does the first line integral on line 4.
 
 
@@ -1404,20 +1525,9 @@ fn grad_3d_integral_l4_1(p0 :&Vector3<f64>,
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
     let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
 
-    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
-    let (df1, df2, df3) = (df[i1], df[i2], df[i3]);
-
-
-
 
     let p12 = line_interp_vector(p1, p2, 0.5);
     let p23 = line_interp_vector(p2, p3, 0.5);
-
-    let f12 = line_interp_scalar(f1, f2, 0.5);
-    let f23 = line_interp_scalar(f2, f3, 0.5);
-
-    let df12 = line_interp_scalar(df1, df2, 0.5);
-    let df23 = line_interp_scalar(df2, df3, 0.5);
 
 
     let h1 = (p1 - p2);
@@ -1435,13 +1545,26 @@ fn grad_3d_integral_l4_1(p0 :&Vector3<f64>,
     (integral, length)
 }
 
+pub fn grad_3d_l4_1(    p :&DMatrix<f64>, n_line :&DMatrix<usize>,
+                        p0 :&Vector3<f64>) -> Vector3<f64> {
+
+    let mut f0 = Vector3::zeros();
+
+    for k in 0..n_line.shape().0 {
+
+        let (sdlp, length) = grad_3d_integral_l4_1(p0,
+                                                   k,
+                                                   p, n_line);
+
+        f0 += sdlp;
+    }
+    f0
+}
+
 fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
                          k :usize,
-                         f :&DVector<f64>, df :&DVector<f64>,
-                         p :&DMatrix<f64>, n_line :&DMatrix<usize>, vna :&DMatrix<f64>,
-                         alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-                         xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                         f_xi :&Vector3<f64>, dfdn_xi :&Vector3<f64>, n_xi :&Vector3<f64>) -> (Matrix3<Matrix3<f64>>, f64) {
+                         p :&DMatrix<f64>, n_line :&DMatrix<usize>)
+    -> (Matrix3<Vector3<f64>>, f64) {
     ///Does the second line integral on line 4. Returns a 3x3x3 Tensor.
 
 
@@ -1453,21 +1576,9 @@ fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
     let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
     let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
 
-    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
-    let (df1, df2, df3) = (df[i1], df[i2], df[i3]);
-
-
-
 
     let p12 = line_interp_vector(p1, p2, 0.5);
     let p23 = line_interp_vector(p2, p3, 0.5);
-
-    let f12 = line_interp_scalar(f1, f2, 0.5);
-    let f23 = line_interp_scalar(f2, f3, 0.5);
-
-    let df12 = line_interp_scalar(df1, df2, 0.5);
-    let df23 = line_interp_scalar(df2, df3, 0.5);
-
 
     let h1 = (p1 - p2);
     let h2 = (p2 - p3);
@@ -1477,11 +1588,11 @@ fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
 
     let r1 = p12 - p0;
 
-    let mut outer_product1: Matrix3<Matrix3<f64>> = Matrix3::zeros();
+    let mut outer_product1: Matrix3<Vector3<f64>> = Matrix3::zeros();
     for i in 0..3 {
         for j in 0..3 {
             for k in 0..3 {
-                outer_product1[(i,j)][k] = dg1[i] * r1[j] * h1[k];
+                outer_product1[(i,j)][k] = h1[i] * dg1[j] * r1[k];
             }
         }
     };
@@ -1489,11 +1600,11 @@ fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
 
     let r2 = p23 - p0;
 
-    let mut outer_product2: Matrix3<Matrix3<f64>> = Matrix3::zeros();
+    let mut outer_product2: Matrix3<Vector3<f64>> = Matrix3::zeros();
     for i in 0..3 {
         for j in 0..3 {
             for k in 0..3 {
-                outer_product2[(i,j)][k] = dg2[i] * r2[j] * h2[k];
+                outer_product2[(i,j)][k] = h2[i] * dg2[j] * r2[k];
             }
         }
     };
@@ -1501,4 +1612,172 @@ fn grad_3d_integral_l4_2(p0 :&Vector3<f64>,
     let length = h1.norm() + h2.norm();
 
     (integral, length)
+}
+
+pub fn grad_3d_l4_2(p :&DMatrix<f64>, n_line :&DMatrix<usize>,
+                    p0 :&Vector3<f64>) -> Matrix3<Vector3<f64>> {
+
+    let mut f0 :Matrix3<Vector3<f64>> = Matrix3::zeros();
+
+
+    for k in 0..n_line.shape().0 {
+
+        let (sdlp, length) = grad_3d_integral_l4_2(p0,
+                                                   k,
+                                                   p, n_line);
+
+        f0 += sdlp;
+    }
+    f0
+}
+
+pub fn grad_3d_integral_l6_1(p0 :&Vector3<f64>,
+                             k :usize,
+                             p :&DMatrix<f64>, n_line :&DMatrix<usize>) -> Vector3<f64> {
+
+    let i1 = n_line[(k, 0)];
+    let i2 = n_line[(k, 1)];
+    let i3 = n_line[(k, 2)];
+
+    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+
+
+    let p12 = line_interp_vector(p1, p2, 0.5);
+    let p23 = line_interp_vector(p2, p3, 0.5);
+
+
+
+
+    let h1 = (p1 - p2);
+    let h2 = (p2 - p3);
+
+    let (g1, dg1) = lgf_3d_fs(&p12, p0);
+    let (g2, dg2) = lgf_3d_fs(&p23, p0);
+
+
+    let integ1 = h1.cross(&dg1);
+    let integ2 = h2.cross(&dg2);
+
+    let integ = integ1 + integ2;
+
+    integ
+}
+
+pub fn grad_3d_l6_1(p :&DMatrix<f64>, n_line :&DMatrix<usize>,
+                    p0 :&Vector3<f64>) -> Vector3<f64> {
+
+    let mut f0 :Vector3<f64> = Vector3::zeros();
+
+
+    for k in 0..n_line.shape().0 {
+
+        let sdlp = grad_3d_integral_l6_1(p0,
+                                                   k,
+                                                   p, n_line);
+
+        f0 += sdlp;
+    }
+    f0
+}
+
+pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :usize,
+                       f :&DVector<f64>, dfdn :&DVector<f64>,
+                       p :&DMatrix<f64>, n :&DMatrix<usize>, n_line :&DMatrix<usize>,  vna :&DMatrix<f64>,
+                       alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                       xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                       p0 :&Vector3<f64>,  f_p0 :f64, dfdn_p0 :f64) -> Vector3<f64> {
+
+    let l1 = grad_3d_l1(nonsing_elms, mint,
+                        f, dfdn,
+                        p, n, vna,
+                        alpha, beta, gamma,
+                        xiq, etq, wq, p0);
+
+    let l2 = grad_3d_l2(sing_elms, mint,
+                        f, dfdn,
+                        p, n, vna,
+                        alpha, beta, gamma,
+                        xiq, etq, wq,
+                        p0, dfdn_p0);
+
+    let l3_1 = grad_3d_l3_1(sing_elms, mint,
+                            f, dfdn,
+                            p, n, vna,
+                            alpha, beta, gamma,
+                            xiq, etq, wq,
+                            p0, f_p0);
+
+    let l6_1 = grad_3d_l6_1(p, n_line,
+                            p0) * f_p0;
+
+    // println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
+
+    let rhs = l1 + l2 + l3_1 + l6_1;
+
+    rhs
+}
+
+fn skew_symmetric_from_vec(v :&Vector3<f64>) -> Matrix3<f64> {
+    let (v0, v1, v2) = (v[0], v[1], v[2]);
+
+    let matrix = Matrix3::new(0.0, -v2, v1,
+                              v2, 0.0, -v0,
+                              -v1, v0, 0.0);
+
+    matrix
+
+}
+pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :usize,
+                       f :&DVector<f64>, dfdn :&DVector<f64>,
+                       p :&DMatrix<f64>, n :&DMatrix<usize>, n_line :&DMatrix<usize>,  vna :&DMatrix<f64>,
+                       alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                       xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                       p0 :&Vector3<f64>, p0_n :&Vector3<f64>, f_p0 :f64, dfdn_p0 :f64) -> Matrix3<f64> {
+
+    let l3_2 = grad_3d_l3_2(sing_elms, mint,
+                            f, dfdn,
+                            p, n, vna,
+                            alpha, beta, gamma,
+                            xiq, etq, wq,
+                            p0);
+
+    let l4_1_vec = -grad_3d_l4_1(p, n_line,
+                                p0);
+    //the full term on the rhs is u cross l4_1_vec, so -l4_1_vec cross u. (hence the -grad...())
+
+    let mut l4_1 = skew_symmetric_from_vec(&l4_1_vec);
+
+    let l4_2_tensor = grad_3d_l4_2(p, n_line,
+                                   p0);
+
+    let row0 = l4_2_tensor[(1,2)] - l4_2_tensor[(2,1)];
+    let row1 = l4_2_tensor[(2,0)] - l4_2_tensor[(0,2)];
+    let row2 = l4_2_tensor[(0,1)] - l4_2_tensor[(1,0)];
+
+    let l4_2 = Matrix3::new(row0[0], row0[1], row0[2],
+                            row1[0], row1[1], row1[2],
+                            row2[0], row2[1], row2[2]);
+
+
+    let l5 = grad_3d_l5( sing_elms, mint,
+                        f, dfdn,
+                        p, n, vna,
+                        alpha, beta, gamma,
+                        xiq, etq, wq,
+                        p0, p0_n);
+
+    let l6_2_scalar = 0.5; //Solid angle/4pi should be 0.5 in the limit as a point approaches the surface.
+
+    let l6_2 = Matrix3::from_diagonal_element(l6_2_scalar);
+
+    //When rearranging eq(28), these terms are all subtracted from I and multiplied by u to give the rhs.
+
+    let id_mat = Matrix3::from_diagonal_element(1.0);
+
+    let mat = id_mat - l3_2 - l4_1 - l4_2 - l5 - l6_2;
+
+    mat
+
 }
