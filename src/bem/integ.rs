@@ -427,7 +427,7 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
             let test = Vector6::new(q1.abs(), q2.abs(), q3.abs(), q4.abs(), q5.abs(), q6.abs()).sum();
 
             if test > tol {
-
+                // println!("Test didn't fail, k= {:?}, i = {:?}", k, i);
                 let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, q, q0,
                                                      p, n, vna,
                                                      alpha, beta, gamma,
@@ -435,7 +435,6 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
 
                 ptl += pptl;
             }
-
         }
         dlp[i] += ptl - 0.5 * q0;
     }
@@ -1065,11 +1064,11 @@ pub fn grad_3d_integral(p0 :&Vector3<f64>,
                                                                df1, df2, df3, df4, df5, df6,
                                                                al, be, ga, xi, eta);
 
-        println!("p0 = {:?}, x = {:?}", p0, xvec);
+        // println!("p0 = {:?}, x = {:?}", p0, xvec);
 
         let (d_g, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
-        println!("dg = {:?}", d_g);
+        // println!("dg = {:?}", d_g);
 
         let cf = 0.5 * hs * wq[i];
 
@@ -1138,7 +1137,7 @@ pub fn grad_3d_l1(nonsing_elms :&Vec<usize>, mint :usize,
 
     let mut f0 = Vector3::zeros();
 
-    for k in 0..1 { //nonsing_elms {
+    for &k in nonsing_elms {
 
 
         let (sdlp, area) =  grad_3d_integral_l1(p0,
@@ -1147,7 +1146,7 @@ pub fn grad_3d_l1(nonsing_elms :&Vec<usize>, mint :usize,
                                          p, n ,vna,
                                          alpha, beta, gamma,
                                          xiq, etq, wq);
-        println!("k = {:?}, sdlp = {:?}", k, sdlp);
+        // println!("k = {:?}, sdlp = {:?}", k, sdlp);
 
 
         f0 += sdlp
@@ -1228,21 +1227,38 @@ pub fn grad_3d_l2(sing_elms :&Vec<usize>, mint :usize,
                   p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                   alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                   xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                  p0 :&Vector3<f64>, dfdn_xi :f64) -> Vector3<f64> {
+                  p0 :&Vector3<f64>, f_p0 :f64, dfdn_p0:f64) -> Vector3<f64> {
 
     let mut f0 = Vector3::zeros();
 
     for &k in sing_elms {
 
-        let (sdlp, area) =  grad_3d_integral_l2(p0,
-                                                k, mint,
-                                                f, dfdn,
-                                                p, n ,vna,
-                                                alpha, beta, gamma,
-                                                xiq, etq, wq, dfdn_xi);
+        let i1 = n[(k, 0)];
+        let i2 = n[(k, 1)];
+        let i3 = n[(k, 2)];
+        let i4 = n[(k, 3)];
+        let i5 = n[(k, 4)];
+        let i6 = n[(k, 5)];
 
-        f0 += sdlp
+        let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+
+        let test = Vector6::new(f1, f2, f3, f4, f5, f6).abs().sum();
+
+        if test > 1e-8 {
+            let (sdlp, area) =  grad_3d_integral_l2(p0,
+                                                    k, mint,
+                                                    f, dfdn,
+                                                    p, n, vna,
+                                                    alpha, beta, gamma,
+                                                    xiq, etq, wq, dfdn_p0);
+            f0 += sdlp;
+        }
+
+
+
     }
+    // f0 += - 0.5 * f_p0;
+
     f0
 }
 
@@ -1700,7 +1716,7 @@ pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
                         p, n, vna,
                         alpha, beta, gamma,
                         xiq, etq, wq,
-                        p0, dfdn_p0);
+                        p0, f_p0, dfdn_p0);
 
     let l3_1 = grad_3d_l3_1(sing_elms, mint,
                             f, dfdn,
@@ -1712,7 +1728,7 @@ pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     let l6_1 = grad_3d_l6_1(p, n_line,
                             p0) * f_p0;
 
-    // println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
+    println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
 
     let rhs = l1 + l2 + l3_1 + l6_1;
 
@@ -1775,6 +1791,8 @@ pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     //When rearranging eq(28), these terms are all subtracted from I and multiplied by u to give the rhs.
 
     let id_mat = Matrix3::from_diagonal_element(1.0);
+
+    println!("l3_2 = {:?}, l4_1 = {:?}, l4_2 = {:?}, l5 = {:?}, l6_2 = {:?}", l3_2, l4_1, l4_2, l5, l6_2);
 
     let mat = id_mat - l3_2 - l4_1 - l4_2 - l5 - l6_2;
 

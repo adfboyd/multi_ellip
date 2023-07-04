@@ -148,9 +148,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let (nq, mint) = (12_usize, 13_usize);
         let ndiv = sys_ref.ndiv;
         let s1 = sys_ref.body1.shape;
-        println!("Shape = {:?}", s1);
+        // println!("Shape = {:?}", s1);
         let req1 = (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
-        println!("Req = {:?}", req1);
+        // println!("Req = {:?}", req1);
         // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
 
@@ -394,13 +394,13 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             println!("Transformed point {:?}, to {:?}", p0, p0_body);
 
-            println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}", i1, i2, i3, i4, i5, i6);
-            println!("{:?}", p1);
-            println!("{:?}", p2);
-            println!("{:?}", p3);
-            println!("{:?}", p4);
-            println!("{:?}", p5);
-            println!("{:?}", p6);
+            // println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}", i1, i2, i3, i4, i5, i6);
+            // println!("{:?}", p1);
+            // println!("{:?}", p2);
+            // println!("{:?}", p3);
+            // println!("{:?}", p4);
+            // println!("{:?}", p5);
+            // println!("{:?}", p6);
 
 
             let (mut axis_index, mut axis_direction) = (0_usize, 0_usize); //axis_index gives index of the axis. axis_direction = 0 if negative, 1 if positive.

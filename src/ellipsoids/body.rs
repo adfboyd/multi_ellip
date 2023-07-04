@@ -207,15 +207,15 @@ impl Body {
         let p0_body = lab_to_body(&p0_quaternion, &self.orientation);
         let shape = self.shape;
 
-        println!("Point in lab frame is {:?}", p0);
-        println!("Point in body frame is {:?}", p0_lin_transformed);
-        println!("Point rotated is {:?}", p0_body);
+        // println!("Point in lab frame is {:?}", p0);
+        // println!("Point in body frame is {:?}", p0_lin_transformed);
+        // println!("Point rotated is {:?}", p0_body);
 
         let mut scaled_p0 = p0_body.imag();
 
 
-        println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
-        println!("scaled p0 = {:?}", scaled_p0);
+        // println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
+        // println!("scaled p0 = {:?}", scaled_p0);
 
         let mut check = 0.0;
         for i in 0..3 {
@@ -236,7 +236,7 @@ impl Body {
         result_vec[max_abs_ind] = max_abs_val / max_abs_val.abs();
 
         let mut is_positive = 0_usize;
-        if max_abs_val > 0.0 {
+        if max_abs_val < 0.0 {
             is_positive = 1_usize
         }
 
