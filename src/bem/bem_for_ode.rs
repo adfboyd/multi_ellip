@@ -159,18 +159,18 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let split_axis_z = Vector3::new(0, 0, 1);
 
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        println!("Splitting in x axis");
+        // println!("Splitting in x axis");
         let (nelm1, npts1, p1, n1,
             n1_xline, x_elms_pos_1, x_elms_neg_1)
             = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
                                      &orientation1, &split_axis_x);
-        println!("Splitting in y axis");
+        // println!("Splitting in y axis");
 
         let (nelm1, npts1, p1, n1,
             n1_yline, y_elms_pos_1, y_elms_neg_1)
             = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
                                      &orientation1, &split_axis_y);
-        println!("Splitting in z axis");
+        // println!("Splitting in z axis");
 
         let (nelm1, npts1, p1, n1,
             n1_zline, z_elms_pos_1, z_elms_neg_1)
@@ -197,7 +197,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         body1_elms_all.push(body1_elms_pos.clone());
 
 
-
+        println!("Generated splits for body1");
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
@@ -240,6 +240,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let body1_elms :Vec<usize> = (0..nelm1).collect();
         let body2_elms :Vec<usize> = (nelm1..(nelm1+nelm2)).collect();
+
+        println!("Generated splits for body2");
 
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
@@ -338,7 +340,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 //should be 0..nelm
-        for k in 0..1 {
+        for k in 0..nelm {
 
             println!("Iterating over {:?}th element", k);
 
@@ -388,11 +390,11 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             };
 
 
-            println!("Splitting on body no. {:?}", which_body);
+            // println!("Splitting on body no. {:?}", which_body);
 
             let p0_body = sys_ref.body1.lab_body_convert(&p0);
 
-            println!("Transformed point {:?}, to {:?}", p0, p0_body);
+            // println!("Transformed point {:?}, to {:?}", p0, p0_body);
 
             // println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}", i1, i2, i3, i4, i5, i6);
             // println!("{:?}", p1);
@@ -412,7 +414,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
+            // println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
 
             let mut n_line  = if which_body == 1 {
                 body1_lines.get(axis_index).unwrap().clone()
@@ -432,7 +434,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Singular elements are {:?}", sing_elms);
+            // println!("Singular elements are {:?}", sing_elms);
 
             let mut non_sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
@@ -469,9 +471,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let decomp_lhs = lhs_matrix.lu();
             let u = decomp_lhs.solve(&rhs).expect("Linear resolution of eq(28) failed");
-            println!("rhs = {:?}", rhs);
-            println!("lhs = {:?}", lhs_matrix);
-            println!("At this element the fluid velocity is {:?}", u);
+            // println!("rhs = {:?}", rhs);
+            // println!("lhs = {:?}", lhs_matrix);
+            // println!("At this element the fluid velocity is {:?}", u);
 
 
 

@@ -217,11 +217,11 @@ impl Body {
         // println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
         // println!("scaled p0 = {:?}", scaled_p0);
 
-        let mut check = 0.0;
-        for i in 0..3 {
-            check += (scaled_p0[i]/shape[i]).powi(2);
-        }
-        println!("Check = {:?}", check);
+        // let mut check = 0.0;
+        // for i in 0..3 {
+        //     check += (scaled_p0[i]/shape[i]).powi(2);
+        // }
+        // println!("Check = {:?}", check);
 
         let mut max_abs_val = scaled_p0[0];
         let mut max_abs_ind :usize = 0;

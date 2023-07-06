@@ -310,7 +310,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
             sing_elms.push(i)
         }
     }
-    println!("singelms = {:?}", sing_elms);
+    // println!("singelms = {:?}", sing_elms);
 
     //New list of elements on the non-singular side
     let mut non_sing_elms :Vec<usize> = Vec::new();
@@ -326,7 +326,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
         }
     }
 
-    println!("Nonsingelms = {:?}", non_sing_elms);
+    // println!("Nonsingelms = {:?}", non_sing_elms);
 
     let mut i_count = 0_usize;
 
@@ -367,7 +367,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
 
 
     let scale = req / (boa * coa).powf(1.0/3.0);
-    println!("Scale = {:?}, boa, coa = {:?}, {:?}", scale, boa, coa);
+    // println!("Scale = {:?}, boa, coa = {:?}, {:?}", scale, boa, coa);
 
 
     for i in 0..npts {

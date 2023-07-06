@@ -1207,7 +1207,11 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
                                                                 al, be, ga, xi, eta);
 
 
-        let (_g, dg) = lgf_3d_fs(&xvec, p0);
+        let (_g, mut dg) = lgf_3d_fs(&xvec, p0);
+
+        if (xvec - p0).norm() < 1e-8 {
+            dg = Vector3::zeros();
+        }
 
 
         let cf = 0.5 * hs * wq[i];
@@ -1312,8 +1316,11 @@ pub fn grad_3d_integral_l3_1(p0 :&Vector3<f64>,
                                                               al, be, ga, xi, eta);
 
 
-        let (_dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
+        let (_dg, mut dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
+        if (xvec - p0).norm() < 1e-8 {
+            dd_g = Matrix3::zeros()
+        };
 
         let cf = 0.5 * hs * wq[i];
 
@@ -1400,7 +1407,11 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
                                                                al, be, ga, xi, eta);
 
 
-        let (dg, dd_g) = d_lgf_3d_fs_full(&xvec, p0);
+        let (dg, mut dd_g) = d_lgf_3d_fs_full(&xvec, p0);
+
+        if (xvec - p0).norm() < 1e-8 {
+            dd_g = Matrix3::zeros()
+        }
 
         let dd_g_dn = dd_g * vn;
         let cf = 0.5 * hs * wq[i];
@@ -1488,8 +1499,11 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>,
                                                               al, be, ga, xi, eta);
 
 
-        let (g, d_g) = lgf_3d_fs(&xvec, p0);
+        let (g, mut d_g) = lgf_3d_fs(&xvec, p0);
 
+        if (xvec - p0).norm() < 1e-8 {
+            d_g = Vector3::zeros()
+        }
 
         let cf = 0.5 * hs * wq[i];
 
@@ -1728,7 +1742,7 @@ pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     let l6_1 = grad_3d_l6_1(p, n_line,
                             p0) * f_p0;
 
-    println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
+    // println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
 
     let rhs = l1 + l2 + l3_1 + l6_1;
 
@@ -1792,7 +1806,7 @@ pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
 
     let id_mat = Matrix3::from_diagonal_element(1.0);
 
-    println!("l3_2 = {:?}, l4_1 = {:?}, l4_2 = {:?}, l5 = {:?}, l6_2 = {:?}", l3_2, l4_1, l4_2, l5, l6_2);
+    // println!("l3_2 = {:?}, l4_1 = {:?}, l4_2 = {:?}, l5 = {:?}, l6_2 = {:?}", l3_2, l4_1, l4_2, l5, l6_2);
 
     let mat = id_mat - l3_2 - l4_1 - l4_2 - l5 - l6_2;
 
