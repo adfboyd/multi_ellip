@@ -1209,7 +1209,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
 
         let (_g, mut dg) = lgf_3d_fs(&xvec, p0);
 
-        if (xvec - p0).norm() < 1e-8 {
+        if (xvec - p0).norm() < 1e-3 {
             dg = Vector3::zeros();
         }
 
@@ -1318,7 +1318,7 @@ pub fn grad_3d_integral_l3_1(p0 :&Vector3<f64>,
 
         let (_dg, mut dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
-        if (xvec - p0).norm() < 1e-8 {
+        if (xvec - p0).norm() < 1e-3 {
             dd_g = Matrix3::zeros()
         };
 
@@ -1409,7 +1409,7 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
 
         let (dg, mut dd_g) = d_lgf_3d_fs_full(&xvec, p0);
 
-        if (xvec - p0).norm() < 1e-8 {
+        if (xvec - p0).norm() < 1e-3 {
             dd_g = Matrix3::zeros()
         }
 
@@ -1501,7 +1501,7 @@ pub fn grad_3d_integral_l5(p0 :&Vector3<f64>,
 
         let (g, mut d_g) = lgf_3d_fs(&xvec, p0);
 
-        if (xvec - p0).norm() < 1e-8 {
+        if (xvec - p0).norm() < 1e-3 {
             d_g = Vector3::zeros()
         }
 

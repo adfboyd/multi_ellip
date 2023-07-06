@@ -36,7 +36,7 @@ fn main() {
     let comment = format!("Testing results");
 
     let den = 1.0;
-    let s = Vector3::new(1.0, 0.8, 0.6);
+    let s = Vector3::new(1.0, 1.0, 1.0);
     let s0 = Vector3::new(1.0, 1.0, 1.0);
     let q = Quaternion::from_parts(1.0, Vector3::new(1.0, -1.0, 0.0));
     let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
@@ -90,7 +90,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 1;
+    let ndiv = 3;
     println!("Building simulation");
     // Building System for simulation
     let sys  = Simulation::new(
