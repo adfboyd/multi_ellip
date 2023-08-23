@@ -50,9 +50,9 @@ fn main() {
     let mut body1 = Body {
         density: 1.0,
         shape: s,
-        position: Vector3::new(1.0, 0.0, 0.0),
+        position: Vector3::new(-15.0, 0.0, 0.0),
         orientation: q.normalize(),
-        linear_momentum: o_vec * 0.0,
+        linear_momentum: Vector3::new(1.0, 0.0, 0.0),
         angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
@@ -74,9 +74,9 @@ fn main() {
     let body2 = Body {
         density: 1.0,
         shape: s0,
-        position: Vector3::new(3.0, 0.0, 0.0),
+        position: Vector3::new(15.0, 0.0, 0.0),
         orientation: q.normalize(),
-        linear_momentum: o_vec2,
+        linear_momentum:  Vector3::new(-1.0, 0.0, 0.0),
         angular_momentum: ang_mom_q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };

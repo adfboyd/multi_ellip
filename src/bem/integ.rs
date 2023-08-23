@@ -14,8 +14,9 @@ pub fn lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>) -> (f64, Vector3<f64>) {
     let g = 1.0 / (pi4 * r);
 
     let mut dg = Vector3::zeros();
+    let den = pi4 * r * r * r;
     for i in 0..3 {
-        dg[i] = - dx[i] / r;
+        dg[i] = - dx[i] / den;
     }
 
     (g, dg)
@@ -50,10 +51,11 @@ pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f
 
         let ri = x - x0;
         let r = ri.norm();
+        let den = PI * 4.0 * r * r * r;
 
         let mut dg = Vector3::zeros();
         for i in 0..3 {
-            dg[i] = - ri[i] / r;
+            dg[i] = - ri[i] / den;
         }
 
         let mut dd_g = Matrix3::zeros();
@@ -64,7 +66,7 @@ pub fn d_lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>, xi :&Vector3<f64>) -> (f
                 if i==j {
                     delta = 1f64;
                 }
-                dd_g[(i, j)] = delta / r.powi(3) - ( 3.0 / (4.0 * PI * r.powi(5))) * ri[i] * ri[j];
+                dd_g[(i, j)] = (-1.0 / (4.0 * PI )) * (delta / r.powi(3) - ( 3.0 / (r.powi(5))) * ri[i] * ri[j]);
             }
         }
 
@@ -1218,7 +1220,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
 
         area += cf;
 
-        let r_int = (dfdn_int - dfdn_xi) * dg;
+        let r_int = dg * (dfdn_int - dfdn_xi);
 
         sdlp += r_int * cf;
     }
@@ -1742,9 +1744,11 @@ pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     let l6_1 = grad_3d_l6_1(p, n_line,
                             p0) * f_p0;
 
-    // println!("l1 = {:?}, l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
+    println!("l1 = {:?}",l1);//    , l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
 
     let rhs = l1 + l2 + l3_1 + l6_1;
+
+    println!("Rhs = {:?}",rhs);
 
     rhs
 }
