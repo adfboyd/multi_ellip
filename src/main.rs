@@ -50,10 +50,10 @@ fn main() {
     let mut body1 = Body {
         density: 1.0,
         shape: s,
-        position: Vector3::new(-15.0, 0.0, 0.0),
+        position: Vector3::new(-100.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: Vector3::new(1.0, 0.0, 0.0),
-        angular_momentum: ang_mom_q,
+        angular_momentum: q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
@@ -74,10 +74,10 @@ fn main() {
     let body2 = Body {
         density: 1.0,
         shape: s0,
-        position: Vector3::new(15.0, 0.0, 0.0),
+        position: Vector3::new(100.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum:  Vector3::new(-1.0, 0.0, 0.0),
-        angular_momentum: ang_mom_q,
+        angular_momentum: q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
@@ -157,7 +157,7 @@ fn main() {
         inertia1,
         inertia2,
         100.0,
-        0.1,
+        0.000001,
         10);
 
     println!("Solver initialised");

@@ -232,8 +232,8 @@ impl Body {
             }
         }
 
-        let mut result_vec = Vector3::new(0.0, 0.0, 0.0);
-        result_vec[max_abs_ind] = max_abs_val / max_abs_val.abs();
+        // let mut result_vec = Vector3::new(0.0, 0.0, 0.0);
+        // result_vec[max_abs_ind] = max_abs_val / max_abs_val.abs();
 
         let mut is_positive = 0_usize;
         if max_abs_val < 0.0 {

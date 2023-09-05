@@ -469,8 +469,9 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
         sing_elms.push(i);
     };
 
+    ///nelm1 not npts1
     for &i in sing_elms_2 {
-        let i2 = i + npts1;
+        let i2 = i + nelm1;
         sing_elms.push(i2);
     };
 
@@ -481,7 +482,7 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     };
 
     for &i in nonsing_elms_2 {
-        let i2 = i + npts1;
+        let i2 = i + nelm1;
         nonsing_elms.push(i2);
     };
 

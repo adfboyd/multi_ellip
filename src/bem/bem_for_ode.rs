@@ -340,7 +340,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 //should be 0..nelm
-        for k in 0..nelm {
+        for mut k in 0..nelm {
+
+            k = nelm - k - 1;
 
             println!("Iterating over {:?}th element", k);
 
@@ -392,7 +394,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             // println!("Splitting on body no. {:?}", which_body);
 
-            let p0_body = sys_ref.body1.lab_body_convert(&p0);
+            // let p0_body = sys_ref.body1.lab_body_convert(&p0);
 
             // println!("Transformed point {:?}, to {:?}", p0, p0_body);
 
@@ -438,14 +440,14 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let mut non_sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
-                let mut sing_body_elms = correct_direction_vec.get(axis_index).unwrap().clone();
-                sing_body_elms.extend(body2_elms.clone());
-                sing_body_elms
+                let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
+                non_sing_body_elms_temp.extend(body2_elms.clone());
+                non_sing_body_elms_temp
             } else if which_body == 2 {
                 let correct_direction_vec = body2_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
-                let mut sing_body_elms = correct_direction_vec.get(axis_index).unwrap().clone();
-                sing_body_elms.extend(body1_elms.clone());
-                sing_body_elms
+                let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
+                non_sing_body_elms_temp.extend(body1_elms.clone());
+                non_sing_body_elms_temp
             } else {
                 panic!("Not in either body?!!")
             };
@@ -486,6 +488,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             // println!("dfdn= {:?}", concat_test);
 
             let pressure = -u_square;
+
+            println!("Pressure = {:?}",pressure);
 
             let p0_lab = if which_body == 1 {
                 p0 - sys_ref.body1.position

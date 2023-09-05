@@ -1211,7 +1211,7 @@ pub fn grad_3d_integral_l2(p0 :&Vector3<f64>,
 
         let (_g, mut dg) = lgf_3d_fs(&xvec, p0);
 
-        if (xvec - p0).norm() < 1e-3 {
+        if (xvec - p0).norm() < 1e-5 {
             dg = Vector3::zeros();
         }
 
@@ -1744,11 +1744,11 @@ pub fn grad_3d_all_rhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     let l6_1 = grad_3d_l6_1(p, n_line,
                             p0) * f_p0;
 
-    println!("l1 = {:?}",l1);//    , l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
+    // println!("l1 = {:?}",l1);//    , l2 = {:?}, l3_1 = {:?}, l6_1 = {:?}", l1, l2, l3_1, l6_1);
 
     let rhs = l1 + l2 + l3_1 + l6_1;
 
-    println!("Rhs = {:?}",rhs);
+    // println!("Rhs = {:?}",rhs);
 
     rhs
 }
