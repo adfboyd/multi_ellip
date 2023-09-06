@@ -90,7 +90,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 3;
+    let ndiv = 1;
     println!("Building simulation");
     // Building System for simulation
     let sys  = Simulation::new(
@@ -98,7 +98,7 @@ fn main() {
         body1,
         body2,
         100.0,
-        0.000001,
+        0.001,
         ndiv,
         10000,
         ratio,

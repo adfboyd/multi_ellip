@@ -2,6 +2,7 @@ use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
 use num_traits::Signed;
+use crate::bem::stacking::Block;
 
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
@@ -261,7 +262,7 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
 
 pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
                      shape :&Vector3<f64>, centre :&Vector3<f64>, orient : &na::UnitQuaternion<f64>,
-                     split_axis :&Vector3<i32>)
+                     split_axis :&Vector3<i32>, reflect :usize)
                      -> (usize, usize, DMatrix<f64>, DMatrix<usize>, DMatrix<usize>, Vec<usize>, Vec<usize>)
 {
 
@@ -276,6 +277,12 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
 
 
     let (npts, nelm, mut p, n) = ellip_gridder_no_rotation(ndiv);
+
+    if reflect == 1_usize {
+        for i in 0..npts {
+            p[(i,0)] = -p[(i,0)]
+        }
+    }
 
     let npts_line = 4_usize * 2_usize.pow(ndiv);
     let mut n_line = MatrixU3::zeros(npts_line, 3);
@@ -442,8 +449,8 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
     let nelm = nelm1 + nelm2;
     let npts = npts1 + npts2;
 
-    let nelm_line_1 = n_line_1.shape().0;
-    let nelm_line_2 = n_line_2.shape().0;
+    let nelm_line_1 = n_line_1.shape().0 as usize;
+    let nelm_line_2 = n_line_2.shape().0 as usize;
 
     let nelm_line = nelm_line_1 + nelm_line_2;
 

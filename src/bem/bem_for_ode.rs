@@ -163,19 +163,19 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let (nelm1, npts1, p1, n1,
             n1_xline, x_elms_pos_1, x_elms_neg_1)
             = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
-                                     &orientation1, &split_axis_x);
+                                     &orientation1, &split_axis_x, 0_usize);
         // println!("Splitting in y axis");
 
         let (nelm1, npts1, p1, n1,
             n1_yline, y_elms_pos_1, y_elms_neg_1)
             = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
-                                     &orientation1, &split_axis_y);
+                                     &orientation1, &split_axis_y, 0_usize);
         // println!("Splitting in z axis");
 
         let (nelm1, npts1, p1, n1,
             n1_zline, z_elms_pos_1, z_elms_neg_1)
             = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
-                                     &orientation1, &split_axis_z);
+                                     &orientation1, &split_axis_z, 0_usize);
 
         let mut body1_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
         body1_lines.push(n1_xline.clone());
@@ -196,6 +196,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         body1_elms_all.push(body1_elms_neg.clone());
         body1_elms_all.push(body1_elms_pos.clone());
 
+        println!("Body 1 elms = {:?}", body1_elms_all);
+
 
         println!("Generated splits for body1");
 
@@ -207,17 +209,17 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let (nelm2, npts2, p2, n2,
             n2_xline, x_elms_pos_2, x_elms_neg_2)
             = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
-                                     &orientation2, &split_axis_x);
+                                     &orientation2, &split_axis_x, 1_usize);
         //println!("Splitting in y axis");
         let (nelm2, npts2, p2, n2,
             n2_yline, y_elms_pos_2, y_elms_neg_2)
             = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
-                                     &orientation2, &split_axis_y);
+                                     &orientation2, &split_axis_y, 1_usize);
         //println!("Splitting in z axis");
         let (nelm2, npts2, p2, n2,
             n2_zline, z_elms_pos_2, z_elms_neg_2)
             = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
-                                     &orientation2, &split_axis_z);
+                                     &orientation2, &split_axis_z, 1_usize);
 
         let mut body2_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
         body2_lines.push(n2_xline.clone());
@@ -241,7 +243,28 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let body1_elms :Vec<usize> = (0..nelm1).collect();
         let body2_elms :Vec<usize> = (nelm1..(nelm1+nelm2)).collect();
 
+        for mut i in &mut body2_elms_all {
+            for mut j in i {
+                for mut k in j {
+                    *k += nelm1;
+                }
+            }
+        }
+
+        for mut i in &mut body2_lines {
+            for mut j in i {
+                *j += npts1;
+            }
+        }
+
+        // let  body2_elms_all_copy = body2_elms_all.clone();
+
+        println!("Body 2 elms = {:?}", body2_elms_all);
+
         println!("Generated splits for body2");
+
+        println!("Body 1 lines = {:?}", body1_lines);
+        println!("Body 2 lines = {:?}", body2_lines);
 
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
@@ -340,10 +363,10 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 //should be 0..nelm
-        for mut k in 0..nelm {
+        for k in 0..nelm {
 
-            k = nelm - k - 1;
 
+            println!();
             println!("Iterating over {:?}th element", k);
 
             let i1 = n[(k, 0)];
@@ -392,7 +415,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             };
 
 
-            // println!("Splitting on body no. {:?}", which_body);
+            println!("Splitting on body no. {:?}", which_body);
 
             // let p0_body = sys_ref.body1.lab_body_convert(&p0);
 
@@ -416,7 +439,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            // println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
+            println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
 
             let mut n_line  = if which_body == 1 {
                 body1_lines.get(axis_index).unwrap().clone()
@@ -425,6 +448,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             } else {
                 panic!("Not in either body?!!")
             };
+
+            println!("Line points are {:?}", n_line);
 
             let mut sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(axis_direction).unwrap().clone();
@@ -436,7 +461,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            // println!("Singular elements are {:?}", sing_elms);
+            println!("Singular elements are {:?}", sing_elms);
 
             let mut non_sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
@@ -451,6 +476,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             } else {
                 panic!("Not in either body?!!")
             };
+
+            println!("Non-singular elements are {:?}", non_sing_elms);
 
 
 

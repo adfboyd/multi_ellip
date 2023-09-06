@@ -112,7 +112,8 @@ Rk4PCDM<
         let samp_rate = self.samp_rate as usize;
         let steps_per_sec = 1 as usize;
 
-        for i in 0..num_steps {
+        //should be for i in 0..num_steps
+        for i in 0..1 {
             if i % steps_per_sec == 0 {
                 println!("Time = {:.3}", self.t);  //Print progress
             };
