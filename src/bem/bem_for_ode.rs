@@ -514,7 +514,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             // println!("{:?}",dfdn_2);
             // println!("dfdn= {:?}", concat_test);
 
-            let pressure = -u_square;
+            let pressure = -u_square * 0.5 * sys_ref.fluid.density;
 
             println!("Pressure = {:?}",pressure);
 
