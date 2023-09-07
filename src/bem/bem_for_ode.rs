@@ -196,10 +196,10 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         body1_elms_all.push(body1_elms_neg.clone());
         body1_elms_all.push(body1_elms_pos.clone());
 
-        println!("Body 1 elms = {:?}", body1_elms_all);
-
-
-        println!("Generated splits for body1");
+        // println!("Body 1 elms = {:?}", body1_elms_all);
+        //
+        //
+        // println!("Generated splits for body1");
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
@@ -259,12 +259,12 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         // let  body2_elms_all_copy = body2_elms_all.clone();
 
-        println!("Body 2 elms = {:?}", body2_elms_all);
+        // println!("Body 2 elms = {:?}", body2_elms_all);
+        //
+        // println!("Generated splits for body2");
 
-        println!("Generated splits for body2");
-
-        println!("Body 1 lines = {:?}", body1_lines);
-        println!("Body 2 lines = {:?}", body2_lines);
+        // println!("Body 1 lines = {:?}", body1_lines);
+        // println!("Body 2 lines = {:?}", body2_lines);
 
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
@@ -321,13 +321,13 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                           &xiq, &etq, &wq, &zz, &ww);
 
 
-        println!("Grids created");
+        // println!("Grids created");
         let amat_1 = DMatrix::zeros(npts, npts);
         let amat = Mutex::from(amat_1);
 
         let js = (0..npts).collect::<Vec<usize>>();
 
-        println!("Computing columns of influence matrix");
+        // println!("Computing columns of influence matrix");
 
         js.par_iter().for_each(|&j|  {
             // println!("Computing column {} of the influence matrix", j);
@@ -354,7 +354,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         let df = dfdn.clone();
-        println!("Linear system solved!");
+        // println!("Linear system solved!");
         // println!("F = {:?}", f);
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -366,8 +366,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         for k in 0..nelm {
 
 
-            println!();
-            println!("Iterating over {:?}th element", k);
+            // println!();
+            // println!("Iterating over {:?}th element", k);
 
             let i1 = n[(k, 0)];
             let i2 = n[(k, 1)];
@@ -415,7 +415,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             };
 
 
-            println!("Splitting on body no. {:?}", which_body);
+            // println!("Splitting on body no. {:?}", which_body);
 
             // let p0_body = sys_ref.body1.lab_body_convert(&p0);
 
@@ -439,7 +439,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
+            // println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
 
             let mut n_line  = if which_body == 1 {
                 body1_lines.get(axis_index).unwrap().clone()
@@ -449,7 +449,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Line points are {:?}", n_line);
+            // println!("Line points are {:?}", n_line);
 
             let mut sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(axis_direction).unwrap().clone();
@@ -461,7 +461,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Singular elements are {:?}", sing_elms);
+            // println!("Singular elements are {:?}", sing_elms);
 
             let mut non_sing_elms = if which_body == 1 {
                 let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
@@ -477,7 +477,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            println!("Non-singular elements are {:?}", non_sing_elms);
+            // println!("Non-singular elements are {:?}", non_sing_elms);
 
 
 
@@ -516,7 +516,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
             let pressure = -u_square * 0.5 * sys_ref.fluid.density;
 
-            println!("Pressure = {:?}",pressure);
+            // println!("Pressure = {:?}",pressure);
 
             let p0_lab = if which_body == 1 {
                 p0 - sys_ref.body1.position
@@ -547,8 +547,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         }
 
-        println!("Body1 force = {:?}, {:?}", linear_pressure1, angular_pressure1);
-        println!("Body2 force = {:?}, {:?}", linear_pressure2, angular_pressure2);
+        // println!("Body1 force = {:?}, {:?}", linear_pressure1, angular_pressure1);
+        // println!("Body2 force = {:?}, {:?}", linear_pressure2, angular_pressure2);
 
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();
@@ -590,8 +590,8 @@ impl crate::ode::System2<Linear2State> for LinearUpdate {
         sys_ref.body1.linear_momentum = v1 * sys_ref.body1.mass();
         sys_ref.body2.linear_momentum = v2 * sys_ref.body2.mass();
 
-        sys_ref.body1.print_stats();
-        sys_ref.body2.print_stats();
+        // sys_ref.body1.print_stats();
+        // sys_ref.body2.print_stats();
 
         (p, v)
     }

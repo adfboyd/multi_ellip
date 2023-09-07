@@ -1,6 +1,6 @@
 use nalgebra as na;
 use nalgebra::{Quaternion, Vector3, Vector6};
-
+use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 
@@ -106,22 +106,29 @@ Rk4PCDM<
         self.x_out.push(self.x.clone());
         self.o_out.push(self.o.clone());
         // self.x_lab_out.push(self.x_lab.clone());
+        self.o_lab = self.orientation_to_marker_point();  //Start with correct value of marker point
         self.o_lab_out.push(self.o_lab.clone());
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let steps_per_sec = 1 as usize;
+        let print_rate = 100 as usize;
 
+        let start_t = Instant::now();
         //should be for i in 0..num_steps
-        for i in 0..1 {
-            if i % steps_per_sec == 0 {
-                println!("Time = {:.3}", self.t);  //Print progress
+        for i in 0..num_steps {
+            if (i % print_rate == 0) & (i > 0) {
+                let elapsed = start_t.elapsed();
+                let ratio = ((num_steps - i) as f64) / (i as f64);
+                let ratio2 = (num_steps as f64) / (i as f64);
+                let remain_est = self.multiply_duration(elapsed, ratio);
+                let total_est = self.multiply_duration(elapsed, ratio2);
+                println!("Time = {:.7}s. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
             };
 
             //Get (lin,ang) forces for bodies 1 & 2.
             let (linear_accel, angular_force) = self.force_get();
-            println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
-
+            // println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
+            //
             //Calculate new positions and velocities at half time-step
             let (p_half, v_half) = self.lin_half_step(&linear_accel);
 
@@ -144,7 +151,7 @@ Rk4PCDM<
             let _ = self.g.system(0.0, &o_new);
 
 
-            let o_lab_new_v = self.quaternion_to_point(); //Calculate orientation vector position in lab frame
+            let o_lab_new_v = self.orientation_to_marker_point(); //Calculate orientation vector position in lab frame
 
             // let (_, x_lab_new) = self.euler_frame_step(); //Calculate position of body in lab frame
 
@@ -310,7 +317,20 @@ Rk4PCDM<
 
     }
 
+    fn multiply_duration(&self, duration: Duration, factor: f64) -> Duration {
+        // Convert the duration to seconds as f64, multiply by the factor,
+        // and then convert it back to Duration.
+        let seconds = duration.as_secs() as f64 + f64::from(duration.subsec_nanos()) / 1_000_000_000.0;
+        let result_seconds = seconds * factor;
 
+        // Split the seconds into whole seconds and the fractional part.
+        let whole_seconds = result_seconds as u64;
+        let fractional_seconds = ((result_seconds - whole_seconds as f64) * 1_000_000_000.0) as u32;
+        // println!("Duration = {:?}, factor = {:?}", duration, factor);
+        // println!("Start seconds = {:?}, result seconds = {:?}", seconds, result_seconds);
+        // println!("Whole seconds = {:?}, factional seconds = {:?}", whole_seconds, fractional_seconds);
+        Duration::new(whole_seconds, fractional_seconds)
+    }
     // fn force_get(&mut self) -> (na::Vector6<f64>, na::Vector6<f64>) {
     //     let force = (Vector6::zeros(), Vector6::zeros());
     //     force
@@ -460,7 +480,7 @@ Rk4PCDM<
     // }
 
 
-    fn quaternion_to_point(&self) -> Vector6<f64> {
+    fn orientation_to_marker_point(&self) -> Vector6<f64> {
         let (q, _) = self.o;
         let (q1, q2) = q;
 
