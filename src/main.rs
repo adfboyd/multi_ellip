@@ -1,5 +1,5 @@
 use std::{fs::File, io::BufWriter, io::Write, path::Path};
-use std::f32::consts::PI;
+use std::f64::consts::PI;
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
@@ -90,7 +90,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 1;
+    let ndiv = 0;
 
     let npts_circ = (4*2_usize.pow(ndiv)) as f64;
     let dx = (4.0 * PI) / npts_circ;
@@ -163,8 +163,8 @@ fn main() {
         (q2, omega2),
         inertia1,
         inertia2,
-        100.0,
-        0.000001,
+        10.0,
+        0.001,
         10);
 
     println!("Solver initialised");
@@ -174,7 +174,7 @@ fn main() {
     match res {
         Ok(_) => {
 
-            let path_base_str = format!("./output/");
+            let path_base_str = format!("./output4/");
 
             match std::fs::create_dir_all(path_base_str.clone()) {
                 Ok(_) => {}
