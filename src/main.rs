@@ -96,7 +96,7 @@ fn main() {
     let dx = (4.0 * PI) / npts_circ;
     let dt_max = dx / body1.linear_velocity().norm();
 
-    println!("Angular momentum is {:?}", body1.angular_momentum.imag());
+    // println!("Angular momentum is {:?}", body1.angular_momentum.imag());
 
     println!("Building simulation");
     // Building System for simulation
@@ -168,6 +168,10 @@ fn main() {
         10);
 
     println!("Solver initialised");
+
+    let nelm_end = 8_usize * 4_usize.pow(ndiv) * 2_usize;
+
+    println!("Total number of elements = {:?}.", nelm_end);
 
     let res = stepper.integrate();
 

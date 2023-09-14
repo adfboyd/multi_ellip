@@ -362,8 +362,16 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
+
+        let ks = (0..nelm).collect::<Vec<usize>>();
+
+        let m_linear_pressure1 = Mutex::from(linear_pressure1);
+        let m_angular_pressure1 = Mutex::from(angular_pressure1);
+
+        let m_linear_pressure2 = Mutex::from(linear_pressure2);
+        let m_angular_pressure2 = Mutex::from(angular_pressure2);
 //should be 0..nelm
-        for k in 0..nelm {
+        ks.par_iter().for_each(|&k| {
 
 
             // println!();
@@ -538,17 +546,36 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let lin_inc = lin_pressure * vn;
             let ang_inc = ang_pressure * torque_vec;
 
-            if k < nelm1 {
-                linear_pressure1 += lin_inc;
-                angular_pressure1 += ang_inc;
+            //Unlock correct cumulative pressure on correct body
+            let mut linear_pressure = if which_body == 1_usize {
+                m_linear_pressure1.lock().unwrap()}
+            else if which_body == 2_usize {
+                m_linear_pressure2.lock().unwrap()
             } else {
-                linear_pressure2 += lin_inc;
-                angular_pressure2 += ang_inc; }
+                panic!("Not in either body!");
+            };
 
-        }
+            let mut angular_pressure = if which_body == 1_usize {
+                m_angular_pressure1.lock().unwrap()}
+            else if which_body == 2_usize {
+                m_angular_pressure2.lock().unwrap()
+            } else {
+                panic!("Not in either body!");
+            };
+
+            //add result to the right body.
+            *linear_pressure += lin_inc;
+            *angular_pressure += ang_inc;
+
+        });
 
         // println!("Body1 force = {:?}, {:?}", linear_pressure1, angular_pressure1);
         // println!("Body2 force = {:?}, {:?}", linear_pressure2, angular_pressure2);
+        let linear_pressure1 = m_linear_pressure1.into_inner().unwrap();
+        let angular_pressure1 = m_angular_pressure1.into_inner().unwrap();
+
+        let linear_pressure2 = m_linear_pressure2.into_inner().unwrap();
+        let angular_pressure2 = m_angular_pressure2.into_inner().unwrap();
 
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();
