@@ -61,18 +61,18 @@ impl Simulation {
         };
 
         //Normalise rotational velocity to around 2*pi rad/s
-        let init_frequency1 = body1.rotational_frequency();
-        sim.body1.angular_momentum = body1.angular_momentum / init_frequency1;
-
-        let init_frequency2= body2.rotational_frequency();
-        sim.body2.angular_momentum = body2.angular_momentum / init_frequency2;
-
-        //Setup linear velocity for desired energy ratio
-        let init_direction1 = body1.linear_momentum;
-        sim.body1.linear_momentum = body1.ic_generator(init_direction1, ratio);
-
-        let init_direction2 = body2.linear_momentum;
-        sim.body2.linear_momentum = body2.ic_generator(init_direction2, ratio);
+        // let init_frequency1 = body1.rotational_frequency();
+        // sim.body1.angular_momentum = body1.angular_momentum / init_frequency1;
+        //
+        // let init_frequency2= body2.rotational_frequency();
+        // sim.body2.angular_momentum = body2.angular_momentum / init_frequency2;
+        //
+        // //Setup linear velocity for desired energy ratio
+        // let init_direction1 = body1.linear_momentum;
+        // sim.body1.linear_momentum = body1.ic_generator(init_direction1, ratio);
+        //
+        // let init_direction2 = body2.linear_momentum;
+        // sim.body2.linear_momentum = body2.ic_generator(init_direction2, ratio);
 
 
 

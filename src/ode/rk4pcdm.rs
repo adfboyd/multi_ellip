@@ -104,7 +104,9 @@ Rk4PCDM<
     pub fn integrate(&mut self) -> Result<Stats, IntegrationError> {
         self.t_out.push(self.t);
         self.x_out.push(self.x.clone());
+        println!("Initial positions and velocities = {:?}", &self.x);
         self.o_out.push(self.o.clone());
+        println!("Initial orientations and angular velocities = {:?}", &self.o);
         // self.x_lab_out.push(self.x_lab.clone());
         self.o_lab = self.orientation_to_marker_point();  //Start with correct value of marker point
         self.o_lab_out.push(self.o_lab.clone());
@@ -115,14 +117,17 @@ Rk4PCDM<
 
         let start_t = Instant::now();
         //should be for i in 0..num_steps
-        for i in 0..num_steps {
+        for i in 0..1 {
             if (i % print_rate == 0) & (i > 0) {
                 let elapsed = start_t.elapsed();
                 let ratio = ((num_steps - i) as f64) / (i as f64);
                 let ratio2 = (num_steps as f64) / (i as f64);
                 let remain_est = self.multiply_duration(elapsed, ratio);
                 let total_est = self.multiply_duration(elapsed, ratio2);
-                println!("Time = {:.7}s. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
+                println!("Time = {:.7}. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
+                let vels = self.x.1;
+                println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
+                println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
             };
 
             //Get (lin,ang) forces for bodies 1 & 2.
@@ -244,15 +249,17 @@ Rk4PCDM<
         let omega_n_half_b1 = self.omega_stepper(&omega_b1, &ang_accel_b1, self.half_step);
 
         let omega_n_quarter1 = self.body_to_lab(&omega_n_quarter_b1, &q1);
+        // println!("omega_n_quarter1 = {:?}", omega_n_quarter1);
         let q1_half_predict = self.orientation_stepper(&q1, &omega_n_quarter1, self.half_step);
-
+        // println!("q1_half predict = {:?}", q1_half_predict);
         let omega_n_quarter_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.quarter_step);
+        // println!("l254");
         let omega_n_half_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.half_step);
 
         let omega_n_quarter2 = self.body_to_lab(&omega_n_quarter_b2, &q2);
         let q2_half_predict = self.orientation_stepper(&q2, &omega_n_quarter2, self.half_step);
-
         let omega_n_half_lab1 = self.body_to_lab(&omega_n_half_b1, &q1_half_predict);
+        // println!("l260");
         let omega_n_half_lab2 = self.body_to_lab(&omega_n_half_b2, &q2_half_predict);
 
         let q_new = (q1_half_predict, q2_half_predict);
@@ -545,7 +552,11 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         let mag = omega.norm();
         let real_part = (mag * dt * 0.5).cos();
-        let imag_scalar = (mag * dt * 0.5).sin() / mag;
+        let imag_scalar = if (mag > 0.0000001) {
+            (mag * dt * 0.5).sin() / mag}
+            else {
+                0.0
+            };
         let imag_part = imag_scalar * omega.vector();
         let omega_n1 = Quaternion::from_parts(real_part, imag_part);
         // let omega_n1_unit = na::UnitQuaternion::from_quaternion(omega_n1);

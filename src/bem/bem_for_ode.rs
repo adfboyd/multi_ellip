@@ -364,6 +364,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 
         let ks = (0..nelm).collect::<Vec<usize>>();
+        let ks = vec![0_usize,nelm1];
 
         let m_linear_pressure1 = Mutex::from(linear_pressure1);
         let m_angular_pressure1 = Mutex::from(angular_pressure1);

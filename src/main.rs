@@ -38,7 +38,7 @@ fn main() {
     let den = 1.0;
     let s = Vector3::new(1.0, 1.0, 1.0);
     let s0 = Vector3::new(1.0, 1.0, 1.0);
-    let q = Quaternion::from_parts(1.0, Vector3::new(1.0, -1.0, 0.0));
+    let q = Quaternion::from_parts(1.0, Vector3::new(0.0, 0.0, 0.0));
     let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
     let o_vec2 = Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();
@@ -57,30 +57,31 @@ fn main() {
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
-    body1.linear_momentum = body1.linear_momentum_from_vel(Vector3::new(1.0, 0.0, 0.0));
-
-
+    body1.set_linear_velocity(Vector3::new(1.0, 0.0, 0.0));
+    body1.set_angular_velocity(q);
     //Normalise initial conditions
-    let init_frequency = body1.rotational_frequency();
+    // let init_frequency = body1.rotational_frequency();
+    //
+    // body1.angular_momentum = body1.angular_momentum / init_frequency;
+    //
+    //
+    // let init_direction = body1.linear_momentum;
+    // body1.linear_momentum = body1.ic_generator(init_direction, ratio);
 
-    body1.angular_momentum = body1.angular_momentum / init_frequency;
 
 
-    let init_direction = body1.linear_momentum;
-    body1.linear_momentum = body1.ic_generator(init_direction, ratio);
-
-
-
-    let body2 = Body {
+    let mut body2 = Body {
         density: 1.0,
         shape: s0,
         position: Vector3::new(100.0, 0.0, 0.0),
         orientation: q.normalize(),
-        linear_momentum:  Vector3::new(-1.0, 0.0, 0.0),
+        linear_momentum:  Vector3::new(-0.0001, 0.0, 0.0),
         angular_momentum: q,
         inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
     };
 
+    body2.set_linear_velocity(Vector3::new(-1.0, 0.0, 0.0));
+    body2.set_angular_velocity(q);
 
 
 
@@ -94,7 +95,7 @@ fn main() {
 
     let npts_circ = (4*2_usize.pow(ndiv)) as f64;
     let dx = (4.0 * PI) / npts_circ;
-    let dt_max = dx / body1.linear_velocity().norm();
+    // let dt_max = dx / body1.linear_velocity().norm();
 
     // println!("Angular momentum is {:?}", body1.angular_momentum.imag());
 
@@ -105,7 +106,7 @@ fn main() {
         body1,
         body2,
         100.0,
-        0.001,
+        0.0000001,
         ndiv,
         10000,
         ratio,
@@ -165,7 +166,7 @@ fn main() {
         inertia2,
         10.0,
         0.001,
-        10);
+        100);
 
     println!("Solver initialised");
 
@@ -178,7 +179,7 @@ fn main() {
     match res {
         Ok(_) => {
 
-            let path_base_str = format!("./output4/");
+            let path_base_str = format!("./output0/");
 
             match std::fs::create_dir_all(path_base_str.clone()) {
                 Ok(_) => {}

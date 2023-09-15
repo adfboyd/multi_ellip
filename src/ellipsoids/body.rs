@@ -36,16 +36,27 @@ impl Body {
         self.mass() * v
     }
 
-    pub fn angular_velocity(&self) -> na::Quaternion<f64> {
+    pub fn angular_velocity(&self) -> Quaternion<f64> {
         let omega = self.angular_momentum.imag() * 2.0;
         let vec = self.inertia.try_inverse().map(|m| m * omega).unwrap();
-        na::Quaternion::from_imag(vec)
+        Quaternion::from_imag(vec)
+    }
+
+    pub fn angular_momentum_from_vel(&self, q :Quaternion<f64>) -> Quaternion<f64> {
+        let omega = q.imag();
+        let ang_mom_vec = self.inertia * omega;
+        Quaternion::from_imag(ang_mom_vec)
     }
 
     pub fn set_linear_velocity(&mut self, v :Vector3<f64>) {
         let linear_momentum = self.linear_momentum_from_vel(v);
 
         self.linear_momentum = linear_momentum;
+    }
+
+    pub fn set_angular_velocity(&mut self, q :Quaternion<f64>) {
+        let angular_momentum = self.angular_momentum_from_vel(q);
+        self.angular_momentum = angular_momentum;
     }
 
     pub fn q(&self) -> State {

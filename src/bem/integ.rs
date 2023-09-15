@@ -1397,7 +1397,8 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
     let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
 
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
-
+    // println!("Integrating on {:?}th element.", k);
+    //should be 0..mint
     for i in 0..mint {
 
         let (xi, eta) = (xiq[i], etq[i]);
@@ -1408,23 +1409,24 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
                                                                df1, df2, df3, df4, df5, df6,
                                                                al, be, ga, xi, eta);
 
-
+        // println!("xvec = {:?}, vn = {:?}", xvec, vn);
         let (dg, mut dd_g) = d_lgf_3d_fs_full(&xvec, p0);
-
-        if (xvec - p0).norm() < 1e-3 {
+        // println!("xvec - p0  = {:?}", (xvec - p0).norm());
+        if (xvec - p0).norm() < 1e-5 {
             dd_g = Matrix3::zeros()
         }
 
         let dd_g_dn = dd_g * vn;
         let cf = 0.5 * hs * wq[i];
-
+        // println!("hs = {:?}", hs);
+        // println!("elm area = {:?}", cf);
         area += cf;
 
         let r_int = dd_g_dn * (xvec - p0).transpose() ;
         let cf_mat = Matrix3::from_diagonal_element(cf);
         sdlp += cf_mat * r_int;
     }
-
+    // println!("Area = {:?}", area);
     (sdlp, area)
 }
 
@@ -1436,7 +1438,9 @@ pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
                     p0 :&Vector3<f64>) -> Matrix3<f64> {
 
     let mut f0 = Matrix3::zeros();
-
+    let mut area_tot = 0.0;
+    // let ks:Vec<usize> = vec![0,1,2,3,4,5,6,7];
+    //should be &k in sing_elms
     for &k in sing_elms {
 
         let (sdlp, area) =  grad_3d_integral_l3_2(p0,
@@ -1446,8 +1450,10 @@ pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
                                                   alpha, beta, gamma,
                                                   xiq, etq, wq);
 
-        f0 += sdlp
+        f0 += sdlp;
+        area_tot += area;
     }
+    // println!("Area = {:?}", area_tot);
     f0
 }
 
@@ -1809,8 +1815,8 @@ pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
     //When rearranging eq(28), these terms are all subtracted from I and multiplied by u to give the rhs.
 
     let id_mat = Matrix3::from_diagonal_element(1.0);
-
-    // println!("l3_2 = {:?}, l4_1 = {:?}, l4_2 = {:?}, l5 = {:?}, l6_2 = {:?}", l3_2, l4_1, l4_2, l5, l6_2);
+    //l3_2, l4_2, l5 are the assymetric ones
+    println!("l3_2 = {:?}", l3_2);
 
     let mat = id_mat - l3_2 - l4_1 - l4_2 - l5 - l6_2;
 
