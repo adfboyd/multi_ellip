@@ -535,7 +535,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            let linearity = vn.dot(&p0_lab);
+            let p0_lab_normalized = p0_lab.normalize();
+
+            let linearity = vn.dot(&p0_lab_normalized); //use normalised version of p0_lab as distance doesn't affect force.
             let perpendicularity = vn.cross(&p0_lab).norm();
 
             let lin_pressure = pressure * linearity;
