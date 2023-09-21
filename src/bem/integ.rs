@@ -1399,7 +1399,7 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
     // println!("Integrating on {:?}th element.", k);
     //should be 0..mint
-    for i in 0..mint {
+    for i in (mint-1)..mint {
 
         let (xi, eta) = (xiq[i], etq[i]);
 
@@ -1423,6 +1423,8 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
         area += cf;
 
         let r_int = dd_g_dn * (xvec - p0).transpose() ;
+        println!("dd_g_dn = {:?}", dd_g_dn);
+        println!("xvec-p0 = {:?}", xvec-p0);
         let cf_mat = Matrix3::from_diagonal_element(cf);
         sdlp += cf_mat * r_int;
     }
@@ -1442,6 +1444,8 @@ pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
     // let ks:Vec<usize> = vec![0,1,2,3,4,5,6,7];
     //should be &k in sing_elms
     for &k in sing_elms {
+        println!("{:?}th element", k);
+
 
         let (sdlp, area) =  grad_3d_integral_l3_2(p0,
                                                   k, mint,
