@@ -612,6 +612,15 @@ impl crate::ode::System2<Linear2State> for LinearUpdate {
         let v1 = Vector3::new(v[0], v[1], v[2]);
         let v2 = Vector3::new(v[3], v[4], v[5]);
 
+        let a1 = sys_ref.body1.shape[0];
+        let a2 = sys_ref.body2.shape[0];
+
+        let dist = (p1-p2).norm();
+
+        if (dist < (a1+a2)) {
+            panic!("Ellipsoids are too close together.")
+        }
+
         sys_ref.body1.position = p1;
         sys_ref.body2.position = p2;
 
