@@ -356,6 +356,23 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let df = dfdn.clone();
         // println!("Linear system solved!");
         // println!("F = {:?}", f);
+        //The value of phi at any point in the domain can be calculated as follows:
+
+        let test_p = Vector3::new(5.0, 5.0, 5.0);
+
+        let phi_eg = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna,
+                                    &alpha, &beta, &gamma,
+                                    &xiq, &etq, &wq,
+                                    &test_p);
+
+        println!("Test value of phi is {:?} at {:?}", phi_eg, test_p);
+
+        let grad_phi_eg = grad_3d(nelm, mint, &f, &dfdn, &p, &n, &vna,
+                                      &alpha, &beta, &gamma,
+                                      &xiq, &etq, &wq,
+                                      &test_p);
+
+        println!("The test value of gradphi is {:?}", grad_phi_eg);
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -535,7 +552,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                 panic!("Not in either body?!!")
             };
 
-            let linearity = vn.dot(&p0_lab);
+            let linearity = vn.dot(&p0_lab.normalize());
             let perpendicularity = vn.cross(&p0_lab).norm();
 
             let lin_pressure = pressure * linearity;

@@ -314,7 +314,7 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
                                        &p, &n, &vna,
                                        &alpha, &beta, &gamma,
                                        &xiq, &etq, &wq,
-                                       p0);
+                                       &p0);
 
     let (srf_area2, ke) = ke_3d(npts, nelm, mint,
                                    &f, &dfdn,

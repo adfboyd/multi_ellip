@@ -847,7 +847,7 @@ pub fn line_interp(p1 :Vector3<f64>,
 }
 
 ///Integrates single and double- layer potentials for given f and df/dn.
-pub fn lsdlpp_3d_integral(x0 :Vector3<f64>, k :usize,
+pub fn lsdlpp_3d_integral(x0 :&Vector3<f64>, k :usize,
                            mint :usize, f :&DVector<f64>, df :&DVector<f64>,
                            p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                            alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
@@ -912,7 +912,7 @@ pub fn lsdlpp_3d(_npts :usize, nelm :usize, mint :usize,
                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                  alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                  xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
-                 p0 :Vector3<f64>) -> (f64, f64) {
+                 p0 :&Vector3<f64>) -> (f64, f64) {
     //Evaluates the value of the potential at given point p0 given distribution f, dfdn
     let mut f0 = 0.0;
     let mut srf_area = 0.0;
@@ -1399,7 +1399,7 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
     // println!("Integrating on {:?}th element.", k);
     //should be 0..mint
-    for i in 0..mint {
+    for i in 0..1 {
 
         let (xi, eta) = (xiq[i], etq[i]);
 
@@ -1415,13 +1415,14 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
         if (xvec - p0).norm() < 1e-5 {
             dd_g = Matrix3::zeros()
         }
-
+        println!("vn = {:?}", vn);
         let dd_g_dn = dd_g * vn;
         let cf = 0.5 * hs * wq[i];
         // println!("hs = {:?}", hs);
         // println!("elm area = {:?}", cf);
         area += cf;
-
+        println!("dd_g_dn = {:?}", dd_g_dn);
+        println!("x-p0 = {:?}", xvec-p0);
         let r_int = dd_g_dn * (xvec - p0).transpose() ;
         let cf_mat = Matrix3::from_diagonal_element(cf);
         sdlp += cf_mat * r_int;
@@ -1441,7 +1442,9 @@ pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
     let mut area_tot = 0.0;
     // let ks:Vec<usize> = vec![0,1,2,3,4,5,6,7];
     //should be &k in sing_elms
-    for &k in sing_elms {
+    let k1 = vec![sing_elms[0]];
+
+    for k in k1 {
 
         let (sdlp, area) =  grad_3d_integral_l3_2(p0,
                                                   k, mint,
