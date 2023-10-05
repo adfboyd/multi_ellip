@@ -231,15 +231,15 @@ Rk4PCDM<
 
         // println!("Doin ang half step");
 
-        let omega_b1 = self.body_to_lab(&omega_lab1, &q1);
-        let omega_b2 = self.body_to_lab(&omega_lab2, &q2);
+        let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
+        let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
         // println!("Done ang half step");
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
 
-        let torque1 = self.body_to_lab(&torque1_lab, &q1);
-        let torque2 = self.body_to_lab(&torque2_lab, &q2);
+        let torque1 = self.lab_to_body(&torque1_lab, &q1);
+        let torque2 = self.lab_to_body(&torque2_lab, &q2);
 
         let ang_accel_b1 = accel_get(&omega_b1, &inertia1, &torque1);
         let ang_accel_b2 = accel_get(&omega_b2, &inertia2, &torque2);
@@ -283,8 +283,8 @@ Rk4PCDM<
         let (q1, q2) = q;
         let (omega_lab1, omega_lab2) = omega_lab;
 
-        let omega_b1 = self.body_to_lab(&omega_lab1, &q1);
-        let omega_b2 = self.body_to_lab(&omega_lab2, &q2);
+        let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
+        let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
 
         let omega_n_half_b1 = self.lab_to_body(&omega_n_half_lab1, &q1_half);
         let omega_n_half_b2 = self.lab_to_body(&omega_n_half_lab2, &q2_half);
@@ -295,8 +295,8 @@ Rk4PCDM<
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
 
-        let torque1 = self.body_to_lab(&torque1_lab, &q1_half);
-        let torque2 = self.body_to_lab(&torque2_lab, &q2_half);
+        let torque1 = self.lab_to_body(&torque1_lab, &q1_half);
+        let torque2 = self.lab_to_body(&torque2_lab, &q2_half);
 
         let ang_accel_half_b1 = accel_get(&omega_n_half_b1, &inertia1, &torque1);
         let omega_n_half1 = self.body_to_lab(&omega_n_half_b1, &q1_half);

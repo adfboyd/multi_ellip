@@ -47,14 +47,15 @@ fn main() {
 
     let ratio= 20.0;
 
+    let den1 = 1.0;
     let mut body1 = Body {
-        density: 1.0,
+        density: den1,
         shape: s,
         position: Vector3::new(-100.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum: Vector3::new(1.0, 0.0, 0.0),
         angular_momentum: q,
-        inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
+        inertia: is_calc(na::Matrix3::from_diagonal(&s), den1),
     };
 
     body1.set_linear_velocity(Vector3::new(1.0, 0.0, 0.0));
@@ -68,16 +69,16 @@ fn main() {
     // let init_direction = body1.linear_momentum;
     // body1.linear_momentum = body1.ic_generator(init_direction, ratio);
 
-
+    let den2 = 1.0;
 
     let mut body2 = Body {
-        density: 1.0,
+        density: den2,
         shape: s0,
         position: Vector3::new(100.0, 0.0, 0.0),
         orientation: q.normalize(),
         linear_momentum:  Vector3::new(-0.0001, 0.0, 0.0),
         angular_momentum: q,
-        inertia: is_calc(na::Matrix3::from_diagonal(&s), den),
+        inertia: is_calc(na::Matrix3::from_diagonal(&s0), den2),
     };
 
     body2.set_linear_velocity(Vector3::new(-1.0, 0.0, 0.0));
