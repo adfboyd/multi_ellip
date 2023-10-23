@@ -1415,14 +1415,14 @@ pub fn grad_3d_integral_l3_2(p0 :&Vector3<f64>,
         if (xvec - p0).norm() < 1e-5 {
             dd_g = Matrix3::zeros()
         }
-        println!("vn = {:?}", vn);
+        // println!("vn = {:?}", vn);
         let dd_g_dn = dd_g * vn;
         let cf = 0.5 * hs * wq[i];
         // println!("hs = {:?}", hs);
         // println!("elm area = {:?}", cf);
         area += cf;
-        println!("dd_g_dn = {:?}", dd_g_dn);
-        println!("x-p0 = {:?}", xvec-p0);
+        // println!("dd_g_dn = {:?}", dd_g_dn);
+        // println!("x-p0 = {:?}", xvec-p0);
         let r_int = dd_g_dn * (xvec - p0).transpose() ;
         let cf_mat = Matrix3::from_diagonal_element(cf);
         sdlp += cf_mat * r_int;
@@ -1440,11 +1440,9 @@ pub fn grad_3d_l3_2(sing_elms :&Vec<usize>, mint :usize,
 
     let mut f0 = Matrix3::zeros();
     let mut area_tot = 0.0;
-    // let ks:Vec<usize> = vec![0,1,2,3,4,5,6,7];
-    //should be &k in sing_elms
-    let k1 = vec![sing_elms[0]];
 
-    for k in k1 {
+
+    for &k in sing_elms {
 
         let (sdlp, area) =  grad_3d_integral_l3_2(p0,
                                                   k, mint,
@@ -1819,10 +1817,22 @@ pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
 
     let id_mat = Matrix3::from_diagonal_element(1.0);
     //l3_2, l4_2, l5 are the assymetric ones
-    println!("l3_2 = {:?}", l3_2);
+    // println!("l3_2 = {:?}", l3_2);
 
     let mat = id_mat - l3_2 - l4_1 - l4_2 - l5 - l6_2;
 
     mat
 
+}
+
+pub fn dphi(p1 :&Vector3<f64>, p2:&Vector3<f64>, f1:f64, f2:f64) -> (f64,Vector3<f64>) {
+
+    let dx = p2 - p1;
+    let df = f2 - f1;
+
+    let mag_dx = dx.norm();
+
+    let dphi = df/mag_dx;
+
+    (dphi,dx.normalize())
 }

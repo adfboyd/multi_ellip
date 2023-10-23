@@ -117,7 +117,7 @@ Rk4PCDM<
 
         let start_t = Instant::now();
         //should be for i in 0..num_steps
-        for i in 0..1 {
+        for i in 0..num_steps {
             if (i % print_rate == 0) & (i > 0) {
                 let elapsed = start_t.elapsed();
                 let ratio = ((num_steps - i) as f64) / (i as f64);
@@ -126,18 +126,22 @@ Rk4PCDM<
                 let total_est = self.multiply_duration(elapsed, ratio2);
                 println!("Time = {:.7}. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
                 let vels = self.x.1;
-                println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
-                println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
+                // println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
+                // println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
             };
+
+            println!("Time = {:.7}", self.t);
 
             //Get (lin,ang) forces for bodies 1 & 2.
             let (linear_accel, angular_force) = self.force_get();
             // println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
             //
             //Calculate new positions and velocities at half time-step
-            let (p_half, v_half) = self.lin_half_step(&linear_accel);
+            let normed_accel = self.force_norm(&linear_accel);
+            let normed_torque = self.force_norm(&angular_force);
+            let (p_half, v_half) = self.lin_half_step(&normed_accel);
 
-            let (q_half, o_half) = self.ang_half_step(&angular_force);
+            let (q_half, o_half) = self.ang_half_step(&normed_torque);
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &(p_half, v_half));
@@ -147,9 +151,11 @@ Rk4PCDM<
 
             let t_new = self.t + self.step_size;
 
-            let x_new = self.lin_full_step(&linear_force_half);
+            let normed_linforcehalf = self.force_norm(&linear_force_half);
+            let normed_torquehalf = self.force_norm(&angular_force_half);
+            let x_new = self.lin_full_step(&normed_linforcehalf);
 
-            let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
+            let o_new = self.ang_full_step(&normed_torquehalf, &(q_half, o_half));
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &x_new);
@@ -526,6 +532,10 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         // let &q_quaternion = q.quaternion();
         // println!("Norm of q = {}, q = {:?}", q.norm(),q);
+        let q_inv = if q.norm() > 0.00001 {
+            q.try_inverse().unwrap()}
+        else {
+            Quaternion::from_real(0.0)};
         let q_inv = q.try_inverse().unwrap();
         let p_space = q * (p_body * q_inv);
         p_space
@@ -540,6 +550,21 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         let omega_n1 = omega_n + ang_accel * dt;
         omega_n1
+    }
+
+    fn force_norm(&self, vels: &Vector6<f64>) -> Vector6<f64> {
+        let mut v1 = Vector3::new(vels[0], vels[1], vels[2]).norm();
+        let mut v2 = Vector3::new(vels[3], vels[4], vels[5]).norm();
+
+        if v1 < 1.0 {
+            v1 = 1.0;
+        }
+        if v2 < 1.0 {
+            v2 = 1.0;
+        }
+
+        let vels_out = Vector6::new(vels[0]/v1,vels[1]/v1,vels[2]/v1,vels[3]/v2,vels[4]/v2,vels[5]/v2);
+        vels_out
     }
 
 

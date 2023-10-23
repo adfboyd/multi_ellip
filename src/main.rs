@@ -3,22 +3,29 @@ use std::f64::consts::PI;
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, UnitQuaternion, Vector3, Vector6};
+use nalgebra::{Quaternion, Vector3, Vector6};
 use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::bem_for_ode;
-use multi_ellip::bem::potentials::*;
+// use multi_ellip::bem::potentials::*;
 use std::time::Instant;
-use indicatif::ParallelProgressIterator;
-use plotters::prelude::LogScalable;
+// use indicatif::ParallelProgressIterator;
+// use plotters::prelude::LogScalable;
 // use rayon::prelude::IntoParallelRefIterator;
-use rayon::iter::*;
-use multi_ellip::bem::geom::{abc_vec, combiner, ellip_gridder, elm_geom, gauss_leg, gauss_trgl};
-use multi_ellip::bem::integ::*;
+// use rayon::iter::*;
+// use multi_ellip::bem::geom::{abc_vec, combiner, ellip_gridder, elm_geom, gauss_leg, gauss_trgl};
+// use multi_ellip::bem::integ::*;
 use multi_ellip::ode::rk4pcdm;
 use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::system::Simulation;
 use multi_ellip::utils::SimName;
+
+use plotters::prelude::*;
+// use colorous::*;
+// use palette::{Srgb, Hsv};
+// use palette::rgb::Rgb;
+// use palette::FromColor;
+
 
 type State2 = (Quaternion<f64>, Quaternion<f64>);
 
@@ -28,22 +35,71 @@ type Angular2State = (State2, State2);
 
 type Time = f64;
 
+// fn map_value_to_color(value: f64) -> RGBColor {
+//     // Map the value to a hue in the range [0, 240]
+//     let hue = ((value + 1.0) / 2.0 * 240.0).min(240.0) as u8;
+//
+//     // Create an RGBColor with the hue as the red component
+//     RGBColor(hue, 0, 0)
+// }
 
-
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Hello, world!");
+
+
+
+    // let root = BitMapBackend::new("C:/Users/s2006749/CLionProjects/multi_ellip/images/3d-surface.png", (640, 480)).into_drawing_area();
+    //
+    // root.fill(&WHITE).unwrap();
+    //
+    // let mut chart = ChartBuilder::on(&root)
+    //     .margin(20)
+    //     .caption("3D Surface", ("sans-serif", 40))
+    //     .build_cartesian_3d(-3.0..3.0, -3.0..3.0, -3.0..3.0)
+    //     .unwrap();
+    //
+    // chart.configure_axes().draw().unwrap();
+    //
+    // let mut data = vec![];
+    //
+    // for x in (-25..25).map(|v| v as f64 / 10.0) {
+    //     let mut row = vec![];
+    //     for z in (-25..25).map(|v| v as f64 / 10.0) {
+    //         row.push((x, (x * x + z * z).cos(), z));
+    //     }
+    //     data.push(row);
+    // }
+    //
+    // chart.draw_series(
+    //     (0..49)
+    //         .map(|x| std::iter::repeat(x).zip(0..49))
+    //         .flatten()
+    //         .map(|(x,z)| {
+    //             Polygon::new(vec![
+    //                 data[x][z],
+    //                 data[x+1][z],
+    //                 data[x+1][z+1],
+    //                 data[x][z+1],
+    //             ], &BLUE.mix(0.3))
+    //         })
+    // ).unwrap();
+
+
 
     let comment = format!("#Setup information to go here.");
 
     let den = 1.0;
     let s = Vector3::new(1.0, 1.0, 1.0);
-    let s0 = Vector3::new(1.0, 1.0, 1.0);
+    let s0 = Vector3::new(1.0, 1.0, 0.6);
     let q = Quaternion::from_parts(1.0, Vector3::new(0.0, 0.0, 0.0));
+    let omega = Quaternion::from_imag(Vector3::new(1.0, 1.0, 0.0));
+    let omega2 = Quaternion::from_imag(Vector3::new(1.0, 0.0, -1.0));
+
     let o_vec = Vector3::new(-1.0, 0.0, 0.0).normalize();
     let o_vec2 = Vector3::new(1.0, 1.0, -1.0).normalize();
     let init_ang_mom = o_vec.cross(&o_vec2).normalize();
-    let ang_mom_q = Quaternion::from_imag(init_ang_mom);
-    let q0 = Quaternion::from_real(0.0);
+    // let ang_mom_q = Quaternion::from_imag(init_ang_mom);
+    // let q0 = Quaternion::from_real(0.0);
 
     let ratio= 20.0;
 
@@ -59,7 +115,7 @@ fn main() {
     };
 
     body1.set_linear_velocity(Vector3::new(1.0, 0.0, 0.0));
-    body1.set_angular_velocity(q);
+    body1.set_angular_velocity(omega);
     //Normalise initial conditions
     // let init_frequency = body1.rotational_frequency();
     //
@@ -82,7 +138,7 @@ fn main() {
     };
 
     body2.set_linear_velocity(Vector3::new(-1.0, 0.0, 0.0));
-    body2.set_angular_velocity(q);
+    body2.set_angular_velocity(omega2);
 
 
 
@@ -92,7 +148,7 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 0;
+    let ndiv = 2;
 
     let npts_circ = (4*2_usize.pow(ndiv)) as f64;
     let dx = (4.0 * PI) / npts_circ;
@@ -165,7 +221,7 @@ fn main() {
         (q2, omega2),
         inertia1,
         inertia2,
-        10.0,
+        100.0,
         0.001,
         100);
 
@@ -180,7 +236,7 @@ fn main() {
     match res {
         Ok(_) => {
 
-            let path_base_str = format!("./output0/");
+            let path_base_str = format!("./output_ellipse_sphere/");
 
             match std::fs::create_dir_all(path_base_str.clone()) {
                 Ok(_) => {}
@@ -203,7 +259,9 @@ fn main() {
         }
         Err(e) => println!("An error occurred {:?}", e),
 
-    }
+    };
+
+    Ok(())
 
 }
 

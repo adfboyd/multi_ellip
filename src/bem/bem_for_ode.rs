@@ -357,22 +357,22 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         // println!("Linear system solved!");
         // println!("F = {:?}", f);
         //The value of phi at any point in the domain can be calculated as follows:
-
-        let test_p = Vector3::new(5.0, 5.0, 5.0);
-
-        let phi_eg = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq,
-                                    &test_p);
-
-        println!("Test value of phi is {:?} at {:?}", phi_eg, test_p);
-
-        let grad_phi_eg = grad_3d(nelm, mint, &f, &dfdn, &p, &n, &vna,
-                                      &alpha, &beta, &gamma,
-                                      &xiq, &etq, &wq,
-                                      &test_p);
-
-        println!("The test value of gradphi is {:?}", grad_phi_eg);
+        //
+        // let test_p = Vector3::new(0.0, 0.0, 0.0);
+        //
+        // let phi_eg = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna,
+        //                             &alpha, &beta, &gamma,
+        //                             &xiq, &etq, &wq,
+        //                             &test_p);
+        //
+        // // println!("Test value of phi is {:?} at {:?}", phi_eg, test_p);
+        //
+        // let grad_phi_eg = grad_3d(nelm, mint, &f, &dfdn, &p, &n, &vna,
+        //                               &alpha, &beta, &gamma,
+        //                               &xiq, &etq, &wq,
+        //                               &test_p);
+        //
+        // println!("The test value of gradphi is {:?}", grad_phi_eg);
 
         let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
         let mut angular_pressure1 = Vector3::new(0.0, 0.0, 0.0);
@@ -381,7 +381,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
 
         let ks = (0..nelm).collect::<Vec<usize>>();
-        let ks = vec![0_usize,nelm1];
+        // let ks = vec![0_usize,nelm1];
 
         let m_linear_pressure1 = Mutex::from(linear_pressure1);
         let m_angular_pressure1 = Mutex::from(angular_pressure1);
@@ -430,109 +430,142 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                                                                   df1, df2, df3, df4, df5, df6,
                                                                   al, be, ga, xi, eta);
 
+            let (df_da, da) = dphi(&p4, &p5, f4, f5); //Returns the derivative of phi in da direction. da = p1 - p2.
+            let (df_db, db) = dphi(&p5, &p6, f5, f6);
+            let (df_dc, dc) = dphi(&p6, &p4, f6, f4);
+
+            let cos_ab = da.dot(&db);
+            let cos_bc = db.dot(&dc);
+            let cos_ac = dc.dot(&da);
+
+            let sin_ab = da.cross(&db).norm();
+            let sin_bc = db.cross(&dc).norm();
+            let sin_ac = dc.cross(&da).norm();
+            // println!("Angle sines = {:?}, {:?}, {:?}", sin_ab, sin_ac, sin_bc);
+
+            //If u is df_da, then df_db = ucos(theta)+vsin(theta), find v below
+
+            let u0 = df_da;
+            let v0 = (df_db + u0 * cos_ab)/sin_ab;
+
+            let w0 = dfdn_p0;
+
+            let u1 = df_db;
+            let v1 = (df_dc + u1 * cos_bc)/sin_bc;
+
+            let u2 = df_dc;
+            let v2 = (df_da + u2 * cos_ac)/sin_ac;
 
 
-            let p0_n = vn; //Another name for the normal vector at p0.
+            let u_0 = Vector3::new(u0,v0,w0).norm_squared();
+            let u_1 = Vector3::new(u1,v1,w0).norm_squared();
+            let u_2 = Vector3::new(u2,v2,w0).norm_squared();
+            // println!("df_da = {:?}, df_db = {:?}, df_dc = {:?}         u,v,w =  {:?}", df_da, df_db, df_dc, u);
+            // println!("Three options should be same {:?}, {:?}, {:?}", u_0, u_1, u_2);
 
+            //
+            // let p0_n = vn; //Another name for the normal vector at p0.
+            //
             let which_body = if k < nelm1 {  //Which body is the point we are integrating round on?
                 1
             } else {
                 2
             };
-
-
-            // println!("Splitting on body no. {:?}", which_body);
-
-            // let p0_body = sys_ref.body1.lab_body_convert(&p0);
-
-            // println!("Transformed point {:?}, to {:?}", p0, p0_body);
-
-            // println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}", i1, i2, i3, i4, i5, i6);
-            // println!("{:?}", p1);
-            // println!("{:?}", p2);
-            // println!("{:?}", p3);
-            // println!("{:?}", p4);
-            // println!("{:?}", p5);
-            // println!("{:?}", p6);
-
-
-            let (mut axis_index, mut axis_direction) = (0_usize, 0_usize); //axis_index gives index of the axis. axis_direction = 0 if negative, 1 if positive.
-            if which_body == 1_usize {
-                (axis_index, axis_direction) = sys_ref.body1.surface_splitter(&p0);
-            } else if which_body == 2_usize {
-                (axis_index, axis_direction) = sys_ref.body2.surface_splitter(&p0);
-            } else {
-                panic!("Not in either body?!!")
-            };
-
-            // println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
-
-            let mut n_line  = if which_body == 1 {
-                body1_lines.get(axis_index).unwrap().clone()
-            } else if which_body == 2 {
-                body2_lines.get(axis_index).unwrap().clone()
-            } else {
-                panic!("Not in either body?!!")
-            };
-
-            // println!("Line points are {:?}", n_line);
-
-            let mut sing_elms = if which_body == 1 {
-                let correct_direction_vec = body1_elms_all.get(axis_direction).unwrap().clone();
-                correct_direction_vec.get(axis_index).unwrap().clone()
-            } else if which_body == 2 {
-                let correct_direction_vec = body2_elms_all.get(axis_direction).unwrap().clone();
-                correct_direction_vec.get(axis_index).unwrap().clone()
-            } else {
-                panic!("Not in either body?!!")
-            };
-
-            // println!("Singular elements are {:?}", sing_elms);
-
-            let mut non_sing_elms = if which_body == 1 {
-                let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
-                let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
-                non_sing_body_elms_temp.extend(body2_elms.clone());
-                non_sing_body_elms_temp
-            } else if which_body == 2 {
-                let correct_direction_vec = body2_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
-                let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
-                non_sing_body_elms_temp.extend(body1_elms.clone());
-                non_sing_body_elms_temp
-            } else {
-                panic!("Not in either body?!!")
-            };
-
-            // println!("Non-singular elements are {:?}", non_sing_elms);
-
-
-
-            let rhs = grad_3d_all_rhs(&sing_elms, &non_sing_elms, mint,
-                                      &f, &dfdn,
-                                      &p, &n, &n_line,  &vna,
-                                      &alpha, &beta, &gamma,
-                                      &xiq, &etq, &wq,
-                                      &p0,  f_p0, dfdn_p0);
-
-            let lhs_matrix = grad_3d_all_lhs(&sing_elms, &non_sing_elms, mint,
-                                              &f, &dfdn,
-                                              &p, &n, &n_line, &vna,
-                                              &alpha, &beta, &gamma,
-                                              &xiq, &etq, &wq,
-                                              &p0, &p0_n, f_p0, dfdn_p0);
-
-
-
-
-            let decomp_lhs = lhs_matrix.lu();
-            let u = decomp_lhs.solve(&rhs).expect("Linear resolution of eq(28) failed");
+            //
+            //
+            // // println!("Splitting on body no. {:?}", which_body);
+            //
+            // // let p0_body = sys_ref.body1.lab_body_convert(&p0);
+            //
+            // // println!("Transformed point {:?}, to {:?}", p0, p0_body);
+            //
+            // // println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}", i1, i2, i3, i4, i5, i6);
+            // // println!("{:?}", p1);
+            // // println!("{:?}", p2);
+            // // println!("{:?}", p3);
+            // // println!("{:?}", p4);
+            // // println!("{:?}", p5);
+            // // println!("{:?}", p6);
+            //
+            //
+            // let (mut axis_index, mut axis_direction) = (0_usize, 0_usize); //axis_index gives index of the axis. axis_direction = 0 if negative, 1 if positive.
+            // if which_body == 1_usize {
+            //     (axis_index, axis_direction) = sys_ref.body1.surface_splitter(&p0);
+            // } else if which_body == 2_usize {
+            //     (axis_index, axis_direction) = sys_ref.body2.surface_splitter(&p0);
+            // } else {
+            //     panic!("Not in either body?!!")
+            // };
+            //
+            // // println!("Splitting on {:?} index, positivity = {:?}", axis_index, axis_direction);
+            //
+            // let mut n_line  = if which_body == 1 {
+            //     body1_lines.get(axis_index).unwrap().clone()
+            // } else if which_body == 2 {
+            //     body2_lines.get(axis_index).unwrap().clone()
+            // } else {
+            //     panic!("Not in either body?!!")
+            // };
+            //
+            // // println!("Line points are {:?}", n_line);
+            //
+            // let mut sing_elms = if which_body == 1 {
+            //     let correct_direction_vec = body1_elms_all.get(axis_direction).unwrap().clone();
+            //     correct_direction_vec.get(axis_index).unwrap().clone()
+            // } else if which_body == 2 {
+            //     let correct_direction_vec = body2_elms_all.get(axis_direction).unwrap().clone();
+            //     correct_direction_vec.get(axis_index).unwrap().clone()
+            // } else {
+            //     panic!("Not in either body?!!")
+            // };
+            //
+            // // println!("Singular elements are {:?}", sing_elms);
+            //
+            // let mut non_sing_elms = if which_body == 1 {
+            //     let correct_direction_vec = body1_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
+            //     let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
+            //     non_sing_body_elms_temp.extend(body2_elms.clone());
+            //     non_sing_body_elms_temp
+            // } else if which_body == 2 {
+            //     let correct_direction_vec = body2_elms_all.get(1_usize - axis_direction).unwrap().clone();  //Get opposite index of axis direction.
+            //     let mut non_sing_body_elms_temp = correct_direction_vec.get(axis_index).unwrap().clone();
+            //     non_sing_body_elms_temp.extend(body1_elms.clone());
+            //     non_sing_body_elms_temp
+            // } else {
+            //     panic!("Not in either body?!!")
+            // };
+            //
+            // // println!("Non-singular elements are {:?}", non_sing_elms);
+            //
+            //
+            //
+            // let rhs = grad_3d_all_rhs(&sing_elms, &non_sing_elms, mint,
+            //                           &f, &dfdn,
+            //                           &p, &n, &n_line,  &vna,
+            //                           &alpha, &beta, &gamma,
+            //                           &xiq, &etq, &wq,
+            //                           &p0,  f_p0, dfdn_p0);
+            //
+            // let lhs_matrix = grad_3d_all_lhs(&sing_elms, &non_sing_elms, mint,
+            //                                   &f, &dfdn,
+            //                                   &p, &n, &n_line, &vna,
+            //                                   &alpha, &beta, &gamma,
+            //                                   &xiq, &etq, &wq,
+            //                                   &p0, &p0_n, f_p0, dfdn_p0);
+            //
+            //
+            //
+            //
+            // let decomp_lhs = lhs_matrix.lu();
+            // let u = decomp_lhs.solve(&rhs).expect("Linear resolution of eq(28) failed");
             // println!("rhs = {:?}", rhs);
             // println!("lhs = {:?}", lhs_matrix);
             // println!("At this element the fluid velocity is {:?}", u);
 
 
 
-            let u_square = u.norm_squared();
+            // let u_square = u_0.norm_squared();
+            let u_square = u_0;
             // println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
             // println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
 
