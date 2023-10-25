@@ -327,7 +327,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let js = (0..npts).collect::<Vec<usize>>();
 
-        // println!("Computing columns of influence matrix");
+        println!("Computing columns of influence matrix");
 
         js.par_iter().for_each(|&j|  {
             // println!("Computing column {} of the influence matrix", j);
@@ -354,7 +354,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         let df = dfdn.clone();
-        // println!("Linear system solved!");
+        println!("Linear system solved!");
         // println!("F = {:?}", f);
         //The value of phi at any point in the domain can be calculated as follows:
         //
@@ -430,9 +430,9 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                                                                   df1, df2, df3, df4, df5, df6,
                                                                   al, be, ga, xi, eta);
 
-            let (df_da, da) = dphi(&p4, &p5, f4, f5); //Returns the derivative of phi in da direction. da = p1 - p2.
-            let (df_db, db) = dphi(&p5, &p6, f5, f6);
-            let (df_dc, dc) = dphi(&p6, &p4, f6, f4);
+            let (df_da, da) = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
+            let (df_db, db) = dphi(&p2, &p6, f2, f6);
+            let (df_dc, dc) = dphi(&p3, &p4, f3, f4);
 
             let cos_ab = da.dot(&db);
             let cos_bc = db.dot(&dc);
@@ -461,7 +461,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let u_1 = Vector3::new(u1,v1,w0).norm_squared();
             let u_2 = Vector3::new(u2,v2,w0).norm_squared();
             // println!("df_da = {:?}, df_db = {:?}, df_dc = {:?}         u,v,w =  {:?}", df_da, df_db, df_dc, u);
-            // println!("Three options should be same {:?}, {:?}, {:?}", u_0, u_1, u_2);
+            println!("Three options should be same {:?}, {:?}, {:?}", u_0, u_1, u_2);
 
             //
             // let p0_n = vn; //Another name for the normal vector at p0.

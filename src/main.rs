@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 2;
+    let ndiv = 3;
 
     let npts_circ = (4*2_usize.pow(ndiv)) as f64;
     let dx = (4.0 * PI) / npts_circ;
