@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 use std::process::id;
-use nalgebra::{DMatrix, DVector, Matrix, Matrix3, Quaternion, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, Matrix, Matrix3, Quaternion, Vector, Vector3, Vector6};
 use num_traits::ToPrimitive;
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
@@ -1704,6 +1704,14 @@ pub fn grad_3d_integral_l6_1(p0 :&Vector3<f64>,
     integ
 }
 
+pub fn midpoint_gen(p1: &Vector3<f64>, p2: &Vector3<f64>, f1 :f64 ,f2:f64) -> (Vector3<f64>, f64) {
+
+    let p_12 = (p1 + p2)/2.0;
+    let f_12 = (f1 + f2)/2.0;
+
+    (p_12, f_12)
+}
+
 pub fn grad_3d_l6_1(p :&DMatrix<f64>, n_line :&DMatrix<usize>,
                     p0 :&Vector3<f64>) -> Vector3<f64> {
 
@@ -1825,14 +1833,19 @@ pub fn grad_3d_all_lhs(sing_elms :&Vec<usize>, nonsing_elms :&Vec<usize>, mint :
 
 }
 
-pub fn dphi(p1 :&Vector3<f64>, p2:&Vector3<f64>, f1:f64, f2:f64) -> (f64,Vector3<f64>) {
+pub fn dphi(p1 :&Vector3<f64>, p2:&Vector3<f64>, f1:f64, f2:f64) -> Vector3<f64> {
 
     let dx = p2 - p1;
     let df = f2 - f1;
 
-    let mag_dx = dx.norm();
-
-    let dphi = df/mag_dx;
-
-    (dphi,dx.normalize())
+    // let mag_dx = dx.norm();
+    //
+    // let dphi = df/mag_dx;
+    //
+    // (dphi,dx.normalize())
+    let mut dphi = Vector3::new(0.0,0.0,0.0);
+    for i in 0..3 {
+        dphi[i] = df/dx[i]
+    }
+    dphi
 }

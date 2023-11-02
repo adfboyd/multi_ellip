@@ -429,39 +429,57 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                                                                   f1, f2, f3, f4, f5, f6,
                                                                   df1, df2, df3, df4, df5, df6,
                                                                   al, be, ga, xi, eta);
+            let (p_12,f_12) = midpoint_gen(&p1, &p2, f1, f2);
+            let (p_23,f_23) = midpoint_gen(&p2, &p3, f2, f3);
+            let (p_13, f_13) = midpoint_gen(&p1, &p3, f1, f3);
 
-            let (df_da, da) = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
-            let (df_db, db) = dphi(&p2, &p6, f2, f6);
-            let (df_dc, dc) = dphi(&p3, &p4, f3, f4);
+            let p5 = p_23;
+            let p6 = p_13;
+            let p4 = p_12;
+            let (f5, f6, f4) = (f_23, f_13, f_12);
 
-            let cos_ab = da.dot(&db);
-            let cos_bc = db.dot(&dc);
-            let cos_ac = dc.dot(&da);
+            let df_da  = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
+            let df_db  = dphi(&p2, &p6, f2, f6);
+            let df_dc =  dphi(&p3, &p4, f3, f4);
 
-            let sin_ab = da.cross(&db).norm();
-            let sin_bc = db.cross(&dc).norm();
-            let sin_ac = dc.cross(&da).norm();
-            // println!("Angle sines = {:?}, {:?}, {:?}", sin_ab, sin_ac, sin_bc);
+            println!("Values of phi on vertices = {:?}, {:?}, {:?}", f1,f2,f3);
+            println!("Values of midpoints = {:?}, {:?}, {:?}", f4, f5, f6);
 
-            //If u is df_da, then df_db = ucos(theta)+vsin(theta), find v below
+            println!("{:?}, {:?}, {:?}", df_da.norm_squared(), df_db.norm_squared(), df_dc.norm_squared());
 
-            let u0 = df_da;
-            let v0 = (df_db + u0 * cos_ab)/sin_ab;
-
-            let w0 = dfdn_p0;
-
-            let u1 = df_db;
-            let v1 = (df_dc + u1 * cos_bc)/sin_bc;
-
-            let u2 = df_dc;
-            let v2 = (df_da + u2 * cos_ac)/sin_ac;
-
-
-            let u_0 = Vector3::new(u0,v0,w0).norm_squared();
-            let u_1 = Vector3::new(u1,v1,w0).norm_squared();
-            let u_2 = Vector3::new(u2,v2,w0).norm_squared();
+            let u_0 = df_da.norm_squared();
+            // let (df_da, da) = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
+            // let (df_db, db) = dphi(&p2, &p6, f2, f6);
+            // let (df_dc, dc) = dphi(&p3, &p4, f3, f4);
+            //
+            // let cos_ab = da.dot(&db);
+            // let cos_bc = db.dot(&dc);
+            // let cos_ac = dc.dot(&da);
+            //
+            // let sin_ab = da.cross(&db).norm();
+            // let sin_bc = db.cross(&dc).norm();
+            // let sin_ac = dc.cross(&da).norm();
+            // // println!("Angle sines = {:?}, {:?}, {:?}", sin_ab, sin_ac, sin_bc);
+            //
+            // //If u is df_da, then df_db = ucos(theta)+vsin(theta), find v below
+            //
+            // let u0 = df_da;
+            // let v0 = (df_db + u0 * cos_ab)/sin_ab;
+            //
+            // let w0 = dfdn_p0;
+            //
+            // let u1 = df_db;
+            // let v1 = (df_dc + u1 * cos_bc)/sin_bc;
+            //
+            // let u2 = df_dc;
+            // let v2 = (df_da + u2 * cos_ac)/sin_ac;
+            //
+            //
+            // let u_0 = Vector3::new(u0,v0,w0).norm_squared();
+            // let u_1 = Vector3::new(u1,v1,w0).norm_squared();
+            // let u_2 = Vector3::new(u2,v2,w0).norm_squared();
             // println!("df_da = {:?}, df_db = {:?}, df_dc = {:?}         u,v,w =  {:?}", df_da, df_db, df_dc, u);
-            println!("Three options should be same {:?}, {:?}, {:?}", u_0, u_1, u_2);
+            // println!("Three options should be same {:?}, {:?}, {:?}", u_0, u_1, u_2);
 
             //
             // let p0_n = vn; //Another name for the normal vector at p0.
