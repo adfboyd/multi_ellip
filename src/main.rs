@@ -20,7 +20,7 @@ use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::system::Simulation;
 use multi_ellip::utils::SimName;
 
-use plotters::prelude::*;
+// use plotters::prelude::*;
 // use colorous::*;
 // use palette::{Srgb, Hsv};
 // use palette::rgb::Rgb;
