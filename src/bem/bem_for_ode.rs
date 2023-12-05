@@ -128,7 +128,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         // println!("Matrix decomposed");
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
-        println!("Linear system solved!");
+        // println!("Linear system solved!");
 
 
         f
@@ -327,7 +327,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let js = (0..npts).collect::<Vec<usize>>();
 
-        println!("Computing columns of influence matrix");
+        // println!("Computing columns of influence matrix");
 
         js.par_iter().for_each(|&j|  {
             // println!("Computing column {} of the influence matrix", j);
@@ -354,7 +354,7 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         let df = dfdn.clone();
-        println!("Linear system solved!");
+        // println!("Linear system solved!");
         // println!("F = {:?}", f);
         //The value of phi at any point in the domain can be calculated as follows:
         //
@@ -395,6 +395,8 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             // println!();
             // println!("Iterating over {:?}th element", k);
 
+
+
             let i1 = n[(k, 0)];
             let i2 = n[(k, 1)];
             let i3 = n[(k, 2)];
@@ -415,39 +417,71 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
             let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
             let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
             let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
-
+            //
             let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
             let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
 
             let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+            //
+            //
+            // let (xi, eta) = (1.0/3.0, 1.0/3.0);
+            //
+            // for i in 0..mint {
+            //     let (xi, eta) = (xiq[i], etq[i]);
+            //
+            //     let (p0, vn, hs, f_p0, df_p0,
+            //         dfdxi, dfdet, ddxi, ddet) =
+            //         gradient_interp(p1, p2, p3, p4, p5, p6,
+            //                         vna1, vna2, vna3, vna4, vna5, vna6,
+            //                         f1, f2, f3, f4, f5, f6,
+            //                         df1, df2, df3, df4, df5, df6,
+            //                         al, be, ga, xi, eta);
+            //
+            //     let sin_phi = sine_find(&ddxi, &ddet);
+            //
+            //     let u = dfdxi;
+            //     let v = dfdet * sin_phi;
+            //     let w = dfdn_int;
+            //
+            //     let grad_f = Vector3::new(u,v,w);
+            //
+            //     let u_0 = grad_f.norm_squared();
+            // }
+
+            let (u_0, area) = gradient_interp_3d_integral( k, mint,
+                                                  &f, &dfdn,
+                                                  &p, &n, &vna,
+                                                  &alpha, &beta, &gamma,
+                                                  &xiq, &etq, &wq);
+
+            let (p0, vn, _hs, _f_p0, _df_p0,
+                        _dfdxi, _dfdet, _ddxi, _ddet) =
+                        gradient_interp(p1, p2, p3, p4, p5, p6,
+                                        vna1, vna2, vna3, vna4, vna5, vna6,
+                                        f1, f2, f3, f4, f5, f6,
+                                        df1, df2, df3, df4, df5, df6,
+                                        al, be, ga, 1./3., 1./3.);
 
 
-            let (xi, eta) = (1.0/3.0, 1.0/3.0);
-
-            let (p0, vn, _hs, f_p0, dfdn_p0) = lsdlpp_3d_interp(p1, p2, p3, p4, p5, p6,
-                                                                  vna1, vna2, vna3, vna4, vna5, vna6,
-                                                                  f1, f2, f3, f4, f5, f6,
-                                                                  df1, df2, df3, df4, df5, df6,
-                                                                  al, be, ga, xi, eta);
-            let (p_12,f_12) = midpoint_gen(&p1, &p2, f1, f2);
-            let (p_23,f_23) = midpoint_gen(&p2, &p3, f2, f3);
-            let (p_13, f_13) = midpoint_gen(&p1, &p3, f1, f3);
-
-            let p5 = p_23;
-            let p6 = p_13;
-            let p4 = p_12;
-            let (f5, f6, f4) = (f_23, f_13, f_12);
-
-            let df_da  = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
-            let df_db  = dphi(&p2, &p6, f2, f6);
-            let df_dc =  dphi(&p3, &p4, f3, f4);
-
-            println!("Values of phi on vertices = {:?}, {:?}, {:?}", f1,f2,f3);
-            println!("Values of midpoints = {:?}, {:?}, {:?}", f4, f5, f6);
-
-            println!("{:?}, {:?}, {:?}", df_da.norm_squared(), df_db.norm_squared(), df_dc.norm_squared());
-
-            let u_0 = df_da.norm_squared();
+            // let (p_12,f_12) = midpoint_gen(&p1, &p2, f1, f2);
+            // let (p_23,f_23) = midpoint_gen(&p2, &p3, f2, f3);
+            // let (p_13, f_13) = midpoint_gen(&p1, &p3, f1, f3);
+            //
+            // let p5 = p_23;
+            // let p6 = p_13;
+            // let p4 = p_12;
+            // let (f5, f6, f4) = (f_23, f_13, f_12);
+            //
+            // let df_da  = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
+            // let df_db  = dphi(&p2, &p6, f2, f6);
+            // let df_dc =  dphi(&p3, &p4, f3, f4);
+            //
+            // println!("Values of phi on vertices = {:?}, {:?}, {:?}", f1,f2,f3);
+            // println!("Values of midpoints = {:?}, {:?}, {:?}", f4, f5, f6);
+            //
+            // println!("{:?}, {:?}, {:?}", df_da.norm_squared(), df_db.norm_squared(), df_dc.norm_squared());
+            //
+            // let u_0 = df_da.norm_squared();
             // let (df_da, da) = dphi(&p1, &p5, f1, f5); //Returns the derivative of phi in da direction. da = |p1 - p2|. df_da = (f2-f1)/|da|
             // let (df_db, db) = dphi(&p2, &p6, f2, f6);
             // let (df_dc, dc) = dphi(&p3, &p4, f3, f4);

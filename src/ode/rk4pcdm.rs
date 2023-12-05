@@ -113,7 +113,7 @@ Rk4PCDM<
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let print_rate = 100 as usize;
+        let print_rate = 20 as usize;
 
         let start_t = Instant::now();
         //should be for i in 0..num_steps
@@ -130,7 +130,7 @@ Rk4PCDM<
                 // println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
             };
 
-            println!("Time = {:.7}", self.t);
+            // println!("Time = {:.7}", self.t);
 
             //Get (lin,ang) forces for bodies 1 & 2.
             let (linear_accel, angular_force) = self.force_get();
@@ -164,7 +164,6 @@ Rk4PCDM<
 
             let o_lab_new_v = self.orientation_to_marker_point(); //Calculate orientation vector position in lab frame
 
-            // let (_, x_lab_new) = self.euler_frame_step(); //Calculate position of body in lab frame
 
             if i % samp_rate == 0 { //Record current state of body
                 self.t_out.push(t_new);

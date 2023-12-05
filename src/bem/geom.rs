@@ -1,7 +1,8 @@
+use std::f64::consts::PI;
 use nalgebra as na;
 use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
-use num_traits::Signed;
+use num_traits::{Pow, Signed};
 use crate::bem::stacking::Block;
 
 ///Generates a grid for a given ellipsoid
@@ -886,5 +887,58 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
     (vna, vlm, area)
 
+
+}
+///Returns the principal (all +ve values) coordinates in cartesian frame of ellipsoidal coordinates
+pub fn ellipsoidal_to_cartesian(p_el :&Vector3<f64>, shape :&Vector3<f64>) -> Vector3<f64> {
+
+    let (a,b,c) = (shape[0], shape[1], shape[2]);
+    let k = (a.powi(2) - c.powi(2)).sqrt();
+    let h = (a.powi(2) - b.powi(2)).sqrt();
+    let (k2, h2) = (k*k, h*h);
+
+    let (chi, mu, nu) = (p_el[0], p_el[1], p_el[2]); //Chi is surface of constant ellipsoidal radius, mu is parabaloid, nu is hyperboloid.
+    let (chi2, mu2, nu2) = (chi*chi, mu*mu, nu*nu);
+    let x_sq = ((chi * mu * nu)/(k * h)).powi(2);
+    let y_sq = ((chi2 - h2)*(mu2 - h2)*(h2-nu2))/(h2 * (k2 - h2));
+    let z_sq = ((chi2 - k2)*(k2 - mu2)*(k2 - nu2))/(k2 * (k2 - h2));
+
+    let x = x_sq.sqrt();
+    let y = y_sq.sqrt();
+    let z = z_sq.sqrt();
+
+    Vector3::new(x,y,z)
+}
+
+///Returns the ellipsoidal coordinates of a cartesian vector (in frame of ellipsoid)
+pub fn cartesian_to_ellipsoidal(p_cart :&Vector3<f64>, shape :&Vector3<f64>) -> Vector3<f64> {
+
+    let (a,b,c) = (shape[0], shape[1], shape[2]);
+    let k = (a.powi(2) - c.powi(2)).sqrt();
+    let h = (a.powi(2) - b.powi(2)).sqrt();
+    let (k2, h2) = (k*k, h*h);
+
+    let (x, y, z) = (p_cart[0], p_cart[1], p_cart[2]);
+    let (x2, y2, z2) = (x*x, y*y, z*z);
+    let a_1 = -(x2 + y2 + z2 + k2 + h2);
+    let a_2 = x2 * (k2 + h2) + y2 * k2 + z2 * h2 + h2 * k2;
+    let a_3 = - k2 * h2 * x2;
+
+    let q = (a_1 * a_1 - 3.0 * a_2) / 9.0;
+    let r = (9.0 * a_1 * a_2 - 27.0 * a_3 - 2.0 * a_1.powi(3)) / 54.0 ;
+    let cos_v = q.powf(-1.5) * r;
+    let v = cos_v.acos();
+
+    let prefac = 2.0 * q.sqrt();
+
+    let chi2 = prefac * (v / 3.0).cos() - (a_1 / 3.0);
+    let mu2 = prefac * (v / 3.0 + 4.0 * PI / 3.0) - (a_1 / 3.0);
+    let nu2 = prefac * (v / 3.0 + 2.0 * PI / 3.0) - (a_1 / 3.0);
+
+    let chi = chi2.sqrt();
+    let mu = mu2.sqrt();
+    let nu = nu2.sqrt();
+
+    Vector3::new(chi, mu, nu)
 
 }

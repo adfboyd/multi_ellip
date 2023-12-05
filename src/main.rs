@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     body1.set_linear_velocity(Vector3::new(1.0, 0.0, 0.0));
-    body1.set_angular_velocity(omega);
+    body1.set_angular_velocity(omega*0.0);
     //Normalise initial conditions
     // let init_frequency = body1.rotational_frequency();
     //
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     body2.set_linear_velocity(Vector3::new(-1.0, 0.0, 0.0));
-    body2.set_angular_velocity(omega2);
+    body2.set_angular_velocity(omega2*0.0);
 
 
 
@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 3;
+    let ndiv = 0;
 
     let npts_circ = (4*2_usize.pow(ndiv)) as f64;
     let dx = (4.0 * PI) / npts_circ;
@@ -236,7 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match res {
         Ok(_) => {
 
-            let path_base_str = format!("./output_ellipse_sphere/");
+            let path_base_str = format!("./output_ellipse_sphere_surfgrad_norot/");
 
             match std::fs::create_dir_all(path_base_str.clone()) {
                 Ok(_) => {}
