@@ -166,35 +166,35 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
                                      &orientation1, &split_axis_x, 0_usize);
         // println!("Splitting in y axis");
 
-        let (nelm1, npts1, p1, n1,
-            n1_yline, y_elms_pos_1, y_elms_neg_1)
-            = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
-                                     &orientation1, &split_axis_y, 0_usize);
-        // println!("Splitting in z axis");
+        // let (nelm1, npts1, p1, n1,
+        //     n1_yline, y_elms_pos_1, y_elms_neg_1)
+        //     = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
+        //                              &orientation1, &split_axis_y, 0_usize);
+        // // println!("Splitting in z axis");
 
-        let (nelm1, npts1, p1, n1,
-            n1_zline, z_elms_pos_1, z_elms_neg_1)
-            = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
-                                     &orientation1, &split_axis_z, 0_usize);
+        // let (nelm1, npts1, p1, n1,
+        //     n1_zline, z_elms_pos_1, z_elms_neg_1)
+        //     = ellip_gridder_splitter(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position,
+        //                              &orientation1, &split_axis_z, 0_usize);
 
-        let mut body1_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
-        body1_lines.push(n1_xline.clone());
-        body1_lines.push(n1_yline.clone());
-        body1_lines.push(n1_zline.clone());
-
-        let mut body1_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
-        body1_elms_pos.push(x_elms_pos_1.clone());
-        body1_elms_pos.push(y_elms_pos_1.clone());
-        body1_elms_pos.push(z_elms_pos_1.clone());
-
-        let mut body1_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
-        body1_elms_neg.push(x_elms_neg_1.clone());
-        body1_elms_neg.push(y_elms_neg_1.clone());
-        body1_elms_neg.push(z_elms_neg_1.clone());
-
-        let mut body1_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
-        body1_elms_all.push(body1_elms_neg.clone());
-        body1_elms_all.push(body1_elms_pos.clone());
+        // let mut body1_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
+        // body1_lines.push(n1_xline.clone());
+        // body1_lines.push(n1_yline.clone());
+        // body1_lines.push(n1_zline.clone());
+        //
+        // let mut body1_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
+        // body1_elms_pos.push(x_elms_pos_1.clone());
+        // body1_elms_pos.push(y_elms_pos_1.clone());
+        // body1_elms_pos.push(z_elms_pos_1.clone());
+        //
+        // let mut body1_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
+        // body1_elms_neg.push(x_elms_neg_1.clone());
+        // body1_elms_neg.push(y_elms_neg_1.clone());
+        // body1_elms_neg.push(z_elms_neg_1.clone());
+        //
+        // let mut body1_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
+        // body1_elms_all.push(body1_elms_neg.clone());
+        // body1_elms_all.push(body1_elms_pos.clone());
 
         // println!("Body 1 elms = {:?}", body1_elms_all);
         //
@@ -205,57 +205,57 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
         let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        //"Splitting in x axis
+        // //"Splitting in x axis
         let (nelm2, npts2, p2, n2,
             n2_xline, x_elms_pos_2, x_elms_neg_2)
             = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
                                      &orientation2, &split_axis_x, 1_usize);
-        //println!("Splitting in y axis");
-        let (nelm2, npts2, p2, n2,
-            n2_yline, y_elms_pos_2, y_elms_neg_2)
-            = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
-                                     &orientation2, &split_axis_y, 1_usize);
-        //println!("Splitting in z axis");
-        let (nelm2, npts2, p2, n2,
-            n2_zline, z_elms_pos_2, z_elms_neg_2)
-            = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
-                                     &orientation2, &split_axis_z, 1_usize);
-
-        let mut body2_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
-        body2_lines.push(n2_xline.clone());
-        body2_lines.push(n2_yline.clone());
-        body2_lines.push(n2_zline.clone());
-
-        let mut body2_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
-        body2_elms_pos.push(x_elms_pos_2.clone());
-        body2_elms_pos.push(y_elms_pos_2.clone());
-        body2_elms_pos.push(z_elms_pos_2.clone());
-
-        let mut body2_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
-        body2_elms_neg.push(x_elms_neg_2.clone());
-        body2_elms_neg.push(y_elms_neg_2.clone());
-        body2_elms_neg.push(z_elms_neg_2.clone());
-
-        let mut body2_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
-        body2_elms_all.push(body2_elms_neg.clone());
-        body2_elms_all.push(body2_elms_pos.clone());
-
-        let body1_elms :Vec<usize> = (0..nelm1).collect();
-        let body2_elms :Vec<usize> = (nelm1..(nelm1+nelm2)).collect();
-
-        for mut i in &mut body2_elms_all {
-            for mut j in i {
-                for mut k in j {
-                    *k += nelm1;
-                }
-            }
-        }
-
-        for mut i in &mut body2_lines {
-            for mut j in i {
-                *j += npts1;
-            }
-        }
+        // //println!("Splitting in y axis");
+        // let (nelm2, npts2, p2, n2,
+        //     n2_yline, y_elms_pos_2, y_elms_neg_2)
+        //     = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
+        //                              &orientation2, &split_axis_y, 1_usize);
+        // //println!("Splitting in z axis");
+        // let (nelm2, npts2, p2, n2,
+        //     n2_zline, z_elms_pos_2, z_elms_neg_2)
+        //     = ellip_gridder_splitter(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position,
+        //                              &orientation2, &split_axis_z, 1_usize);
+        //
+        // let mut body2_lines :Vec<DMatrix<usize>> = Vec::new(); //Vec containing the points required to split the body among any axis.
+        // body2_lines.push(n2_xline.clone());
+        // body2_lines.push(n2_yline.clone());
+        // body2_lines.push(n2_zline.clone());
+        //
+        // let mut body2_elms_pos :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with positive coordinates in each axis.
+        // body2_elms_pos.push(x_elms_pos_2.clone());
+        // body2_elms_pos.push(y_elms_pos_2.clone());
+        // body2_elms_pos.push(z_elms_pos_2.clone());
+        //
+        // let mut body2_elms_neg :Vec<Vec<usize>> = Vec::new(); //Vec containing the list of elements with negative coordinates in each axis.
+        // body2_elms_neg.push(x_elms_neg_2.clone());
+        // body2_elms_neg.push(y_elms_neg_2.clone());
+        // body2_elms_neg.push(z_elms_neg_2.clone());
+        //
+        // let mut body2_elms_all :Vec<Vec<Vec<usize>>> = Vec::new(); //Vec containing both all the lists of elements.
+        // body2_elms_all.push(body2_elms_neg.clone());
+        // body2_elms_all.push(body2_elms_pos.clone());
+        //
+        // let body1_elms :Vec<usize> = (0..nelm1).collect();
+        // let body2_elms :Vec<usize> = (nelm1..(nelm1+nelm2)).collect();
+        //
+        // for mut i in &mut body2_elms_all {
+        //     for mut j in i {
+        //         for mut k in j {
+        //             *k += nelm1;
+        //         }
+        //     }
+        // }
+        //
+        // for mut i in &mut body2_lines {
+        //     for mut j in i {
+        //         *j += npts1;
+        //     }
+        // }
 
         // let  body2_elms_all_copy = body2_elms_all.clone();
 
@@ -269,20 +269,20 @@ impl crate::ode::System4<Linear2State> for ForceCalculate {
 
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
-        let (nelm, npts, n_xline, x_elms_pos, x_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              &n1_xline, &n2_xline,
-                                                                              &x_elms_pos_1, &x_elms_pos_2,
-                                                                              &x_elms_neg_1, &x_elms_neg_2);
-
-        let (nelm, npts, n_yline, y_elms_pos, y_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              &n1_yline, &n2_yline,
-                                                                              &y_elms_pos_1, &y_elms_pos_2,
-                                                                              &y_elms_neg_1, &y_elms_neg_2);
-
-        let (nelm, npts, n_zline, z_elms_pos, z_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
-                                                                              &n1_zline,&n2_zline,
-                                                                              &z_elms_pos_1, &z_elms_pos_2,
-                                                                              &z_elms_neg_1, &z_elms_neg_2);
+        // let (nelm, npts, n_xline, x_elms_pos, x_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+        //                                                                       &n1_xline, &n2_xline,
+        //                                                                       &x_elms_pos_1, &x_elms_pos_2,
+        //                                                                       &x_elms_neg_1, &x_elms_neg_2);
+        //
+        // let (nelm, npts, n_yline, y_elms_pos, y_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+        //                                                                       &n1_yline, &n2_yline,
+        //                                                                       &y_elms_pos_1, &y_elms_pos_2,
+        //                                                                       &y_elms_neg_1, &y_elms_neg_2);
+        //
+        // let (nelm, npts, n_zline, z_elms_pos, z_elms_neg) = combiner_splitter(nelm1, nelm2, npts1, npts2,
+        //                                                                       &n1_zline,&n2_zline,
+        //                                                                       &z_elms_pos_1, &z_elms_pos_2,
+        //                                                                       &z_elms_neg_1, &z_elms_neg_2);
 
 
         let (zz, ww) = gauss_leg(nq);
