@@ -17,7 +17,7 @@ impl SimName {
             pcdm_path: path_base.join("single_body_pcdm.dat"),
             lab_path: path_base.join("single_body_lab.dat"),
             olab_path: path_base.join("single_body_olab.dat"),
-            complete_path: path_base.join("single_body_complete.dat"),
+            complete_path: path_base.join("multiple_body_complete.dat"),
         }
     }
     pub fn rk4_path(&self) -> &PathBuf {
