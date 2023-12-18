@@ -19,5 +19,6 @@ thiserror = "1.0.30"
 fast-float = "0.2.0"
 rayon = "1.5.2"
 indicatif = {version = "0.17.0", features = ["rayon"]}
+nom = "7.0.0"
 #colorous = "1.0.9"
 #palette = "0.6.1"
