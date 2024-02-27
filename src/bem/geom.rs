@@ -258,7 +258,7 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
         }
 
     }
-    (npts, nelm, p, n)
+    (nelm, npts, p, n)
 }
 
 pub fn ellip_gridder_splitter(ndiv : u32, req :f64,

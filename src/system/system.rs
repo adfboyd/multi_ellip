@@ -23,6 +23,7 @@ pub struct Simulation {
     pub t_delta: f64,
     pub ndiv: u32,
     pub samp_rate: u32,
+    pub nbody: usize,
     pub mass_tensor1: na::Matrix3<f64>,
     pub inertia_tensor1: na::Matrix3<f64>,
     pub mass_tensor2: na::Matrix3<f64>,
@@ -42,7 +43,7 @@ impl Simulation {
         t_delta: f64,
         ndiv: u32,
         samp_rate: u32,
-        ratio: f64,
+        nbody: usize,
     ) -> Self {
         let mut sim = Self {
             fluid,
@@ -54,6 +55,7 @@ impl Simulation {
             t_delta,
             ndiv,
             samp_rate,
+            nbody,
             mass_tensor1: na::Matrix3::zeros(),
             inertia_tensor1: na::Matrix3::zeros(),
             mass_tensor2: na::Matrix3::zeros(),
@@ -76,12 +78,12 @@ impl Simulation {
 
 
 
-        let (mass1, inert1) = sim.body1.inertia_tensor(sim.fluid.density);
+        let (mass1, inert1) = sim.body1.m_i_tensor();
 
         sim.mass_tensor1 = mass1;
         sim.inertia_tensor1 = inert1;
 
-        let (mass2, inert2) = sim.body2.inertia_tensor(sim.fluid.density);
+        let (mass2, inert2) = sim.body2.m_i_tensor();
 
         sim.mass_tensor2 = mass2;
         sim.inertia_tensor2 = inert2;

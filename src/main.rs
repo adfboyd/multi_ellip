@@ -66,12 +66,17 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     // Expect at least one argument: the file path
-    if args.len() < 3 {
+    if args.len() < 1 {
         println!("Usage: program <path_to_input_file>");
         return;
     }
     let input_file_path = &args[1];
-    let output_file_path = &args[2];
+    println!("{:?}", input_file_path);
+    let blank_fp = ".".to_string();
+    let output_file_path = if args.len() > 2
+             {&args[2]}
+        else
+             {&blank_fp};
     // Read from the file
     let input_data = match fs::read_to_string(input_file_path) {
         Ok(content) => content,
@@ -103,6 +108,7 @@ fn main() {
     let mut dt = 0.1;
     let mut tprint = 20;
     let mut ndiv :usize = 2;
+    let mut nbody :usize = 2;
 
     match parse_assignments(&input_data) {
         Ok((_, assignments)) => {
@@ -127,7 +133,7 @@ fn main() {
                     "ndiv" => *values.entry(name.to_string()).or_insert(2.0),
                     "tend" => *values.entry(name.to_string()).or_insert(10.0),
                     "dt" => *values.entry(name.to_string()).or_insert(0.1),
-
+                    "nbody" => *values.entry(name.to_string()).or_insert(2.0),
                     // Default case for all other variables
                     _ => *values.entry(name.to_string()).or_insert(0.0),
                 }
@@ -140,7 +146,7 @@ fn main() {
                 "cex2", "cey2", "cez2", "oriw2", "orii2", "orij2", "orik2",
                 "lvx2", "lvy2", "lvz2", "avx2", "avy2", "avz2", "rhos2",
                 "shx2", "shy2", "shz2", "rhof", "ndiv",
-                "tend", "dt"
+                "tend", "dt", "nbody"
             ];
 
             // Check each variable and assign default if necessary
@@ -253,6 +259,9 @@ fn main() {
             dt = *values.get("dt").unwrap();
             println!("Running with timestep = {:?}, until t={:?}", dt, t_end);
             tprint = *values.get("tprint").unwrap() as u32;
+            let nbody_f64 = *values.get("nbody").unwrap();
+            nbody = nbody_f64 as usize;
+            println!("Running with {:?} body(s)", nbody);
         },
         Err(e) => {
             println!("Failed to parse: {:?}", e);
@@ -338,7 +347,7 @@ fn main() {
         0.0000001,
         ndiv,
         10000,
-        ratio,
+        nbody,
     );
 
     println!("Simulation Built");
@@ -361,6 +370,7 @@ fn main() {
 
     let omega1 = sys.body1.angular_velocity();
     let omega2 = sys.body2.angular_velocity();
+    println!("omega1 = {:?}", omega1);
     // let omega = (omega1, omega2);
 
     // let o = (q, omega);

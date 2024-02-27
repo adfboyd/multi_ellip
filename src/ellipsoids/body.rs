@@ -163,6 +163,14 @@ impl Body {
         (m, i)
     }
 
+    pub fn m_i_tensor(&self) -> (Matrix3<f64>, Matrix3<f64>) {
+        let m_s = na::Matrix3::from_diagonal(&self.shape);
+        let i_s = is_calc(m_s, self.density);
+
+        (m_s, i_s)
+
+    }
+
     pub fn print_vel(&self) {
         println!("Linear velocity is {:?}", self.linear_velocity());
     }
