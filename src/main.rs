@@ -130,6 +130,8 @@ fn main() {
                     "oriw2" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos1" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "req1" => *values.entry(name.to_string()).or_insert(1.0),
+                    "req2" => *values.entry(name.to_string()).or_insert(1.0),
                     "ndiv" => *values.entry(name.to_string()).or_insert(2.0),
                     "tend" => *values.entry(name.to_string()).or_insert(10.0),
                     "dt" => *values.entry(name.to_string()).or_insert(0.1),
