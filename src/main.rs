@@ -129,6 +129,8 @@ fn main() {
                     "oriw2" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos1" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "req1" => *values.entry(name.to_string()).or_insert(1.0),
+                    "req2" => *values.entry(name.to_string()).or_insert(1.0),
                     "ndiv" => *values.entry(name.to_string()).or_insert(2.0),
                     "tend" => *values.entry(name.to_string()).or_insert(10.0),
                     "dt" => *values.entry(name.to_string()).or_insert(0.1),
@@ -143,7 +145,7 @@ fn main() {
                 "cex1", "cey1", "cez1", "oriw1", "orii1", "orij1", "orik1",
                 "lvx1", "lvy1", "lvz1", "avx1", "avy1", "avz1", "shx1", "shy1", "shz1", "req1", "rhos1",
                 "cex2", "cey2", "cez2", "oriw2", "orii2", "orij2", "orik2",
-                "lvx2", "lvy2", "lvz2", "avx2", "avy2", "avz2", "rhos2",
+                "lvx2", "lvy2", "lvz2", "avx2", "avy2", "avz2", "req2", "rhos2",
                 "shx2", "shy2", "shz2", "rhof", "ndiv",
                 "tend", "dt", "nbody"
             ];
