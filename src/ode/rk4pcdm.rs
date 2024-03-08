@@ -123,9 +123,25 @@ Rk4PCDM<
                 let ratio = ((num_steps - i) as f64) / (i as f64);
                 let ratio2 = (num_steps as f64) / (i as f64);
                 let remain_est = self.multiply_duration(elapsed, ratio);
-                let total_est = self.multiply_duration(elapsed, ratio2);
-                println!("Time = {:.7}. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
-                let vels = self.x.1;
+                // let total_est = self.multiply_duration(elapsed, ratio2);
+                let completion_percentage = 100./ratio2;
+                if remain_est.as_secs() > 3600 {
+                    let hrs = remain_est.as_secs()/3600;
+                    let mins = (remain_est.as_secs() - hrs*3600)/60;
+                    let secs = remain_est.as_secs() - hrs*3600 - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete.", self.t, i, num_steps, hrs, mins, secs, completion_percentage);  //Print progress
+                }
+                else if remain_est.as_secs() > 60 {
+                    let mins = remain_est.as_secs()/60;
+                    let secs = remain_est.as_secs() - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete..", self.t, i, num_steps,  mins, secs, completion_percentage);  //Print progress
+
+                }
+                else {
+                    let secs = remain_est.as_secs();
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete..", self.t, i, num_steps, secs, completion_percentage);  //Print progress
+
+                }
                 // println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
                 // println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
             };

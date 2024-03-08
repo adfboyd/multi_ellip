@@ -37,7 +37,7 @@ impl Body {
     }
 
     pub fn angular_velocity(&self) -> Quaternion<f64> {
-        let omega = self.angular_momentum.imag() * 2.0;
+        let omega = self.angular_momentum.imag();
         let vec = self.inertia.try_inverse().map(|m| m * omega).unwrap();
         Quaternion::from_imag(vec)
     }

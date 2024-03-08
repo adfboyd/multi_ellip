@@ -66,12 +66,11 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     // Expect at least one argument: the file path
-    if args.len() < 1 {
-        println!("Usage: program <path_to_input_file>");
-        return;
+    if args.len() < 2 {
+        panic!("Usage: program <path_to_input_file>");
     }
     let input_file_path = &args[1];
-    println!("{:?}", input_file_path);
+    println!("Reading input from {:?}", input_file_path);
     let blank_fp = ".".to_string();
     let output_file_path = if args.len() > 2
              {&args[2]}
@@ -86,7 +85,7 @@ fn main() {
         }
     };
 
-    println!("{:?}",input_data);
+    // println!("{:?}",input_data);
     let mut position_1 = Vector3::new(0.0, 0.0, 0.0);
     let mut orientation_1 = Quaternion::from_parts(0.0, Vector3::new(0.0, 0.0, 0.0));
     let mut lin_velocity_1 = Vector3::new(0.0, 0.0, 0.0);
@@ -200,8 +199,8 @@ fn main() {
             shape_1 = Vector3::new(shx1*sf, shy1*sf, shz1*sf);
             println!("shape_1: {:?}", shape_1);
 
-            req1 = *values.get("req1").unwrap();
-            println!("Equivalent radius of 1 = {:?}", req1);
+            // req1 = *values.get("req1").unwrap();
+            // println!("Equivalent radius of 1 = {:?}", req1);
             rho_s1 = *values.get("rhos1").unwrap();
             println!("Density of solid 1 = {:?}", rho_s1);
 
@@ -284,7 +283,7 @@ fn main() {
     // let ang_mom_q = Quaternion::from_imag(init_ang_mom);
     // let q0 = Quaternion::from_real(0.0);
 
-    let ratio= 20.0;
+    // let ratio= 20.0;
 
     let mut body1 = Body {
         density: rho_s1,
@@ -343,10 +342,7 @@ fn main() {
         fluid,
         body1,
         body2,
-        100.0,
-        0.0000001,
         ndiv,
-        10000,
         nbody,
     );
 
@@ -370,7 +366,7 @@ fn main() {
 
     let omega1 = sys.body1.angular_velocity();
     let omega2 = sys.body2.angular_velocity();
-    println!("omega1 = {:?}", omega1);
+    // println!("omega1 = {:?}", omega1);
     // let omega = (omega1, omega2);
 
     // let o = (q, omega);
@@ -419,6 +415,7 @@ fn main() {
         Ok(_) => {
 
             // let path_base_str = format!("./output_ellipse_sphere_surfgrad_norot/");
+            println!("Solver finished successfully - good job!");
             let path_base_str = output_file_path;
             println!("Saving to {:?}", path_base_str);
 
@@ -439,7 +436,9 @@ fn main() {
                 &stepper.o_lab_out,
                 &sim_name,
                 &comment,
+                nbody,
             );
+            println!("Results saved successfully.")
         }
         Err(e) => println!("An error occurred {:?}", e),
 
@@ -462,14 +461,28 @@ pub fn save(
 
     filename: &SimName,
     comment: &str,
+    nbody: usize,
 ) {
-    let file1 = match File::create(filename.complete_path()) {
-        Err(e) => {
-            println!("Could not open file. Error: {:?}", e);
-            return;
+    let file1 = if nbody == 2 {
+        match File::create(filename.complete_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
         }
-        Ok(buf) => buf,
+    }
+    else {
+        match File::create(filename.single_body_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
+        }
     };
+
+
 
     let mut buf = BufWriter::new(file1);
     // buf.write_fmt(format_args!("{}", comment)).unwrap();
