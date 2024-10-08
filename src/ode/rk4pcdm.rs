@@ -69,6 +69,7 @@ Rk4PCDM<
         x: (Vector6<f64>, Vector6<f64>), // (position, velocity)
         o1: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 1
         o2: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 2
+        o3: (Quaternion<f64>, Quaternion<f64>),
         inertia: na::Matrix3<f64>,
         inertia2: na::Matrix3<f64>,
         t_end: f64,
@@ -82,8 +83,8 @@ Rk4PCDM<
             t: t_begin,
             x,
             // x_lab: na::OVector::zeros(),
-            o: ((o1.0, o2.0), (o1.1, o2.1)),
-            o_lab: Vector6::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+            o: ((o1.0, o2.0, o3.0), (o1.1, o2.1, o3.1)),
+            o_lab: Vector9::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
             inertia,
             inertia2,
             t_begin,

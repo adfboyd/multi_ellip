@@ -102,6 +102,15 @@ fn main() {
     let mut req2 = 1.0;
     let mut rho_s2 = 1.0;
 
+
+    let mut position_3 = Vector3::new(0.0, 0.0, 0.0);
+    let mut orientation_3 = Quaternion::from_parts(0.0, Vector3::new(0.0, 0.0, 0.0));
+    let mut lin_velocity_3 = Vector3::new(0.0, 0.0, 0.0);
+    let mut ang_velocity_3 = Quaternion::from_parts(0.0, Vector3::new(0.0, 0.0, 0.0));
+    let mut shape_3 = Vector3::new(0.0, 0.0, 0.0);
+    let mut req3 = 1.0;
+    let mut rho_s3 = 1.0;
+
     let mut rho_f = 1.0;
     let mut t_end = 10.0;
     let mut dt = 0.1;
@@ -125,12 +134,18 @@ fn main() {
                     "shx2" => *values.entry(name.to_string()).or_insert(1.0),
                     "shy2" => *values.entry(name.to_string()).or_insert(1.0),
                     "shz2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "shx3" => *values.entry(name.to_string()).or_insert(1.0),
+                    "shy3" => *values.entry(name.to_string()).or_insert(1.0),
+                    "shz3" => *values.entry(name.to_string()).or_insert(1.0),
                     "oriw1" => *values.entry(name.to_string()).or_insert(1.0),
                     "oriw2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "oriw3" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos1" => *values.entry(name.to_string()).or_insert(1.0),
                     "rhos2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "rhos3" => *values.entry(name.to_string()).or_insert(1.0),
                     "req1" => *values.entry(name.to_string()).or_insert(1.0),
                     "req2" => *values.entry(name.to_string()).or_insert(1.0),
+                    "req3" => *values.entry(name.to_string()).or_insert(1.0),
                     "ndiv" => *values.entry(name.to_string()).or_insert(2.0),
                     "tend" => *values.entry(name.to_string()).or_insert(10.0),
                     "dt" => *values.entry(name.to_string()).or_insert(0.1),
@@ -145,8 +160,10 @@ fn main() {
                 "cex1", "cey1", "cez1", "oriw1", "orii1", "orij1", "orik1",
                 "lvx1", "lvy1", "lvz1", "avx1", "avy1", "avz1", "shx1", "shy1", "shz1", "req1", "rhos1",
                 "cex2", "cey2", "cez2", "oriw2", "orii2", "orij2", "orik2",
-                "lvx2", "lvy2", "lvz2", "avx2", "avy2", "avz2", "req2", "rhos2",
-                "shx2", "shy2", "shz2", "rhof", "ndiv",
+                "lvx2", "lvy2", "lvz2", "avx2", "avy2", "avz2", "req2", "rhos2", "shx2", "shy2", "shz2",
+                "cex3", "cey3", "cez3", "oriw3", "orii3", "orij3", "orik3",
+                "lvx3", "lvy3", "lvz3", "avx3", "avy3", "avz3", "req3", "rhos3", "shx3", "shy3", "shz3",
+                "rhof", "ndiv",
                 "tend", "dt", "nbody"
             ];
 
@@ -251,6 +268,51 @@ fn main() {
             rho_s2 = *values.get("rhos2").unwrap();
             println!("Density of solid 2 = {:?}", rho_s2);
 
+            let cex3 = *values.get("cex3").unwrap();
+            let cey3 = *values.get("cey3").unwrap();
+            let cez3 = *values.get("cez3").unwrap();
+
+            position_3 = Vector3::new(cex3, cey3, cez3);
+            println!("position_3: {:?}", position_3);
+
+            let oriw3 = *values.get("oriw3").unwrap();
+            let orii3 = *values.get("orii3").unwrap();
+            let orij3 = *values.get("orij3").unwrap();
+            let orik3 = *values.get("orik3").unwrap();
+
+            orientation_3 = Quaternion::from_parts(oriw3, Vector3::new(orii3, orij3, orik3));
+            orientation_3 = orientation_3.normalize();
+            println!("orientation_3: {:?}", orientation_3);
+
+            let lvx3 = *values.get("lvx3").unwrap();
+            let lvy3 = *values.get("lvy3").unwrap();
+            let lvz3 = *values.get("lvz3").unwrap();
+
+            lin_velocity_3 = Vector3::new(lvx3, lvy3, lvz3);
+            println!("lin_velocity_3: {:?}", lin_velocity_3);
+
+            let avx3 = *values.get("avx3").unwrap();
+            let avy3 = *values.get("avy3").unwrap();
+            let avz3 = *values.get("avz3").unwrap();
+
+            ang_velocity_3 = Quaternion::from_parts(0.0, Vector3::new(avx3, avy3, avz3));
+            println!("ang_velocity_3: {:?}", ang_velocity_3);
+
+            let shx3 = *values.get("shx3").unwrap();
+            let shy3 = *values.get("shy3").unwrap();
+            let shz3 = *values.get("shz3").unwrap();
+            req3 = *values.get("req3").unwrap();
+            println!("Equivalent radius of 3 = {:?}", req3);
+
+            let req3_temp = (shx3*shy3*shz3).powf(1./3.);
+            let sf = 1./req3_temp *  req3;
+            shape_3 = Vector3::new(shx3*sf, shy3*sf, shz3*sf);
+            println!("shape_3: {:?}", shape_3);
+
+
+            rho_s3 = *values.get("rhos3").unwrap();
+            println!("Density of solid 3 = {:?}", rho_s3);
+
             rho_f = *values.get("rhof").unwrap();
             println!("\nDensity of fluid = {:?}", rho_f);
             let ndiv_f64 = *values.get("ndiv").unwrap();
@@ -322,6 +384,18 @@ fn main() {
     body2.set_linear_velocity(lin_velocity_2);
     body2.set_angular_velocity(ang_velocity_2);
 
+    let mut body3 = Body {
+        density: rho_s3,
+        shape: shape_3,
+        position: position_3,
+        orientation: orientation_3,
+        linear_momentum:  lin_velocity_3,
+        angular_momentum: ang_velocity_3,
+        inertia: is_calc(na::Matrix3::from_diagonal(&shape_3), rho_s3),
+    };
+
+    body3.set_linear_velocity(lin_velocity_3);
+    body3.set_angular_velocity(ang_velocity_3);
 
 
     //Setup Fluid
