@@ -3,7 +3,7 @@ use std::f64::consts::PI;
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{Quaternion, Vector3, Vector6};
+use nalgebra::{ArrayStorage, Matrix, Quaternion, U1, U9, Vector3, Vector6};
 
 use std::env;
 use std::collections::HashMap;
@@ -43,12 +43,19 @@ use multi_ellip::utils::SimName;
 
 
 type State2 = (Quaternion<f64>, Quaternion<f64>);
+type State3 = (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>);
 
 
 type Linear2State = (Vector6<f64>, Vector6<f64>);
+type Linear3State = (Vector9<f64>, Vector9<f64>);
+
 type Angular2State = (State2, State2);
+type Angular3State = (State3, State3);
 
 type Time = f64;
+
+type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
+
 
 // fn map_value_to_color(value: f64) -> RGBColor {
 //     // Map the value to a hue in the range [0, 240]
@@ -418,6 +425,7 @@ fn main() {
         fluid,
         body1,
         body2,
+        body3,
         ndiv,
         nbody,
     );
@@ -428,20 +436,26 @@ fn main() {
 
     let p1 = sys.body1.position;
     let p2 = sys.body2.position;
-    let p = Vector6::new(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
+    let p3= sys.body3.position;
+
+    let p = Vector9::from_row_slice(&[p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2]]);
 
     let v1 = sys.body1.linear_velocity();
     let v2 = sys.body2.linear_velocity();
-    let v = Vector6::new(v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]);
+    let v3 = sys.body3.linear_velocity();
+
+    let v = Vector9::from_row_slice(&[v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], v3[0], v3[1], v3[2]]);
 
     let x = (p, v);
 
     let q1 = sys.body1.orientation;
     let q2 = sys.body2.orientation;
+    let q3 = sys.body3.orientation;
     // let q = (q1, q2);
 
     let omega1 = sys.body1.angular_velocity();
     let omega2 = sys.body2.angular_velocity();
+    let omega3 = sys.body3.angular_velocity();
     // println!("omega1 = {:?}", omega1);
     // let omega = (omega1, omega2);
 
@@ -449,6 +463,7 @@ fn main() {
 
     let inertia1 = sys.body1.inertia;
     let inertia2 = sys.body2.inertia;
+    let inertia3 = sys.body3.inertia;
 
     let sys_mutex = Arc::new(Mutex::new(sys));
 
@@ -473,8 +488,10 @@ fn main() {
         x,
         (q1, omega1),
         (q2, omega2),
+        (q3, omega3),
         inertia1,
         inertia2,
+        inertia3,
         t_end,
         dt,
         tprint);
@@ -531,9 +548,9 @@ fn main() {
 //Saving results
 pub fn save(
     times: &Vec<Time>,
-    states1: &Vec<Linear2State>,
-    states2: &Vec<Angular2State>,
-    states4: &Vec<Vector6<f64>>,
+    states1: &Vec<Linear3State>,
+    states2: &Vec<Angular3State>,
+    states4: &Vec<Vector9<f64>>,
 
     filename: &SimName,
     comment: &str,
@@ -548,7 +565,15 @@ pub fn save(
             Ok(buf) => buf,
         }
     }
-    else {
+    else if nbody == 3 {
+        match File::create(filename.three_body_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
+        }
+    } else {
         match File::create(filename.single_body_path()) {
             Err(e) => {
                 println!("Could not open file. Error: {:?}", e);
@@ -565,7 +590,7 @@ pub fn save(
 
 
     buf.write_fmt(format_args!(
-        "time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2\n"
+        "time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,p1_3,p2_3,p3_3,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,v1_3,v2_3,v3_3,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,q1_3,q2_3,q3_3,q0_3,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,o1_3,o2_3,o3_3,o0_3,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2,ofix1_3,ofix2_3,ofix3_3\n"
     ))
         .unwrap();
 
@@ -590,10 +615,16 @@ pub fn save(
         for val in state2.0.1.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
+        for val in state2.0.2.as_vector().iter() {
+            buf.write_fmt(format_args!(", {}", val)).unwrap();
+        }
         for val in state2.1.0.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
         for val in state2.1.1.as_vector().iter() {
+            buf.write_fmt(format_args!(", {}", val)).unwrap();
+        }
+        for val in state2.1.2.as_vector().iter() {
             buf.write_fmt(format_args!(", {}", val)).unwrap();
         }
         // //write lab frame position

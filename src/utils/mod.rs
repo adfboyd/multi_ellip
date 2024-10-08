@@ -8,6 +8,7 @@ pub struct SimName {
     olab_path: PathBuf,
     complete_path: PathBuf,
     single_body_path: PathBuf,
+    three_body_path: PathBuf
 }
 
 impl SimName {
@@ -20,6 +21,7 @@ impl SimName {
             olab_path: path_base.join("single_body_olab.dat"),
             complete_path: path_base.join("multiple_body_complete.dat"),
             single_body_path: path_base.join("single_body_complete.dat"),
+            three_body_path: path_base.join("three_body_complete.dat")
         }
     }
     pub fn rk4_path(&self) -> &PathBuf {
@@ -36,6 +38,9 @@ impl SimName {
     }
     pub fn complete_path(&self) -> &PathBuf {
         &self.complete_path
+    }
+    pub fn three_body_path(&self) -> &PathBuf {
+        &self.three_body_path
     }
     pub fn single_body_path(&self) -> &PathBuf {
         &self.single_body_path

@@ -1,10 +1,10 @@
 use nalgebra as na;
-use nalgebra::{Quaternion, Vector3, Vector6};
+use nalgebra::{ArrayStorage, Matrix, Quaternion, SMatrix, SVector, U1, U9, Vector3, Vector6};
 use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 
-
+type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
 
 pub struct Rk4PCDM<Q, W, F, G, I>
     where
@@ -20,10 +20,11 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     t: f64,
     x: W,
     // x_lab: A,
-    o_lab: Vector6<f64>,
+    o_lab: Vector9<f64>,
     o: Q,
     inertia: na::Matrix3<f64>,
     inertia2: na::Matrix3<f64>,
+    inertia3: na::Matrix3<f64>,
     t_begin: f64,
     t_end: f64,
     step_size: f64,
@@ -34,16 +35,16 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     pub x_out: Vec<W>,
     // pub x_lab_out: Vec<A>,
     pub o_out: Vec<Q>,
-    pub o_lab_out: Vec<Vector6<f64>>,
+    pub o_lab_out: Vec<Vector9<f64>>,
     stats: Stats,
 }
 
 impl<F, G, I> //Need to generalise this to type T instead of f64.
 Rk4PCDM<
     // (na::OVector<f64, D>, na::OVector<f64, D>),
-    ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)),
+    ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)),
     // OVector<f64, D>,
-    (Vector6<f64>, Vector6<f64>),
+    (Vector9<f64>, Vector9<f64>),
     F,
     G,
     // H,
@@ -51,11 +52,11 @@ Rk4PCDM<
 >
     where
         // D: na::Dim + na::DimName,
-        F: System2<(Vector6<f64>, Vector6<f64>)>,
+        F: System2<(Vector9<f64>, Vector9<f64>)>,
         // OVector<f64, D>: std::ops::Mul<f64, Output=OVector<f64, D>>,
-        G: System2<((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>))>,
+        G: System2<((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>))>,
         // H: System3<OVector<f64, D>, (Vector6<f64>, Vector6<f64>), ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>))>,
-        I: System4<(Vector6<f64>, Vector6<f64>)>,
+        I: System4<(Vector9<f64>, Vector9<f64>)>,
         // na::DefaultAllocator: na::allocator::Allocator<f64, D>,
         // na::Owned<f64, D>: Copy,
 {
@@ -66,12 +67,13 @@ Rk4PCDM<
         g: G,
         i: I,
         t_begin: f64,
-        x: (Vector6<f64>, Vector6<f64>), // (position, velocity)
+        x: (Vector9<f64>, Vector9<f64>), // (position, velocity)
         o1: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 1
         o2: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 2
-        o3: (Quaternion<f64>, Quaternion<f64>),
+        o3: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 3
         inertia: na::Matrix3<f64>,
         inertia2: na::Matrix3<f64>,
+        inertia3: na::Matrix3<f64>,
         t_end: f64,
         step_size: f64,
         samp_rate: u32,
@@ -84,9 +86,10 @@ Rk4PCDM<
             x,
             // x_lab: na::OVector::zeros(),
             o: ((o1.0, o2.0, o3.0), (o1.1, o2.1, o3.1)),
-            o_lab: Vector9::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+            o_lab: Vector9::from_row_slice (&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
             inertia,
             inertia2,
+            inertia3,
             t_begin,
             t_end,
             step_size,
@@ -114,7 +117,7 @@ Rk4PCDM<
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let print_rate = 20 as usize;
+        let print_rate = 20usize;
 
         let start_t = Instant::now();
         //should be for i in 0..num_steps
@@ -149,7 +152,7 @@ Rk4PCDM<
 
             // println!("Time = {:.7}", self.t);
 
-            //Get (lin,ang) forces for bodies 1 & 2.
+            //Get (lin,ang) forces for bodies 1 & 2 & 3.
             let (linear_accel, angular_force) = self.force_get();
             // println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
             //
@@ -203,7 +206,7 @@ Rk4PCDM<
         Ok(self.stats)
     }
 
-    fn force_get(&mut self) -> (Vector6<f64>, Vector6<f64>) {
+    fn force_get(&mut self) -> (Vector9<f64>, Vector9<f64>) {
         let (lin, ang) = self.i.system();
         (lin, ang)
     }
@@ -218,7 +221,7 @@ Rk4PCDM<
     //     ((f1_lin, f1_ang),(f2_lin, f2_ang))
     // }
 
-    fn lin_half_step(&mut self, lin_force :&Vector6<f64>) -> (Vector6<f64>, Vector6<f64>){
+    fn lin_half_step(&mut self, lin_force :&Vector9<f64>) -> (Vector9<f64>, Vector9<f64>){
 
         let (p, v) = self.x.clone();
 
@@ -232,7 +235,7 @@ Rk4PCDM<
 
     }
 
-    fn lin_full_step(&mut self, lin_force :&Vector6<f64>) -> (Vector6<f64>, Vector6<f64>) {
+    fn lin_full_step(&mut self, lin_force :&Vector9<f64>) -> (Vector9<f64>, Vector9<f64>) {
 
         let (p, v) = self.x.clone();
 
@@ -243,82 +246,110 @@ Rk4PCDM<
         (p_new, v_new)
     }
 
-    fn ang_half_step(&mut self, ang :&Vector6<f64>) -> ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)) {
+    fn ang_half_step(&mut self, ang :&Vector9<f64>) -> ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)) {
         let (q, omega_b) = self.o.clone();
 
-        let (q1, q2) = q;
-        let (omega_lab1, omega_lab2) = omega_b;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_b;
         let inertia1 = self.inertia;
         let inertia2 = self.inertia2;
+        let inertia3 = self.inertia3;
+
 
         // println!("Doin ang half step");
 
         let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
         let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
+        let omega_b3 = self.lab_to_body(&omega_lab3, &q3);
+
         // println!("Done ang half step");
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
+        let torque3_lab = Quaternion::new(0.0, ang[6], ang[7], ang[8]);
+
 
         let torque1 = self.lab_to_body(&torque1_lab, &q1);
         let torque2 = self.lab_to_body(&torque2_lab, &q2);
+        let torque3 = self.lab_to_body(&torque3_lab, &q3);
+
 
         let ang_accel_b1 = accel_get(&omega_b1, &inertia1, &torque1);
         let ang_accel_b2 = accel_get(&omega_b2, &inertia2, &torque2);
+        let ang_accel_b3 = accel_get(&omega_b3, &inertia3, &torque3);
+
 
 
         let omega_n_quarter_b1 = self.omega_stepper(&omega_b1, &ang_accel_b1, self.quarter_step);
         let omega_n_half_b1 = self.omega_stepper(&omega_b1, &ang_accel_b1, self.half_step);
-
         let omega_n_quarter1 = self.body_to_lab(&omega_n_quarter_b1, &q1);
         // println!("omega_n_quarter1 = {:?}", omega_n_quarter1);
         let q1_half_predict = self.orientation_stepper(&q1, &omega_n_quarter1, self.half_step);
         // println!("q1_half predict = {:?}", q1_half_predict);
+
         let omega_n_quarter_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.quarter_step);
         // println!("l254");
         let omega_n_half_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.half_step);
-
         let omega_n_quarter2 = self.body_to_lab(&omega_n_quarter_b2, &q2);
         let q2_half_predict = self.orientation_stepper(&q2, &omega_n_quarter2, self.half_step);
+
+        let omega_n_quarter_b3 = self.omega_stepper(&omega_b3, &ang_accel_b3, self.quarter_step);
+        // println!("l354");
+        let omega_n_half_b3 = self.omega_stepper(&omega_b3, &ang_accel_b3, self.half_step);
+        let omega_n_quarter3 = self.body_to_lab(&omega_n_quarter_b3, &q3);
+        let q3_half_predict = self.orientation_stepper(&q3, &omega_n_quarter3, self.half_step);
+
         let omega_n_half_lab1 = self.body_to_lab(&omega_n_half_b1, &q1_half_predict);
         // println!("l260");
         let omega_n_half_lab2 = self.body_to_lab(&omega_n_half_b2, &q2_half_predict);
+        let omega_n_half_lab3 = self.body_to_lab(&omega_n_half_b3, &q3_half_predict);
 
-        let q_new = (q1_half_predict, q2_half_predict);
-        let o_new = (omega_n_half_lab1, omega_n_half_lab2);
+
+        let q_new = (q1_half_predict, q2_half_predict, q3_half_predict);
+        let o_new = (omega_n_half_lab1, omega_n_half_lab2, omega_n_half_lab3);
 
         (q_new, o_new)
 
     }
 
     fn ang_full_step(&mut self,
-                     ang :&Vector6<f64>,
-                     half_qo :&((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)))
-        ->((Quaternion<f64>, Quaternion<f64>),
-           (Quaternion<f64>, Quaternion<f64>)) {
+                     ang :&Vector9<f64>,
+                     half_qo :&((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)))
+        ->((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),
+           (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)) {
 
         let (q, omega_lab) = self.o.clone();
         let (q_half, o_half) = half_qo;
-        let (q1_half, q2_half) = q_half;
-        let (omega_n_half_lab1, omega_n_half_lab2) = o_half;
+        let (q1_half, q2_half, q3_half) = q_half;
+        let (omega_n_half_lab1, omega_n_half_lab2, omega_n_half_lab3) = o_half;
 
-        let (q1, q2) = q;
-        let (omega_lab1, omega_lab2) = omega_lab;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_lab;
 
         let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
         let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
+        let omega_b3 = self.lab_to_body(&omega_lab3, &q3);
+
 
         let omega_n_half_b1 = self.lab_to_body(&omega_n_half_lab1, &q1_half);
         let omega_n_half_b2 = self.lab_to_body(&omega_n_half_lab2, &q2_half);
+        let omega_n_half_b3 = self.lab_to_body(&omega_n_half_lab3, &q3_half);
+
 
         let inertia1 = self.inertia;
         let inertia2 = self.inertia2;
+        let inertia3 = self.inertia3;
+
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
+        let torque3_lab = Quaternion::new(0.0, ang[6], ang[7], ang[8]);
+
 
         let torque1 = self.lab_to_body(&torque1_lab, &q1_half);
         let torque2 = self.lab_to_body(&torque2_lab, &q2_half);
+        let torque3 = self.lab_to_body(&torque3_lab, &q3_half);
+
 
         let ang_accel_half_b1 = accel_get(&omega_n_half_b1, &inertia1, &torque1);
         let omega_n_half1 = self.body_to_lab(&omega_n_half_b1, &q1_half);
@@ -336,10 +367,18 @@ Rk4PCDM<
         let omega2_b = self.omega_stepper(&omega_b2, &ang_accel_half_b2, self.step_size);
         let omega2 = self.body_to_lab(&omega2_b, &q2_full);
 
-        self.stats.num_eval += 2;
+        let ang_accel_half_b3 = accel_get(&omega_n_half_b3, &inertia3, &torque3);
+        let omega_n_half3 = self.body_to_lab(&omega_n_half_b3, &q3_half);
 
-        let q_full = (q1_full, q2_full);
-        let omega = (omega1, omega2);
+        let q3_full = self.orientation_stepper(&q3, &omega_n_half3, self.step_size);
+
+        let omega3_b = self.omega_stepper(&omega_b3, &ang_accel_half_b3, self.step_size);
+        let omega3 = self.body_to_lab(&omega3_b, &q3_full);
+
+        self.stats.num_eval += 3;
+
+        let q_full = (q1_full, q2_full, q3_full);
+        let omega = (omega1, omega2, omega3);
 
         (q_full, omega)
 
@@ -509,9 +548,9 @@ Rk4PCDM<
     // }
 
 
-    fn orientation_to_marker_point(&self) -> Vector6<f64> {
+    fn orientation_to_marker_point(&self) -> Vector9<f64> {
         let (q, _) = self.o;
-        let (q1, q2) = q;
+        let (q1, q2, q3) = q;
 
         let o_lab_new1 = self.body_to_lab(&Quaternion::from_imag(
             Vector3::new(1.0, 0.0, 0.0)), &q1);
@@ -523,7 +562,12 @@ Rk4PCDM<
         let o_lab_new_v = o_lab_new2.vector();
         let qp2 = Vector3::new(o_lab_new_v[0], o_lab_new_v[1], o_lab_new_v[2]);
 
-        let qp = Vector6::new(qp1[0], qp1[1], qp1[2], qp2[0], qp2[1], qp2[2]);
+        let o_lab_new3 = self.body_to_lab(&Quaternion::from_imag(
+            Vector3::new(1.0, 0.0, 0.0)), &q3);
+        let o_lab_new_v = o_lab_new3.vector();
+        let qp3 = Vector3::new(o_lab_new_v[0], o_lab_new_v[1], o_lab_new_v[2]);
+
+        let qp = Vector9::from_row_slice(&[qp1[0], qp1[1], qp1[2], qp2[0], qp2[1], qp2[2], qp3[0], qp3[1], qp3[2]]);
 
         qp
     }
@@ -568,9 +612,11 @@ Rk4PCDM<
         omega_n1
     }
 
-    fn force_norm(&self, vels: &Vector6<f64>) -> Vector6<f64> {
+    fn force_norm(&self, vels: &Vector9<f64>) -> Vector9<f64> {
         let mut v1 = Vector3::new(vels[0], vels[1], vels[2]).norm();
         let mut v2 = Vector3::new(vels[3], vels[4], vels[5]).norm();
+        let mut v3 = Vector3::new(vels[6], vels[7], vels[8]).norm();
+
 
         if v1 < 1.0 {
             v1 = 1.0;
@@ -578,8 +624,11 @@ Rk4PCDM<
         if v2 < 1.0 {
             v2 = 1.0;
         }
+        if v3 < 1.0 {
+            v3 = 1.0;
+        }
 
-        let vels_out = Vector6::new(vels[0]/v1,vels[1]/v1,vels[2]/v1,vels[3]/v2,vels[4]/v2,vels[5]/v2);
+        let vels_out = Vector9::from_row_slice(&[vels[0]/v1,vels[1]/v1,vels[2]/v1,vels[3]/v2,vels[4]/v2,vels[5]/v2, vels[6]/v3,vels[7]/v3,vels[8]/v3]);
         vels_out
     }
 

@@ -17,6 +17,7 @@ pub struct Simulation {
     pub fluid: Fluid,
     pub body1: Body,
     pub body2: Body,
+    pub body3: Body,
     // pub time: f64,
     // pub t_begin: f64,
     // pub t_end: f64,
@@ -39,6 +40,7 @@ impl Simulation {
         fluid: Fluid,
         body1: Body,
         body2: Body,
+        body3: Body,
         // t_end: f64,
         // t_delta: f64,
         ndiv: u32,
@@ -49,6 +51,7 @@ impl Simulation {
             fluid,
             body1,
             body2,
+            body3,
             // time: 0.0,
             // t_begin: 0.0,
             // t_end,
@@ -190,6 +193,11 @@ impl Simulation {
 
     pub fn added_inertia_calc2(&self) -> na::Matrix3<f64> {
         let (_, i) = self.body2.inertia_tensor(self.fluid.density);
+        i
+    }
+
+    pub fn added_inertia_calc3(&self) -> na::Matrix3<f64> {
+        let (_, i) = self.body3.inertia_tensor(self.fluid.density);
         i
     }
 }
