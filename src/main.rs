@@ -411,9 +411,9 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    let ndiv = 0;
+    // let ndiv = 0;
 
-    let npts_circ = (4*2_usize.pow(ndiv)) as f64;
+    let npts_circ = (4*2_usize.pow(ndiv as u32)) as f64;
     let dx = (4.0 * PI) / npts_circ;
     // let dt_max = dx / body1.linear_velocity().norm();
 
@@ -426,7 +426,7 @@ fn main() {
         body1,
         body2,
         body3,
-        ndiv,
+        ndiv as u32,
         nbody,
     );
 
@@ -498,7 +498,7 @@ fn main() {
 
     println!("Solver initialised");
 
-    let nelm_end = 8_usize * 4_usize.pow(ndiv) * 2_usize;
+    let nelm_end = 8_usize * 4_usize.pow(ndiv as u32) * 2_usize * nbody;
 
     println!("Total number of elements = {:?}.", nelm_end);
 

@@ -162,6 +162,8 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                             &sys_ref.body1.position,
                             &orientation1);
 
+        // println!("NDIV = {:?}, nbody = {:?}, Nelm1 = {:?}, npts1 = {:?}", ndiv, nbody,nelm1, npts1);
+
 
         let s2 = sys_ref.body2.shape;
         let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
@@ -519,12 +521,13 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
             //
             let which_body = if k < nelm1 {  //Which body is the point we are integrating round on?
                 1
-            } else if k < nelm2 {
+            } else if k < nelm2 + nelm1 {
                 2
             } else {
                 3
             };
 
+            // println!("Nbody = {:?}, k = {:?}, position of element = {:?}", which_body, k, p0);
 
             // let u_square = u_0.norm_squared();
             let u_square = u_0;
