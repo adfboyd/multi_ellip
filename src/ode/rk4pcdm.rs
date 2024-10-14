@@ -31,6 +31,7 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     half_step: f64,
     quarter_step: f64,
     pub samp_rate: u32,
+    pub print_rate: u32,
     pub t_out: Vec<f64>,
     pub x_out: Vec<W>,
     // pub x_lab_out: Vec<A>,
@@ -77,6 +78,7 @@ Rk4PCDM<
         t_end: f64,
         step_size: f64,
         samp_rate: u32,
+        print_rate: u32
     ) -> Self {
         Rk4PCDM {
             f,
@@ -96,6 +98,7 @@ Rk4PCDM<
             half_step: step_size * 0.5,
             quarter_step: step_size * 0.25,
             samp_rate,
+            print_rate,
             t_out: Vec::new(),
             x_out: Vec::new(),
             // x_lab_out: vec![],
@@ -117,15 +120,15 @@ Rk4PCDM<
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let print_rate = 20usize;
+        let print_rate = self.print_rate as usize;
 
         let start_t = Instant::now();
-        let start_dt = Instant::now();
+        let mut start_dt = Instant::now();
         //should be for i in 0..num_steps
         for i in 0..num_steps {
             if (i % print_rate == 0) & (i > 0) {
                 let elapsed_dt = start_dt.elapsed();
-                let start_dt = Instant::now();
+
                 let elapsed = start_t.elapsed();
                 let ratio = ((num_steps - i) as f64) / (i as f64);
                 let ratio2 = (num_steps as f64) / (i as f64);
@@ -133,30 +136,28 @@ Rk4PCDM<
                 // let total_est = self.multiply_duration(elapsed, ratio2);
                 let completion_percentage = 100./ratio2;
                 let dt_millisec = elapsed_dt.as_millis();
-                let dt_sec = (dt_millisec as f64) * 1000.0;
-                if remain_est.as_secs() > 3600 {
+                let dt_sec = (dt_millisec as f64) * 0.001;
+                if remain_est.as_secs() >= 3600 {
                     let hrs = remain_est.as_secs()/3600;
                     let mins = (remain_est.as_secs() - hrs*3600)/60;
                     let secs = remain_est.as_secs() - hrs*3600 - mins * 60;
-                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:?}.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);  //Print progress
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);  //Print progress
                 }
-                else if remain_est.as_secs() > 60 {
+                else if remain_est.as_secs() >= 60 {
                     let mins = remain_est.as_secs()/60;
                     let secs = remain_est.as_secs() - mins * 60;
-                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:?}.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);  //Print progress
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);  //Print progress
 
                 }
                 else {
                     let secs = remain_est.as_secs();
-                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:?}.", self.t, i, num_steps, secs, completion_percentage, dt_sec);  //Print progress
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, secs, completion_percentage, dt_sec);  //Print progress
 
                 }
-
-                println!("Time for this timestep = {:?}", dt_sec);
                 // println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
                 // println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
             };
-
+            start_dt = Instant::now();
             // println!("Time = {:.7}", self.t);
 
             //Get (lin,ang) forces for bodies 1 & 2 & 3.

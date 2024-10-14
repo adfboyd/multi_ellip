@@ -494,6 +494,7 @@ fn main() {
         inertia3,
         t_end,
         dt,
+        tprint,
         tprint);
 
     println!("Solver initialised");
