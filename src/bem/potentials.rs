@@ -210,30 +210,25 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::new(amat_1);
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
-    let js = (0..npts).collect::<Vec<usize>>();
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j| {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        q[j] = 1.0;
+            let dlp = ldlp_3d(npts, nelm, mint,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq);
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
-
-        let mut amat = amat.lock().unwrap();
-
-        for k in 0..npts {
-            amat[(k, j)] = dlp[k];
-        }
-    });
-
-    let amat_final = amat.into_inner().unwrap();
+            col.copy_from_slice(dlp.as_slice());
+        });
 
     let decomp = amat_final.lu();
 
@@ -278,30 +273,25 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::new(amat_1);
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
-    let js = (0..npts).collect::<Vec<usize>>();
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j| {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        q[j] = 1.0;
+            let dlp = ldlp_3d(npts, nelm, mint,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq);
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
-
-        let mut amat = amat.lock().unwrap();
-
-        for k in 0..npts {
-            amat[(k, j)] = dlp[k];
-        }
-    });
-
-    let amat_final = amat.into_inner().unwrap();
+            col.copy_from_slice(dlp.as_slice());
+        });
 
     let decomp = amat_final.lu();
 
@@ -415,31 +405,26 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::from(amat_1);
-
-    let js = (0..npts).collect::<Vec<usize>>();
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
     println!("Computing columns of influence matrix");
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j|  {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
-        q[j] = 1.0;
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+            let dlp = ldlp_3d(npts, nelm, mint,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq);
 
-        for k in 0..npts {
-            let mut amat = amat.lock().unwrap();
-            amat[(k, j)] = dlp[k];
-        }
-        q[j] = 0.0;
-    });
-
-    let amat_final = amat.into_inner().unwrap();
+            col.copy_from_slice(dlp.as_slice());
+        });
     println!("Matrix created");
 
     let decomp = amat_final.lu();

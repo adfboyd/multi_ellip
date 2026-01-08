@@ -1,5 +1,6 @@
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 // use indicatif::ParallelProgressIterator;
 use nalgebra::{ArrayStorage, DMatrix, DVector, Dynamic, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3, Vector6};
 use rayon::prelude::*;
@@ -66,6 +67,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         // let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
         // let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
 
+        let t_geom = Instant::now();
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
         let (zz, ww) = gauss_leg(nq);
@@ -77,6 +79,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                                         &p, &n,
                                         &alpha, &beta, &gamma,
                                         &xiq, &etq, &wq);
+        println!("Phi geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
         let mut vna1 = DMatrix::zeros(npts1, 3);
         let mut vna2 = DMatrix::zeros(npts2, 3);
@@ -91,6 +94,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
             }
         };
 
+        let t_rhs = Instant::now();
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn = vec_concat(&dfdn_1, &dfdn_2);
@@ -99,41 +103,42 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
+        println!("Phi RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
 
         // println!("Grids created");
-        let amat_1 = DMatrix::zeros(npts, npts);
-        let amat = Mutex::from(amat_1);
-
-        let js = (0..npts).collect::<Vec<usize>>();
+        let mut amat_final = DMatrix::zeros(npts, npts);
 
         println!("Computing columns of influence matrix");
+        let t_mat = Instant::now();
 
-        js.par_iter().for_each(|&j|  {
-            // println!("Computing column {} of the influence matrix", j);
-            let mut q = DVector::zeros(npts);
-            q[j] = 1.0;
+        amat_final
+            .as_mut_slice()
+            .par_chunks_mut(npts)
+            .enumerate()
+            .for_each(|(j, col)| {
+                let mut q = DVector::zeros(npts);
+                q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint,
-                              &q, &p, &n, &vna,
-                              &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq);
+                let dlp = ldlp_3d(npts, nelm, mint,
+                                  &q, &p, &n, &vna,
+                                  &alpha, &beta, &gamma,
+                                  &xiq, &etq, &wq);
 
-            for k in 0..npts {
-                let mut amat = amat.lock().unwrap();
-                amat[(k, j)] = dlp[k];
-            }
-            q[j] = 0.0;
-        });
-
-        let amat_final = amat.into_inner().unwrap();
+                col.copy_from_slice(dlp.as_slice());
+            });
         // println!("Matrix created");
+        println!("Phi influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
+        let t_lu = Instant::now();
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
+        println!("Phi LU: {:.3}s", t_lu.elapsed().as_secs_f64());
 
+        let t_solve = Instant::now();
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         // println!("Linear system solved!");
+        println!("Phi solve: {:.3}s", t_solve.elapsed().as_secs_f64());
 
 
         f
@@ -156,6 +161,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let req1 = (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
 
 
+        let t_geom = Instant::now();
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
         let (nelm1, npts1, p1, n1)
             = ellip_gridder(ndiv, req1, &sys_ref.body1.shape,
@@ -220,6 +226,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                                         &p, &n,
                                         &alpha, &beta, &gamma,
                                         &xiq, &etq, &wq);
+        println!("Force geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
 
         let mut vna1 = DMatrix::zeros(npts1, 3);
@@ -251,6 +258,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         }
 
 
+        let t_rhs = Instant::now();
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn_3 = dfdn_single(&sys_ref.body3.position, &sys_ref.body3.linear_velocity(), &sys_ref.body3.angular_velocity().imag(), npts3, &p3, &vna3);
@@ -273,41 +281,41 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
+        println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
 
         // println!("Grids created");
-        let amat_1 = DMatrix::zeros(npts, npts);
-        let amat = Mutex::from(amat_1);
-
-        let js = (0..npts).collect::<Vec<usize>>();
+        let mut amat_final = DMatrix::zeros(npts, npts);
 
         // println!("Computing columns of influence matrix");
+        let t_mat = Instant::now();
 
-        js.par_iter().for_each(|&j| {
-            // println!("Computing column {} of the influence matrix", j);
-            let mut q = DVector::zeros(npts);
-            q[j] = 1.0;
+        amat_final
+            .as_mut_slice()
+            .par_chunks_mut(npts)
+            .enumerate()
+            .for_each(|(j, col)| {
+                let mut q = DVector::zeros(npts);
+                q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint,
-                              &q, &p, &n, &vna,
-                              &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq);
+                let dlp = ldlp_3d(npts, nelm, mint,
+                                  &q, &p, &n, &vna,
+                                  &alpha, &beta, &gamma,
+                                  &xiq, &etq, &wq);
 
-
-            for k in 0..npts {
-                let mut amat = amat.lock().unwrap();
-                amat[(k, j)] = dlp[k];
-            }
-            q[j] = 0.0;
-        });
-
-        let amat_final = amat.into_inner().unwrap();
+                col.copy_from_slice(dlp.as_slice());
+            });
         // println!("Matrix created");
+        println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
+        let t_lu = Instant::now();
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
+        println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
 
+        let t_solve = Instant::now();
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
+        println!("Force solve: {:.3}s", t_solve.elapsed().as_secs_f64());
         let df = dfdn.clone();
         // println!("Linear system solved!");
         // println!("F = {:?}", f);
@@ -329,30 +337,13 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         //
         // println!("The test value of gradphi is {:?}", grad_phi_eg);
 
-        let mut linear_pressure1 = Vector3::new(0.0, 0.0, 0.0);
-        let mut angular_pressure1 = Vector3::new(0.0, 0.0, 0.0);
-
-        let mut linear_pressure2 = Vector3::new(0.0, 0.0, 0.0);
-        let mut angular_pressure2 = Vector3::new(0.0, 0.0, 0.0);
-
-        let mut linear_pressure3 = Vector3::new(0.0, 0.0, 0.0);
-        let mut angular_pressure3 = Vector3::new(0.0, 0.0, 0.0);
-
-        let ks = (0..nelm).collect::<Vec<usize>>();
-        // let ks = vec![0_usize,nelm1];
-
-        let m_linear_pressure1 = Mutex::from(linear_pressure1);
-        let m_angular_pressure1 = Mutex::from(angular_pressure1);
-
-        let m_linear_pressure2 = Mutex::from(linear_pressure2);
-        let m_angular_pressure2 = Mutex::from(angular_pressure2);
-
-        let m_linear_pressure3 = Mutex::from(linear_pressure3);
-        let m_angular_pressure3 = Mutex::from(angular_pressure3);
-//should be 0..nelm
-
-        if nbody == 2 {
-            ks.par_iter().for_each(|&k| {
+        let t_press = Instant::now();
+        let zero_vec = || Vector3::new(0.0, 0.0, 0.0);
+        let zero_tuple = || (zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec());
+        let (linear_pressure1, angular_pressure1, linear_pressure2, angular_pressure2, linear_pressure3, angular_pressure3) = if nbody == 2 {
+            (0..nelm)
+                .into_par_iter()
+                .map(|k| {
 
 
                 // println!();
@@ -387,7 +378,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
 
 
-                let (u_0, area) = gradient_interp_3d_integral(k, mint,
+                let (u_0, _area) = gradient_interp_3d_integral(k, mint,
                                                               &f, &dfdn,
                                                               &p, &n, &vna,
                                                               &alpha, &beta, &gamma,
@@ -445,28 +436,30 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 let lin_inc = lin_pressure * vn;
                 let ang_inc = ang_pressure * torque_vec;
 
-                //Unlock correct cumulative pressure on correct body
-                let mut linear_pressure = if which_body == 1_usize {
-                    m_linear_pressure1.lock().unwrap()
+                if which_body == 1_usize {
+                    (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
                 } else if which_body == 2_usize {
-                    m_linear_pressure2.lock().unwrap()
+                    (zero_vec(), zero_vec(), lin_inc, ang_inc, zero_vec(), zero_vec())
                 } else {
                     panic!("Not in either body!");
-                };
-
-                let mut angular_pressure = if which_body == 1_usize {
-                    m_angular_pressure1.lock().unwrap()
-                } else if which_body == 2_usize {
-                    m_angular_pressure2.lock().unwrap()
-                } else {
-                    panic!("Not in either body!");
-                };
-
-                //add result to the right body.
-                *linear_pressure += lin_inc;
-                *angular_pressure += ang_inc;
-            });
-        } else if nbody == 3 { ks.par_iter().for_each(|&k| {
+                }
+            })
+            .fold(zero_tuple, |mut acc, val| {
+                acc.0 += val.0;
+                acc.1 += val.1;
+                acc.2 += val.2;
+                acc.3 += val.3;
+                acc.4 += val.4;
+                acc.5 += val.5;
+                acc
+            })
+            .reduce(zero_tuple, |a, b| {
+                (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
+            })
+        } else if nbody == 3 {
+            (0..nelm)
+                .into_par_iter()
+                .map(|k| {
 
 
             // println!();
@@ -501,7 +494,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
             let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
 
 
-            let (u_0, area) = gradient_interp_3d_integral(k, mint,
+            let (u_0, _area) = gradient_interp_3d_integral(k, mint,
                                                           &f, &dfdn,
                                                           &p, &n, &vna,
                                                           &alpha, &beta, &gamma,
@@ -559,33 +552,32 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
             let lin_inc = lin_pressure * vn;
             let ang_inc = ang_pressure * torque_vec;
 
-            //Unlock correct cumulative pressure on correct body
-            let mut linear_pressure = if which_body == 1_usize {
-                m_linear_pressure1.lock().unwrap()
+            if which_body == 1_usize {
+                (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
             } else if which_body == 2_usize {
-                m_linear_pressure2.lock().unwrap()
+                (zero_vec(), zero_vec(), lin_inc, ang_inc, zero_vec(), zero_vec())
             } else if which_body == 3_usize {
-                m_linear_pressure3.lock().unwrap()
+                (zero_vec(), zero_vec(), zero_vec(), zero_vec(), lin_inc, ang_inc)
             } else {
                 panic!("Not in either body!");
-            };
-
-            let mut angular_pressure = if which_body == 1_usize {
-                m_angular_pressure1.lock().unwrap()
-            } else if which_body == 2_usize {
-                m_angular_pressure2.lock().unwrap()
-            } else if which_body == 3_usize {
-                m_angular_pressure3.lock().unwrap()
-            } else {
-                panic!("Not in either body!");
-            };
-
-            //add result to the right body.
-            *linear_pressure += lin_inc;
-            *angular_pressure += ang_inc;
-        });
+            }
+        })
+        .fold(zero_tuple, |mut acc, val| {
+            acc.0 += val.0;
+            acc.1 += val.1;
+            acc.2 += val.2;
+            acc.3 += val.3;
+            acc.4 += val.4;
+            acc.5 += val.5;
+            acc
+        })
+        .reduce(zero_tuple, |a, b| {
+            (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
+        })
         } else if nbody == 1 {
-            ks.par_iter().for_each(|&k| {
+            (0..nelm)
+                .into_par_iter()
+                .map(|k| {
 
 
                 // println!();
@@ -620,7 +612,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
 
 
-                let (u_0, area) = gradient_interp_3d_integral(k, mint,
+                let (u_0, _area) = gradient_interp_3d_integral(k, mint,
                                                               &f, &dfdn,
                                                               &p, &n, &vna,
                                                               &alpha, &beta, &gamma,
@@ -670,40 +662,32 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 let lin_inc = lin_pressure * vn;
                 let ang_inc = ang_pressure * torque_vec;
 
-                //Unlock correct cumulative pressure on correct body
-                let mut linear_pressure = if which_body == 1_usize {
-                    m_linear_pressure1.lock().unwrap()
+                if which_body == 1_usize {
+                    (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
                 } else {
                     panic!("Not in either body!");
-                };
-
-                let mut angular_pressure = if which_body == 1_usize {
-                    m_angular_pressure1.lock().unwrap()
-
-                } else {
-                    panic!("Not in either body!");
-                };
-
-                //add result to the right body.
-                *linear_pressure += lin_inc;
-                *angular_pressure += ang_inc;
-            });
-        }
-
-        // println!("Body1 force = {:?}, {:?}", linear_pressure1, angular_pressure1);
-        // println!("Body2 force = {:?}, {:?}", linear_pressure2, angular_pressure2);
-        let linear_pressure1 = m_linear_pressure1.into_inner().unwrap();
-        let angular_pressure1 = m_angular_pressure1.into_inner().unwrap();
-
-        let linear_pressure2 = m_linear_pressure2.into_inner().unwrap();
-        let angular_pressure2 = m_angular_pressure2.into_inner().unwrap();
-
-        let linear_pressure3 = m_linear_pressure3.into_inner().unwrap();
-        let angular_pressure3 = m_angular_pressure3.into_inner().unwrap();
+                }
+            })
+            .fold(zero_tuple, |mut acc, val| {
+                acc.0 += val.0;
+                acc.1 += val.1;
+                acc.2 += val.2;
+                acc.3 += val.3;
+                acc.4 += val.4;
+                acc.5 += val.5;
+                acc
+            })
+            .reduce(zero_tuple, |a, b| {
+                (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
+            })
+        } else {
+            panic!("Other number of bodies not supported.");
+        };
 
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();
         let m3 = sys_ref.body3.mass();
+        println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());
 
 
         let lin_accel_1 = linear_pressure1 / m1;
