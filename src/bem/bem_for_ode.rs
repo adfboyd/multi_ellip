@@ -4,6 +4,8 @@ use std::time::Instant;
 // use indicatif::ParallelProgressIterator;
 use nalgebra::{ArrayStorage, DMatrix, DVector, Dynamic, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3, Vector6};
 use rayon::prelude::*;
+#[cfg(feature = "lapack")]
+use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
 use crate::bem::potentials::{dfdn_single, vec_concat};
@@ -131,6 +133,9 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         println!("Phi influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
         let t_lu = Instant::now();
+        #[cfg(feature = "lapack")]
+        let decomp = LU::new(amat_final);
+        #[cfg(not(feature = "lapack"))]
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
         println!("Phi LU: {:.3}s", t_lu.elapsed().as_secs_f64());
@@ -309,6 +314,9 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
         let t_lu = Instant::now();
+        #[cfg(feature = "lapack")]
+        let decomp = LU::new(amat_final);
+        #[cfg(not(feature = "lapack"))]
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
         println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());

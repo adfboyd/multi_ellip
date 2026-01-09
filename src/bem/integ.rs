@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 use std::process::id;
 use nalgebra::{DMatrix, DVector, Matrix, Matrix3, Quaternion, Vector, Vector3, Vector6};
 use num_traits::ToPrimitive;
+use rayon::prelude::*;
 
 ///The free-space green's function for potential flow in 3d, and its derivative.
 pub fn lgf_3d_fs(x :&Vector3<f64>, x0 :&Vector3<f64>) -> (f64, Vector3<f64>) {
@@ -452,99 +453,99 @@ pub fn lslp_3d(npts :usize, nelm :usize,
                alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
                zz :&DVector<f64>, ww :&DVector<f64>) -> DVector<f64> {
-    let mut slp = DVector::zeros(npts);
     let tol = 1e-8;
 
-    for i in 0..npts {
+    let slp_vals: Vec<f64> = (0..npts)
+        .into_par_iter()
+        .map(|i| {
+            let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
 
-        let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+            let mut srf_area = 0.0;
+            let mut ptl = 0.0;
 
-        let mut srf_area = 0.0;
-        let mut ptl = 0.0;
+            for k in 0..nelm {
 
-        for k in 0..nelm {
+                let i1 = n[(k, 0)];
+                let i2 = n[(k, 1)];
+                let i3 = n[(k, 2)];
+                let i4 = n[(k, 3)];
+                let i5 = n[(k, 4)];
+                let i6 = n[(k, 5)];
 
-            let i1 = n[(k, 0)];
-            let i2 = n[(k, 1)];
-            let i3 = n[(k, 2)];
-            let i4 = n[(k, 3)];
-            let i5 = n[(k, 4)];
-            let i6 = n[(k, 5)];
+                let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
 
-            let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+                let test = Vector6::new(f1.abs(), f2.abs(), f3.abs(), f4.abs(), f5.abs(), f6.abs()).sum();
 
-            let test = Vector6::new(f1.abs(), f2.abs(), f3.abs(), f4.abs(), f5.abs(), f6.abs()).sum();
+                if test > tol {
+                    //Check if singular point is one of the corner nodes i1, i2, i3
+                    if i == i1 {
 
-            if test > tol {
-                //Check if singular point is one of the corner nodes i1, i2, i3
-                if i == i1 {
+                        let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+                        let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+                        let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
 
-                    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-                    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-                    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+                        let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
 
-                    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
+                        let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
+                                                                  f1, f2, f3,
+                                                                  zz, ww);
 
-                    let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
-                                                              f1, f2, f3,
-                                                              zz, ww);
+                        ptl += pptl;
+                        srf_area = srf_area + arelm;
 
-                    ptl += pptl;
-                    srf_area = srf_area + arelm;
+                    }
+                    else if i == i2 {
+                        let (i1, i2, i3) = (i2, i3, i1);
 
-                }
-                else if i == i2 {
-                    let (i1, i2, i3) = (i2, i3, i1);
+                        let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+                        let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+                        let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
 
-                    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-                    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-                    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+                        let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
 
-                    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
+                        let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
+                                                                  f1, f2, f3,
+                                                                  zz, ww);
 
-                    let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
-                                                              f1, f2, f3,
-                                                              zz, ww);
+                        ptl += pptl;
+                        srf_area += arelm;
+                    } else if i == i3 {
+                        let (i1, i2, i3) = (i3, i1, i2);
 
-                    ptl += pptl;
-                    srf_area += arelm;
-                } else if i == i3 {
-                    let (i1, i2, i3) = (i3, i1, i2);
+                        let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
+                        let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
+                        let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
 
-                    let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-                    let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-                    let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
+                        let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
 
-                    let (f1, f2, f3) = (f[i1], f[i2], f[i3]);
+                        let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
+                                                                  f1, f2, f3,
+                                                                  zz, ww);
 
-                    let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
-                                                              f1, f2, f3,
-                                                              zz, ww);
+                        ptl += pptl;
+                        srf_area += arelm;
+                    } //Check if the singular point is one of the edge nodes i4, i5, i6
+                    else if i == i4 {
+                        let (ia, ib, ic) = (i4, i6, i1);
 
-                    ptl += pptl;
-                    srf_area += arelm;
-                } //Check if the singular point is one of the edge nodes i4, i5, i6
-                else if i == i4 {
-                    let (ia, ib, ic) = (i4, i6, i1);
+                        let p1 = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
+                        let p2 = Vector3::new(p[(ib, 0)], p[(ib, 1)], p[(ib, 2)]);
+                        let p3 = Vector3::new(p[(ic, 0)], p[(ic, 1)], p[(ic, 2)]);
 
-                    let p1 = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
-                    let p2 = Vector3::new(p[(ib, 0)], p[(ib, 1)], p[(ib, 2)]);
-                    let p3 = Vector3::new(p[(ic, 0)], p[(ic, 1)], p[(ic, 2)]);
+                        let (f1, f2, f3) = (f[ia], f[ib], f[ic]);
 
-                    let (f1, f2, f3) = (f[ia], f[ib], f[ic]);
+                        let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
+                                                                  f1, f2, f3,
+                                                                  zz, ww);
 
-                    let (pptl, arelm) = lslp_3d_integral_sing(nq, p1, p2, p3,
-                                                              f1, f2, f3,
-                                                              zz, ww);
+                        ptl += pptl;
+                        srf_area += arelm;
 
-                    ptl += pptl;
-                    srf_area += arelm;
+                        let (ia, ib, ic) = (i4, i3, i6);
 
-                    let (ia, ib, ic) = (i4, i3, i6);
-
-                    let p1 = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
-                    let p2 = Vector3::new(p[(ib, 0)], p[(ib, 1)], p[(ib, 2)]);
-                    let p3 = Vector3::new(p[(ic, 0)], p[(ic, 1)], p[(ic, 2)]);
+                        let p1 = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
+                        let p2 = Vector3::new(p[(ib, 0)], p[(ib, 1)], p[(ib, 2)]);
+                        let p3 = Vector3::new(p[(ic, 0)], p[(ic, 1)], p[(ic, 2)]);
 
                     let (f1, f2, f3) = (f[ia], f[ib], f[ic]);
 
@@ -719,11 +720,12 @@ pub fn lslp_3d(npts :usize, nelm :usize,
                 }
             }
         }
-        slp[i] = ptl;
         // println!("Surface area = {:?}", srf_area);
+        ptl
+        })
+        .collect();
 
-    }
-    slp
+    DVector::from_vec(slp_vals)
 }
 
 ///Interpolates all quantities over the surface of the triangle.

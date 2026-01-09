@@ -3,6 +3,8 @@ use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
 use indicatif::{ParallelProgressIterator, ProgressBar};
 use indicatif::ProgressIterator;
 use rayon::prelude::*;
+#[cfg(feature = "lapack")]
+use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
 use crate::ellipsoids::body::Body;
@@ -105,6 +107,9 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
         bar.inc(1);
     }
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -167,6 +172,9 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
         q[j] = 0.0;
     }
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -230,6 +238,9 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
             col.copy_from_slice(dlp.as_slice());
         });
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -293,6 +304,9 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
             col.copy_from_slice(dlp.as_slice());
         });
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -427,6 +441,9 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
         });
     println!("Matrix created");
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
     println!("Matrix decomposed");
 
@@ -521,6 +538,9 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
     let amat_final = amat.into_inner().unwrap();
     println!("Matrix created");
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
     println!("Matrix decomposed");
 
