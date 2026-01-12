@@ -1,5 +1,6 @@
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "timing")]
 use std::time::Instant;
 // use indicatif::ParallelProgressIterator;
 use nalgebra::{ArrayStorage, DMatrix, DVector, Dyn, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3};
@@ -66,6 +67,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         // let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
         // let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
 
+        #[cfg(feature = "timing")]
         let t_geom = Instant::now();
         let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -78,6 +80,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                                         &p, &n,
                                         &alpha, &beta, &gamma,
                                         &xiq, &etq, &wq);
+        #[cfg(feature = "timing")]
         println!("Phi geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
         let mut vna1 = DMatrix::zeros(npts1, 3);
@@ -93,6 +96,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
             }
         };
 
+        #[cfg(feature = "timing")]
         let t_rhs = Instant::now();
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
@@ -102,6 +106,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
+        #[cfg(feature = "timing")]
         println!("Phi RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
 
@@ -109,6 +114,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         let mut amat_final = DMatrix::zeros(npts, npts);
 
         println!("Computing columns of influence matrix");
+        #[cfg(feature = "timing")]
         let t_mat = Instant::now();
 
         amat_final
@@ -127,19 +133,24 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                 col.copy_from_slice(dlp.as_slice());
             });
         // println!("Matrix created");
+        #[cfg(feature = "timing")]
         println!("Phi influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
+        #[cfg(feature = "timing")]
         let t_lu = Instant::now();
         #[cfg(feature = "lapack")]
         let decomp = LU::new(amat_final);
         #[cfg(not(feature = "lapack"))]
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
+        #[cfg(feature = "timing")]
         println!("Phi LU: {:.3}s", t_lu.elapsed().as_secs_f64());
 
+        #[cfg(feature = "timing")]
         let t_solve = Instant::now();
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         // println!("Linear system solved!");
+        #[cfg(feature = "timing")]
         println!("Phi solve: {:.3}s", t_solve.elapsed().as_secs_f64());
 
 
@@ -163,6 +174,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let req1 = (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
 
 
+        #[cfg(feature = "timing")]
         let t_geom = Instant::now();
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
         let (nelm1, npts1, p1, n1)
@@ -228,6 +240,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                                         &p, &n,
                                         &alpha, &beta, &gamma,
                                         &xiq, &etq, &wq);
+        #[cfg(feature = "timing")]
         println!("Force geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
 
@@ -260,6 +273,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         }
 
 
+        #[cfg(feature = "timing")]
         let t_rhs = Instant::now();
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
@@ -282,6 +296,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                           &dfdn, &p, &n, &vna,
                           &alpha, &beta, &gamma,
                           &xiq, &etq, &wq, &zz, &ww);
+        #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
 
@@ -289,6 +304,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let mut amat_final = DMatrix::zeros(npts, npts);
 
         // println!("Computing columns of influence matrix");
+        #[cfg(feature = "timing")]
         let t_mat = Instant::now();
 
         amat_final
@@ -307,18 +323,23 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 col.copy_from_slice(dlp.as_slice());
             });
         // println!("Matrix created");
+        #[cfg(feature = "timing")]
         println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
+        #[cfg(feature = "timing")]
         let t_lu = Instant::now();
         #[cfg(feature = "lapack")]
         let decomp = LU::new(amat_final);
         #[cfg(not(feature = "lapack"))]
         let decomp = amat_final.lu();
         // println!("Matrix decomposed");
+        #[cfg(feature = "timing")]
         println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
 
+        #[cfg(feature = "timing")]
         let t_solve = Instant::now();
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
+        #[cfg(feature = "timing")]
         println!("Force solve: {:.3}s", t_solve.elapsed().as_secs_f64());
         let df = dfdn.clone();
         // println!("Linear system solved!");
@@ -341,6 +362,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         //
         // println!("The test value of gradphi is {:?}", grad_phi_eg);
 
+        #[cfg(feature = "timing")]
         let t_press = Instant::now();
         let zero_vec = || Vector3::new(0.0, 0.0, 0.0);
         let zero_tuple = || (zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec());
@@ -691,6 +713,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();
         let m3 = sys_ref.body3.mass();
+        #[cfg(feature = "timing")]
         println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());
 
 
