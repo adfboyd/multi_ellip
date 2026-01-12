@@ -3,7 +3,7 @@ use std::f64::consts::PI;
 // use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use nalgebra as na;
-use nalgebra::{ArrayStorage, Matrix, Quaternion, U1, U9, Vector3, Vector6};
+use nalgebra::{ArrayStorage, Matrix, Quaternion, U1, U9, Vector3};
 
 use std::env;
 use std::collections::HashMap;
@@ -11,10 +11,10 @@ use std::collections::HashMap;
 use nom::{
     IResult,
     bytes::complete::tag,
-    character::complete::{alphanumeric1, line_ending, multispace0},
+    character::complete::{alphanumeric1, line_ending},
     number::complete::double,
-    sequence::{preceded, separated_pair, terminated},
-    combinator::{map, opt},
+    sequence::{separated_pair, terminated},
+    combinator::opt,
     multi::many0,
 
 };
@@ -23,7 +23,6 @@ use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::bem_for_ode;
 // use multi_ellip::bem::potentials::*;
-use std::time::Instant;
 // use indicatif::ParallelProgressIterator;
 // use plotters::prelude::LogScalable;
 // use rayon::prelude::IntoParallelRefIterator;
@@ -42,14 +41,11 @@ use multi_ellip::utils::SimName;
 // use palette::FromColor;
 
 
-type State2 = (Quaternion<f64>, Quaternion<f64>);
 type State3 = (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>);
 
 
-type Linear2State = (Vector6<f64>, Vector6<f64>);
 type Linear3State = (Vector9<f64>, Vector9<f64>);
 
-type Angular2State = (State2, State2);
 type Angular3State = (State3, State3);
 
 type Time = f64;
@@ -216,7 +212,7 @@ fn main() {
             let shx1 = *values.get("shx1").unwrap();
             let shy1 = *values.get("shy1").unwrap();
             let shz1 = *values.get("shz1").unwrap();
-            req1 = *values.get("req1").unwrap();
+            req1 = *values.get("req1").unwrap_or(&req1);
 
 
             let req1_temp = (shx1*shy1*shz1).powf(1./3.);
@@ -263,7 +259,7 @@ fn main() {
             let shx2 = *values.get("shx2").unwrap();
             let shy2 = *values.get("shy2").unwrap();
             let shz2 = *values.get("shz2").unwrap();
-            req2 = *values.get("req2").unwrap();
+            req2 = *values.get("req2").unwrap_or(&req2);
             println!("Equivalent radius of 2 = {:?}", req2);
 
             let req2_temp = (shx2*shy2*shz2).powf(1./3.);
@@ -308,7 +304,7 @@ fn main() {
             let shx3 = *values.get("shx3").unwrap();
             let shy3 = *values.get("shy3").unwrap();
             let shz3 = *values.get("shz3").unwrap();
-            req3 = *values.get("req3").unwrap();
+            req3 = *values.get("req3").unwrap_or(&req3);
             println!("Equivalent radius of 3 = {:?}", req3);
 
             let req3_temp = (shx3*shy3*shz3).powf(1./3.);
@@ -339,7 +335,7 @@ fn main() {
     }
 
 
-    let comment = format!("#Setup information to go here.");
+    // let comment = format!("#Setup information to go here.");
 
     // let den = 1.0;
     // let s = Vector3::new(1.0, 1.0, 1.0);
@@ -414,7 +410,7 @@ fn main() {
     // let ndiv = 0;
 
     let npts_circ = (4*2_usize.pow(ndiv as u32)) as f64;
-    let dx = (4.0 * PI) / npts_circ;
+    let _dx = (4.0 * PI) / npts_circ;
     // let dt_max = dx / body1.linear_velocity().norm();
 
     // println!("Angular momentum is {:?}", body1.angular_momentum.imag());
@@ -503,35 +499,57 @@ fn main() {
 
     println!("Total number of elements = {:?}.", nelm_end);
 
-    let res = stepper.integrate();
+    let path_base_str = output_file_path;
+    println!("Saving to {:?}", path_base_str);
+
+    match std::fs::create_dir_all(path_base_str.clone()) {
+        Ok(_) => {}
+        Err(_) => {
+            panic!("Could not create output directories\n")
+        }
+    }
+
+    let path_base = Path::new(&path_base_str);
+    let sim_name = SimName::new(path_base);
+
+    let file1 = if nbody == 2 {
+        match File::create(sim_name.complete_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
+        }
+    }
+    else if nbody == 3 {
+        match File::create(sim_name.three_body_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
+        }
+    } else {
+        match File::create(sim_name.single_body_path()) {
+            Err(e) => {
+                println!("Could not open file. Error: {:?}", e);
+                return;
+            }
+            Ok(buf) => buf,
+        }
+    };
+
+    let mut buf = BufWriter::new(file1);
+
+    let res = stepper.integrate_with_writer(&mut buf);
 
     match res {
         Ok(_) => {
-
-            // let path_base_str = format!("./output_ellipse_sphere_surfgrad_norot/");
             println!("Solver finished successfully - good job!");
-            let path_base_str = output_file_path;
-            println!("Saving to {:?}", path_base_str);
-
-            match std::fs::create_dir_all(path_base_str.clone()) {
-                Ok(_) => {}
-                Err(_) => {
-                    panic!("Could not create output directories\n")
-                }
+            if let Err(e) = buf.flush() {
+                println!("Could not write to file. Error: {:?}", e);
+                return;
             }
-
-            let path_base = Path::new(&path_base_str);
-            let sim_name = SimName::new(path_base);
-
-            save(
-                &stepper.t_out,
-                &stepper.x_out,
-                &stepper.o_out,
-                &stepper.o_lab_out,
-                &sim_name,
-                &comment,
-                nbody,
-            );
             println!("Results saved successfully.")
         }
         Err(e) => println!("An error occurred {:?}", e),
@@ -554,7 +572,7 @@ pub fn save(
     states4: &Vec<Vector9<f64>>,
 
     filename: &SimName,
-    comment: &str,
+    _comment: &str,
     nbody: usize,
 ) {
     let file1 = if nbody == 2 {

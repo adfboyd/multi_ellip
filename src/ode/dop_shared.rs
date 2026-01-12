@@ -1,6 +1,7 @@
 //! Shared traits and structures for dopri5 and dop853.
 
 use std::fmt;
+use std::io;
 use thiserror::Error;
 
 /// Trait needed to be implemented by the user.
@@ -52,6 +53,8 @@ pub enum IntegrationError {
     StepSizeUnderflow { x: f64 },
     #[error("The problem seems to become stiff at x = {x}.")]
     StiffnessDetected { x: f64 },
+    #[error("I/O error during integration: {0}")]
+    Io(#[from] io::Error),
 }
 
 /// Contains some statistics of the integration.

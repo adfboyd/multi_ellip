@@ -2,7 +2,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 // use indicatif::ParallelProgressIterator;
-use nalgebra::{ArrayStorage, DMatrix, DVector, Dynamic, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3, Vector6};
+use nalgebra::{ArrayStorage, DMatrix, DVector, Dyn, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3};
 use rayon::prelude::*;
 #[cfg(feature = "lapack")]
 use nalgebra_lapack::LU;
@@ -12,17 +12,14 @@ use crate::bem::potentials::{dfdn_single, vec_concat};
 use crate::system::system::Simulation;
 
 
-type State2 = (Quaternion<f64>, Quaternion<f64>);
 type State3 = (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>);
 
 type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
 
-type Linear2State = (Vector6<f64>, Vector6<f64>);
 type Linear3State = (Vector9<f64>, Vector9<f64>);
-type Angular2State = (State2, State2);
 
 type Angular3State = (State3, State3);
-type PhiState = OMatrix<f64, Dynamic, U1>;
+type PhiState = OMatrix<f64, Dyn, U1>;
 
 
 
@@ -53,9 +50,9 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
         let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
         // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
 
-        let split_axis_x = Vector3::new(1, 0, 0);
-        let split_axis_y = Vector3::new(0, 1, 0);
-        let split_axis_z = Vector3::new(0, 0, 1);
+        let _split_axis_x = Vector3::new(1, 0, 0);
+        let _split_axis_y = Vector3::new(0, 1, 0);
+        let _split_axis_z = Vector3::new(0, 0, 1);
 
         let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
         let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position, &orientation1);
@@ -209,7 +206,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         };
 
 
-        let (nelm, mut npts, p, n) = if nbody == 2 {
+        let (nelm, npts, p, n) = if nbody == 2 {
             combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2)
         } else if nbody == 1 {
             (nelm1, npts1, p1.clone(), n1.clone())
@@ -267,8 +264,7 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
         let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
         let dfdn_3 = dfdn_single(&sys_ref.body3.position, &sys_ref.body3.linear_velocity(), &sys_ref.body3.angular_velocity().imag(), npts3, &p3, &vna3);
-        let mut dfdn = DVector::zeros(npts);
-        dfdn = if nbody == 2 {
+        let dfdn = if nbody == 2 {
             vec_concat(&dfdn_1, &dfdn_2)
         } else if nbody == 1 {
             dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna)

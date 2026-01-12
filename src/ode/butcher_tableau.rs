@@ -1,4 +1,5 @@
 #![allow(clippy::excessive_precision)]
+#![allow(dead_code)]
 
 //! Butcher tableaux containing the coefficients of the Runge-Kutta methods.
 

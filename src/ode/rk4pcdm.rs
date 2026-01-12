@@ -1,10 +1,13 @@
 use nalgebra as na;
-use nalgebra::{ArrayStorage, Matrix, Quaternion, SMatrix, SVector, U1, U9, Vector3, Vector6};
+use nalgebra::{ArrayStorage, Matrix, Quaternion, U1, U9, Vector3};
+use std::io::Write;
 use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 
 type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
+type Linear3State = (Vector9<f64>, Vector9<f64>);
+type Angular3State = ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>));
 
 pub struct Rk4PCDM<Q, W, F, G, I>
     where
@@ -212,6 +215,148 @@ Rk4PCDM<
             self.stats.accepted_steps += 1;
         }
         Ok(self.stats)
+    }
+
+    pub fn integrate_with_writer<W: Write>(&mut self, writer: &mut W) -> Result<Stats, IntegrationError> {
+        self.t_out.push(self.t);
+        self.x_out.push(self.x.clone());
+        println!("Initial positions and velocities = {:?}", &self.x);
+        self.o_out.push(self.o.clone());
+        println!("Initial orientations and angular velocities = {:?}", &self.o);
+        self.o_lab = self.orientation_to_marker_point();  //Start with correct value of marker point
+        self.o_lab_out.push(self.o_lab.clone());
+
+        self.write_header(writer)?;
+        self.write_row(writer, self.t, &self.x, &self.o, &self.o_lab)?;
+
+        let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
+        let samp_rate = self.samp_rate as usize;
+        let print_rate = self.print_rate as usize;
+
+        let start_t = Instant::now();
+        let mut start_dt = Instant::now();
+        //should be for i in 0..num_steps
+        for i in 0..num_steps {
+            if (i % print_rate == 0) & (i > 0) {
+                let elapsed_dt = start_dt.elapsed();
+
+                let elapsed = start_t.elapsed();
+                let ratio = ((num_steps - i) as f64) / (i as f64);
+                let ratio2 = (num_steps as f64) / (i as f64);
+                let remain_est = self.multiply_duration(elapsed, ratio);
+                // let total_est = self.multiply_duration(elapsed, ratio2);
+                let completion_percentage = 100./ratio2;
+                let dt_millisec = elapsed_dt.as_millis();
+                let dt_sec = (dt_millisec as f64) * 0.001;
+                if remain_est.as_secs() >= 3600 {
+                    let hrs = remain_est.as_secs()/3600;
+                    let mins = (remain_est.as_secs() - hrs*3600)/60;
+                    let secs = remain_est.as_secs() - hrs*3600 - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);  //Print progress
+                }
+                else if remain_est.as_secs() >= 60 {
+                    let mins = remain_est.as_secs()/60;
+                    let secs = remain_est.as_secs() - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);  //Print progress
+
+                }
+                else {
+                    let secs = remain_est.as_secs();
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, secs, completion_percentage, dt_sec);  //Print progress
+
+                }
+            };
+            start_dt = Instant::now();
+
+            //Get (lin,ang) forces for bodies 1 & 2 & 3.
+            let (linear_accel, angular_force) = self.force_get();
+            //
+            //Calculate new positions and velocities at half time-step
+            let normed_accel = self.force_norm(&linear_accel);
+            let normed_torque = self.force_norm(&angular_force);
+            let (p_half, v_half) = self.lin_half_step(&normed_accel);
+
+            let (q_half, o_half) = self.ang_half_step(&normed_torque);
+
+            //Update the bodies' positions and velocities
+            let _ = self.f.system(0.0, &(p_half, v_half));
+            let _ = self.g.system(0.0, &(q_half, o_half));
+
+            let (linear_force_half, angular_force_half) = self.force_get();
+
+            let t_new = self.t + self.step_size;
+
+            let normed_linforcehalf = self.force_norm(&linear_force_half);
+            let normed_torquehalf = self.force_norm(&angular_force_half);
+            let x_new = self.lin_full_step(&normed_linforcehalf);
+
+            let o_new = self.ang_full_step(&normed_torquehalf, &(q_half, o_half));
+
+            //Update the bodies' positions and velocities
+            let _ = self.f.system(0.0, &x_new);
+            let _ = self.g.system(0.0, &o_new);
+
+            let o_lab_new_v = self.orientation_to_marker_point(); //Calculate orientation vector position in lab frame
+
+            if i % samp_rate == 0 { //Record current state of body
+                self.t_out.push(t_new);
+                self.x_out.push(x_new.clone());
+                self.o_out.push(o_new.clone());
+                self.o_lab_out.push(o_lab_new_v.clone());
+                self.write_row(writer, t_new, &x_new, &o_new, &o_lab_new_v)?;
+            }
+
+            self.t = t_new;
+            self.x = x_new;
+            self.o = o_new;
+            self.o_lab = o_lab_new_v;
+
+            self.stats.accepted_steps += 1;
+        }
+        Ok(self.stats)
+    }
+
+    fn write_header<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(b"time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,p1_3,p2_3,p3_3,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,v1_3,v2_3,v3_3,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,q1_3,q2_3,q3_3,q0_3,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,o1_3,o2_3,o3_3,o0_3,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2,ofix1_3,ofix2_3,ofix3_3\n")
+    }
+
+    fn write_row<W: Write>(
+        &self,
+        writer: &mut W,
+        time: f64,
+        x: &Linear3State,
+        o: &Angular3State,
+        o_lab: &Vector9<f64>,
+    ) -> std::io::Result<()> {
+        write!(writer, "{}", time)?;
+        for val in x.0.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in x.1.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.0.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.1.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.2.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.0.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.1.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.2.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o_lab.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        writeln!(writer)
     }
 
     fn force_get(&mut self) -> (Vector9<f64>, Vector9<f64>) {
@@ -601,10 +746,10 @@ Rk4PCDM<
         // let &q_quaternion = q.quaternion();
         // println!("Norm of q = {}, q = {:?}", q.norm(),q);
         let q_inv = if q.norm() > 0.00001 {
-            q.try_inverse().unwrap()}
-        else {
-            Quaternion::from_real(0.0)};
-        let q_inv = q.try_inverse().unwrap();
+            q.try_inverse().unwrap()
+        } else {
+            Quaternion::from_real(0.0)
+        };
         let p_space = q * (p_body * q_inv);
         p_space
     }
@@ -650,7 +795,7 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         let mag = omega.norm();
         let real_part = (mag * dt * 0.5).cos();
-        let imag_scalar = if (mag > 0.0000001) {
+        let imag_scalar = if mag > 0.0000001 {
             (mag * dt * 0.5).sin() / mag}
             else {
                 0.0

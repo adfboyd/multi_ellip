@@ -1,7 +1,6 @@
+#![allow(unused_doc_comments, unused_variables, unused_assignments, unused_mut, unused_parens)]
 use std::f64::consts::PI;
-use std::process::id;
-use nalgebra::{DMatrix, DVector, Matrix, Matrix3, Quaternion, Vector, Vector3, Vector6};
-use num_traits::ToPrimitive;
+use nalgebra::{DMatrix, DVector, Matrix3, Vector3, Vector6};
 use rayon::prelude::*;
 
 ///The free-space green's function for potential flow in 3d, and its derivative.

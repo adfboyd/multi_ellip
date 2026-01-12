@@ -1,9 +1,7 @@
 use std::f64::consts::PI;
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, Dyn, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
-use num_traits::{Pow, Signed};
-use crate::bem::stacking::Block;
 
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
@@ -288,7 +286,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
     let npts_line = 4_usize * 2_usize.pow(ndiv);
     let mut n_line = MatrixU3::zeros(npts_line, 3);
 
-    ///Add in capability to split surface into halves.
+    // Add in capability to split surface into halves.
 
     //Set component for splitting
     let mut axis_index = 0_usize;
@@ -298,11 +296,10 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
         }
     }
     //Set direction for splitting
-    let mut axis_direction = 0_f64;
-    if split_axis[axis_index] > 0 {
-        axis_direction = 1_f64;
+    let axis_direction = if split_axis[axis_index] > 0 {
+        1_f64
     } else {
-        axis_direction = -1_f64;
+        -1_f64
     };
 
     //New list of elements on the singular side
@@ -477,7 +474,7 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
         sing_elms.push(i);
     };
 
-    ///nelm1 not npts1
+    // nelm1 not npts1
     for &i in sing_elms_2 {
         let i2 = i + nelm1;
         sing_elms.push(i2);
@@ -787,7 +784,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
     // let mut v = na::DMatrix::zeros(6, 3);
     let mut itally = DVector::zeros(npts);
 
-    let mut arel :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
+    let mut arel :OMatrix<f64, Dyn, U1> = DVector::zeros(nelm);
     // let mut xmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
     // let mut ymom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
     // let mut zmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
