@@ -460,8 +460,16 @@ fn main() {
     let inertia1 = sys.body1.inertia;
     let inertia2 = sys.body2.inertia;
     let inertia3 = sys.body3.inertia;
+    let mass1 = sys.body1.mass();
+    let mass2 = if nbody >= 2 { sys.body2.mass() } else { 0.0 };
+    let mass3 = if nbody >= 3 { sys.body3.mass() } else { 0.0 };
 
     let sys_mutex = Arc::new(Mutex::new(sys));
+    let sys_for_ke = sys_mutex.clone();
+    let fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>> = Some(Box::new(move || {
+        let sys_ref = sys_for_ke.lock().unwrap();
+        sys_ref.fluid.kinetic_energy
+    }));
 
     let linear_system = bem_for_ode::LinearUpdate{
         system: sys_mutex.clone()
@@ -488,6 +496,10 @@ fn main() {
         inertia1,
         inertia2,
         inertia3,
+        mass1,
+        mass2,
+        mass3,
+        fluid_ke_getter,
         t_end,
         dt,
         tprint,
@@ -512,34 +524,41 @@ fn main() {
     let path_base = Path::new(&path_base_str);
     let sim_name = SimName::new(path_base);
 
-    let file1 = if nbody == 2 {
-        match File::create(sim_name.complete_path()) {
+    let (file1, output_path) = if nbody == 2 {
+        let path = sim_name.complete_path();
+        let file = match File::create(path) {
             Err(e) => {
                 println!("Could not open file. Error: {:?}", e);
                 return;
             }
             Ok(buf) => buf,
-        }
+        };
+        (file, path.to_path_buf())
     }
     else if nbody == 3 {
-        match File::create(sim_name.three_body_path()) {
+        let path = sim_name.three_body_path();
+        let file = match File::create(path) {
             Err(e) => {
                 println!("Could not open file. Error: {:?}", e);
                 return;
             }
             Ok(buf) => buf,
-        }
+        };
+        (file, path.to_path_buf())
     } else {
-        match File::create(sim_name.single_body_path()) {
+        let path = sim_name.single_body_path();
+        let file = match File::create(path) {
             Err(e) => {
                 println!("Could not open file. Error: {:?}", e);
                 return;
             }
             Ok(buf) => buf,
-        }
+        };
+        (file, path.to_path_buf())
     };
 
     let mut buf = BufWriter::new(file1);
+    println!("Writing results to {:?}", output_path);
 
     let res = stepper.integrate_with_writer(&mut buf);
 

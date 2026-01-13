@@ -163,7 +163,7 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
 impl crate::ode::System4<Linear3State> for ForceCalculate {
     ///Returns ((linear force on body1, body2), (torque on body1, body2))
     fn system(&self) -> Linear3State {
-        let sys_ref = self.system.lock().unwrap();
+        let mut sys_ref = self.system.lock().unwrap();
 
 
         let (nq, mint) = (12_usize, 13_usize);
@@ -361,6 +361,13 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         //                               &test_p);
         //
         // println!("The test value of gradphi is {:?}", grad_phi_eg);
+
+        let (_srf_area, ke_integral) = ke_3d(npts, nelm, mint,
+                                             &f, &dfdn,
+                                             &p, &n, &vna,
+                                             &alpha, &beta, &gamma,
+                                             &xiq, &etq, &wq);
+        sys_ref.fluid.kinetic_energy = 0.5 * sys_ref.fluid.density * ke_integral;
 
         #[cfg(feature = "timing")]
         let t_press = Instant::now();

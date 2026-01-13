@@ -28,6 +28,10 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     inertia: na::Matrix3<f64>,
     inertia2: na::Matrix3<f64>,
     inertia3: na::Matrix3<f64>,
+    mass1: f64,
+    mass2: f64,
+    mass3: f64,
+    fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
     t_begin: f64,
     t_end: f64,
     step_size: f64,
@@ -41,6 +45,21 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     pub o_out: Vec<Q>,
     pub o_lab_out: Vec<Vector9<f64>>,
     stats: Stats,
+}
+
+struct SolidEnergy {
+    total_lin: f64,
+    total_rot: f64,
+    total: f64,
+    b1_lin: f64,
+    b1_rot: f64,
+    b1_total: f64,
+    b2_lin: f64,
+    b2_rot: f64,
+    b2_total: f64,
+    b3_lin: f64,
+    b3_rot: f64,
+    b3_total: f64,
 }
 
 impl<F, G, I> //Need to generalise this to type T instead of f64.
@@ -78,6 +97,10 @@ Rk4PCDM<
         inertia: na::Matrix3<f64>,
         inertia2: na::Matrix3<f64>,
         inertia3: na::Matrix3<f64>,
+        mass1: f64,
+        mass2: f64,
+        mass3: f64,
+        fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
         t_end: f64,
         step_size: f64,
         samp_rate: u32,
@@ -95,6 +118,10 @@ Rk4PCDM<
             inertia,
             inertia2,
             inertia3,
+            mass1,
+            mass2,
+            mass3,
+            fluid_ke_getter,
             t_begin,
             t_end,
             step_size,
@@ -317,7 +344,7 @@ Rk4PCDM<
     }
 
     fn write_header<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_all(b"time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,p1_3,p2_3,p3_3,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,v1_3,v2_3,v3_3,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,q1_3,q2_3,q3_3,q0_3,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,o1_3,o2_3,o3_3,o0_3,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2,ofix1_3,ofix2_3,ofix3_3\n")
+        writer.write_all(b"time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,p1_3,p2_3,p3_3,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,v1_3,v2_3,v3_3,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,q1_3,q2_3,q3_3,q0_3,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,o1_3,o2_3,o3_3,o0_3,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2,ofix1_3,ofix2_3,ofix3_3,ke_lin_solid,ke_rot_solid,ke_solid,ke_fluid,ke_lin_b1,ke_rot_b1,ke_b1,ke_lin_b2,ke_rot_b2,ke_b2,ke_lin_b3,ke_rot_b3,ke_b3\n")
     }
 
     fn write_row<W: Write>(
@@ -356,7 +383,96 @@ Rk4PCDM<
         for val in o_lab.iter() {
             write!(writer, ", {}", val)?;
         }
+        let ke = self.solid_kinetic_energy(x, o);
+        let ke_fluid = self.fluid_kinetic_energy();
+        write!(
+            writer,
+            ", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}",
+            ke.total_lin,
+            ke.total_rot,
+            ke.total,
+            ke_fluid,
+            ke.b1_lin,
+            ke.b1_rot,
+            ke.b1_total,
+            ke.b2_lin,
+            ke.b2_rot,
+            ke.b2_total,
+            ke.b3_lin,
+            ke.b3_rot,
+            ke.b3_total
+        )?;
         writeln!(writer)
+    }
+
+    fn solid_kinetic_energy(&self, x: &Linear3State, o: &Angular3State) -> SolidEnergy {
+        let v1 = Vector3::new(x.1[0], x.1[1], x.1[2]);
+        let v2 = Vector3::new(x.1[3], x.1[4], x.1[5]);
+        let v3 = Vector3::new(x.1[6], x.1[7], x.1[8]);
+
+        let mut ke_lin = 0.0;
+        let mut ke_lin_b1 = 0.0;
+        let mut ke_lin_b2 = 0.0;
+        let mut ke_lin_b3 = 0.0;
+        if self.mass1 > 0.0 {
+            ke_lin_b1 = 0.5 * self.mass1 * v1.dot(&v1);
+            ke_lin += ke_lin_b1;
+        }
+        if self.mass2 > 0.0 {
+            ke_lin_b2 = 0.5 * self.mass2 * v2.dot(&v2);
+            ke_lin += ke_lin_b2;
+        }
+        if self.mass3 > 0.0 {
+            ke_lin_b3 = 0.5 * self.mass3 * v3.dot(&v3);
+            ke_lin += ke_lin_b3;
+        }
+
+        let (q, omega_lab) = o;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_lab;
+
+        let omega_b1 = self.lab_to_body(omega_lab1, q1).imag();
+        let omega_b2 = self.lab_to_body(omega_lab2, q2).imag();
+        let omega_b3 = self.lab_to_body(omega_lab3, q3).imag();
+
+        let mut ke_rot = 0.0;
+        let mut ke_rot_b1 = 0.0;
+        let mut ke_rot_b2 = 0.0;
+        let mut ke_rot_b3 = 0.0;
+        if self.mass1 > 0.0 {
+            ke_rot_b1 = 0.5 * omega_b1.dot(&(self.inertia * omega_b1));
+            ke_rot += ke_rot_b1;
+        }
+        if self.mass2 > 0.0 {
+            ke_rot_b2 = 0.5 * omega_b2.dot(&(self.inertia2 * omega_b2));
+            ke_rot += ke_rot_b2;
+        }
+        if self.mass3 > 0.0 {
+            ke_rot_b3 = 0.5 * omega_b3.dot(&(self.inertia3 * omega_b3));
+            ke_rot += ke_rot_b3;
+        }
+
+        SolidEnergy {
+            total_lin: ke_lin,
+            total_rot: ke_rot,
+            total: ke_lin + ke_rot,
+            b1_lin: ke_lin_b1,
+            b1_rot: ke_rot_b1,
+            b1_total: ke_lin_b1 + ke_rot_b1,
+            b2_lin: ke_lin_b2,
+            b2_rot: ke_rot_b2,
+            b2_total: ke_lin_b2 + ke_rot_b2,
+            b3_lin: ke_lin_b3,
+            b3_rot: ke_rot_b3,
+            b3_total: ke_lin_b3 + ke_rot_b3,
+        }
+    }
+
+    fn fluid_kinetic_energy(&self) -> f64 {
+        self.fluid_ke_getter
+            .as_ref()
+            .map(|get| get())
+            .unwrap_or(0.0)
     }
 
     fn force_get(&mut self) -> (Vector9<f64>, Vector9<f64>) {
