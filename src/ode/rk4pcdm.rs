@@ -195,11 +195,9 @@ Rk4PCDM<
             // println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
             //
             //Calculate new positions and velocities at half time-step
-            let normed_accel = self.force_norm(&linear_accel);
-            let normed_torque = self.force_norm(&angular_force);
-            let (p_half, v_half) = self.lin_half_step(&normed_accel);
+            let (p_half, v_half) = self.lin_half_step(&linear_accel);
 
-            let (q_half, o_half) = self.ang_half_step(&normed_torque);
+            let (q_half, o_half) = self.ang_half_step(&angular_force);
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &(p_half, v_half));
@@ -209,11 +207,9 @@ Rk4PCDM<
 
             let t_new = self.t + self.step_size;
 
-            let normed_linforcehalf = self.force_norm(&linear_force_half);
-            let normed_torquehalf = self.force_norm(&angular_force_half);
-            let x_new = self.lin_full_step(&normed_linforcehalf);
+            let x_new = self.lin_full_step(&linear_force_half);
 
-            let o_new = self.ang_full_step(&normed_torquehalf, &(q_half, o_half));
+            let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &x_new);
@@ -299,11 +295,9 @@ Rk4PCDM<
             let (linear_accel, angular_force) = self.force_get();
             //
             //Calculate new positions and velocities at half time-step
-            let normed_accel = self.force_norm(&linear_accel);
-            let normed_torque = self.force_norm(&angular_force);
-            let (p_half, v_half) = self.lin_half_step(&normed_accel);
+            let (p_half, v_half) = self.lin_half_step(&linear_accel);
 
-            let (q_half, o_half) = self.ang_half_step(&normed_torque);
+            let (q_half, o_half) = self.ang_half_step(&angular_force);
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &(p_half, v_half));
@@ -313,11 +307,9 @@ Rk4PCDM<
 
             let t_new = self.t + self.step_size;
 
-            let normed_linforcehalf = self.force_norm(&linear_force_half);
-            let normed_torquehalf = self.force_norm(&angular_force_half);
-            let x_new = self.lin_full_step(&normed_linforcehalf);
+            let x_new = self.lin_full_step(&linear_force_half);
 
-            let o_new = self.ang_full_step(&normed_torquehalf, &(q_half, o_half));
+            let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
             //Update the bodies' positions and velocities
             let _ = self.f.system(0.0, &x_new);

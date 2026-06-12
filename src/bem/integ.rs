@@ -394,13 +394,67 @@ pub fn lslp_3d_integral_sing(ngl :usize,
     (area, slp)
 }
 
+///Polar-coordinate singular integration for the double-layer potential
+///when x0 = p1 lies on the element. Mirrors lslp_3d_integral_sing.
+pub fn ldlp_3d_integral_sing(ngl: usize,
+    p1: Vector3<f64>, p2: Vector3<f64>, p3: Vector3<f64>,
+    q1: f64, q2: f64, q3: f64, q0: f64,
+    v1: Vector3<f64>, v2: Vector3<f64>, v3: Vector3<f64>,
+    zz: &DVector<f64>, ww: &DVector<f64>) -> f64 {
+
+    let vn_flat = (p2 - p1).cross(&(p3 - p1));
+    let hs = vn_flat.norm(); // = 2 * area_flat
+
+    let mut dlp = 0.0;
+    let pi = PI;
+
+    for i in 0..ngl {
+        let ph = (pi / 4.0) * (1.0 + zz[i]);
+        let cph = ph.cos();
+        let sph = ph.sin();
+        let rmax = 1.0 / (cph + sph);
+        let rmaxh = 0.5 * rmax;
+
+        let mut btl = 0.0;
+
+        for j in 0..ngl {
+            let r = rmaxh * (1.0 + zz[j]);
+            let (xi, et) = (r * cph, r * sph);
+            let zt = 1.0 - xi - et;
+
+            let x = p1[0]*zt + p2[0]*xi + p3[0]*et;
+            let y = p1[1]*zt + p2[1]*xi + p3[1]*et;
+            let z = p1[2]*zt + p2[2]*xi + p3[2]*et;
+            let xvec = Vector3::new(x, y, z);
+
+            let q_interp = q1*zt + q2*xi + q3*et;
+            let vx = v1[0]*zt + v2[0]*xi + v3[0]*et;
+            let vy = v1[1]*zt + v2[1]*xi + v3[1]*et;
+            let vz = v1[2]*zt + v2[2]*xi + v3[2]*et;
+            let v = Vector3::new(vx, vy, vz);
+
+            let (_g, dg) = lgf_3d_fs(&xvec, &p1);
+
+            // r from polar Jacobian regularises the O(1/r) near-singularity
+            let cf = r * ww[j];
+
+            btl += (q_interp - q0) * v.dot(&dg) * cf;
+        }
+
+        dlp += btl * ww[i] * rmaxh;
+    }
+
+    dlp * (pi / 4.0) * hs
+}
+
 ///Computes the double-layer potential for a given initial condition q = phi(p)
 
 pub fn ldlp_3d(npts :usize, nelm :usize,
-               mint :usize, q :&DVector<f64>,
+               mint :usize, nq :usize, q :&DVector<f64>,
                p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
-               xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> DVector<f64> {
+               xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+               zz :&DVector<f64>, ww :&DVector<f64>) -> DVector<f64> {
 
     let mut dlp = DVector::zeros(npts);
     let tol = 1e-8;
@@ -410,10 +464,7 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
         let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
         let q0 = q[i];
 
-
         let mut ptl = 0.0;
-
-        //Compile the integrals over triangles
 
         for k in 0..nelm {
 
@@ -429,13 +480,75 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
             let test = Vector6::new(q1.abs(), q2.abs(), q3.abs(), q4.abs(), q5.abs(), q6.abs()).sum();
 
             if test > tol {
-                // println!("Test didn't fail, k= {:?}, i = {:?}", k, i);
-                let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, q, q0,
-                                                     p, n, vna,
-                                                     alpha, beta, gamma,
-                                                     xiq, etq, wq);
+                if i == i1 {
+                    let pa = Vector3::new(p[(i1,0)], p[(i1,1)], p[(i1,2)]);
+                    let pb = Vector3::new(p[(i2,0)], p[(i2,1)], p[(i2,2)]);
+                    let pc = Vector3::new(p[(i3,0)], p[(i3,1)], p[(i3,2)]);
+                    let va = Vector3::new(vna[(i1,0)], vna[(i1,1)], vna[(i1,2)]);
+                    let vb = Vector3::new(vna[(i2,0)], vna[(i2,1)], vna[(i2,2)]);
+                    let vc = Vector3::new(vna[(i3,0)], vna[(i3,1)], vna[(i3,2)]);
+                    ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww);
 
-                ptl += pptl;
+                } else if i == i2 {
+                    let (ia, ib, ic) = (i2, i3, i1);
+                    let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                    let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                    let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                    let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                    let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                    let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                    ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+
+                } else if i == i3 {
+                    let (ia, ib, ic) = (i3, i1, i2);
+                    let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                    let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                    let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                    let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                    let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                    let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                    ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+
+                } else if i == i4 {
+                    for &(ia, ib, ic) in &[(i4,i6,i1),(i4,i3,i6),(i4,i5,i3),(i4,i2,i5)] {
+                        let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                        let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                        let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                        let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                        let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                        let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                    }
+
+                } else if i == i5 {
+                    for &(ia, ib, ic) in &[(i5,i4,i2),(i5,i1,i4),(i5,i6,i1),(i5,i3,i6)] {
+                        let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                        let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                        let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                        let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                        let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                        let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                    }
+
+                } else if i == i6 {
+                    for &(ia, ib, ic) in &[(i6,i1,i4),(i6,i4,i2),(i6,i2,i5),(i6,i5,i3)] {
+                        let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                        let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                        let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                        let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                        let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                        let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                    }
+
+                } else {
+                    let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, q, q0,
+                                                         p, n, vna,
+                                                         alpha, beta, gamma,
+                                                         xiq, etq, wq);
+                    ptl += pptl;
+                }
             }
         }
         dlp[i] += ptl - 0.5 * q0;
@@ -979,23 +1092,15 @@ pub fn gradient_interp_3d_integral(k :usize,
 
         let (xi, eta) = (xiq[i], etq[i]);
 
-        let (xvec, v, hs, f_int, dfdn_int, dfdxi, dfdet, ddxi, ddet) = gradient_interp(p1, p2, p3, p4, p5, p6,
+        let (_xvec, _v, hs, _f_int, dfdn_int, dfdxi, dfdet, ddxi, ddet) = gradient_interp(p1, p2, p3, p4, p5, p6,
                                                               vna1, vna2, vna3, vna4, vna5, vna6,
                                                               f1, f2, f3, f4, f5, f6,
                                                               df1, df2, df3, df4, df5, df6,
                                                               al, be, ga, xi, eta);
 
-        // let (g, dg) = lgf_3d_fs(&xvec, &x0);
-
-        let sin_phi = sine_find(&ddxi, &ddet);
-
-        let u = dfdxi;
-        let v = dfdet * sin_phi;
-        let w = dfdn_int;
-
-        let grad_f = Vector3::new(u,v,w);
-
-        let r_int = grad_f.norm_squared();
+        // |∇_s φ|² = |dfdxi·ddet - dfdet·ddxi|² / hs² (surface metric correction)
+        let tangential = dfdxi * ddet - dfdet * ddxi;
+        let r_int = tangential.norm_squared() / (hs * hs) + dfdn_int * dfdn_int;
 
         let cf = 0.5 * hs * wq[i];
 
@@ -1005,6 +1110,121 @@ pub fn gradient_interp_3d_integral(k :usize,
     }
 
     (sdlp, area)
+}
+
+pub fn pressure_force_element(
+    k: usize, mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>, dfdn: &DVector<f64>,
+    p: &DMatrix<f64>, n: &DMatrix<usize>, vna: &DMatrix<f64>,
+    alpha: &DVector<f64>, beta: &DVector<f64>, gamma: &DVector<f64>,
+    xiq: &DVector<f64>, etq: &DVector<f64>, wq: &DVector<f64>,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let mut force  = Vector3::zeros();
+    let mut torque = Vector3::zeros();
+
+    let i1 = n[(k,0)]; let i2 = n[(k,1)]; let i3 = n[(k,2)];
+    let i4 = n[(k,3)]; let i5 = n[(k,4)]; let i6 = n[(k,5)];
+
+    let p1 = Vector3::new(p[(i1,0)], p[(i1,1)], p[(i1,2)]);
+    let p2 = Vector3::new(p[(i2,0)], p[(i2,1)], p[(i2,2)]);
+    let p3 = Vector3::new(p[(i3,0)], p[(i3,1)], p[(i3,2)]);
+    let p4 = Vector3::new(p[(i4,0)], p[(i4,1)], p[(i4,2)]);
+    let p5 = Vector3::new(p[(i5,0)], p[(i5,1)], p[(i5,2)]);
+    let p6 = Vector3::new(p[(i6,0)], p[(i6,1)], p[(i6,2)]);
+
+    let vna1 = Vector3::new(vna[(i1,0)], vna[(i1,1)], vna[(i1,2)]);
+    let vna2 = Vector3::new(vna[(i2,0)], vna[(i2,1)], vna[(i2,2)]);
+    let vna3 = Vector3::new(vna[(i3,0)], vna[(i3,1)], vna[(i3,2)]);
+    let vna4 = Vector3::new(vna[(i4,0)], vna[(i4,1)], vna[(i4,2)]);
+    let vna5 = Vector3::new(vna[(i5,0)], vna[(i5,1)], vna[(i5,2)]);
+    let vna6 = Vector3::new(vna[(i6,0)], vna[(i6,1)], vna[(i6,2)]);
+
+    let (f1,f2,f3,f4,f5,f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    let (df1,df2,df3,df4,df5,df6) = (dfdn[i1], dfdn[i2], dfdn[i3], dfdn[i4], dfdn[i5], dfdn[i6]);
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+        let (_xvec, _v, hs, _f_int, dfdn_int, dfdxi, dfdet, ddxi, ddet) =
+            gradient_interp(p1, p2, p3, p4, p5, p6,
+                            vna1, vna2, vna3, vna4, vna5, vna6,
+                            f1, f2, f3, f4, f5, f6,
+                            df1, df2, df3, df4, df5, df6,
+                            al, be, ga, xiq[i], etq[i]);
+
+        let vn = ddxi.cross(&ddet);
+        let tangential = dfdxi * ddet - dfdet * ddxi;
+        let grad_phi_sq = tangential.norm_squared() / (hs * hs) + dfdn_int * dfdn_int;
+
+        // n̂ dA = vn * 0.5 * wq[i]  (n̂ = vn/hs, dA = 0.5*hs*wq[i])
+        let n_hat_da = vn * (0.5 * wq[i]);
+        let r = _xvec - body_centre;
+
+        let dp = 0.5 * rho_f * grad_phi_sq;
+        force  += dp * n_hat_da;
+        torque += dp * r.cross(&n_hat_da);
+    }
+
+    (force, torque)
+}
+
+/// Computes the −ρ ∂φ/∂t surface-pressure force and torque on one element.
+/// ∂φ/∂t is approximated as (f_current − f_prev) / dt.
+/// Force = +ρ ∮ (∂φ/∂t) n̂ dA  (positive sign from unsteady Bernoulli).
+pub fn dphi_dt_force_element(
+    k: usize, mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>, f_prev: &DVector<f64>,
+    p: &DMatrix<f64>, n: &DMatrix<usize>, vna: &DMatrix<f64>,
+    alpha: &DVector<f64>, beta: &DVector<f64>, gamma: &DVector<f64>,
+    xiq: &DVector<f64>, etq: &DVector<f64>, wq: &DVector<f64>,
+    dt: f64,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let mut force  = Vector3::zeros();
+    let mut torque = Vector3::zeros();
+
+    let i1 = n[(k,0)]; let i2 = n[(k,1)]; let i3 = n[(k,2)];
+    let i4 = n[(k,3)]; let i5 = n[(k,4)]; let i6 = n[(k,5)];
+
+    let p1 = Vector3::new(p[(i1,0)], p[(i1,1)], p[(i1,2)]);
+    let p2 = Vector3::new(p[(i2,0)], p[(i2,1)], p[(i2,2)]);
+    let p3 = Vector3::new(p[(i3,0)], p[(i3,1)], p[(i3,2)]);
+    let p4 = Vector3::new(p[(i4,0)], p[(i4,1)], p[(i4,2)]);
+    let p5 = Vector3::new(p[(i5,0)], p[(i5,1)], p[(i5,2)]);
+    let p6 = Vector3::new(p[(i6,0)], p[(i6,1)], p[(i6,2)]);
+
+    let vna1 = Vector3::new(vna[(i1,0)], vna[(i1,1)], vna[(i1,2)]);
+    let vna2 = Vector3::new(vna[(i2,0)], vna[(i2,1)], vna[(i2,2)]);
+    let vna3 = Vector3::new(vna[(i3,0)], vna[(i3,1)], vna[(i3,2)]);
+    let vna4 = Vector3::new(vna[(i4,0)], vna[(i4,1)], vna[(i4,2)]);
+    let vna5 = Vector3::new(vna[(i5,0)], vna[(i5,1)], vna[(i5,2)]);
+    let vna6 = Vector3::new(vna[(i6,0)], vna[(i6,1)], vna[(i6,2)]);
+
+    let (f1,f2,f3,f4,f5,f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    // Pass f_prev as the "df" parameter; gradient_interp returns dfdn_int = interpolated f_prev
+    let (fp1,fp2,fp3,fp4,fp5,fp6) = (f_prev[i1], f_prev[i2], f_prev[i3], f_prev[i4], f_prev[i5], f_prev[i6]);
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+        let (xvec, _v, _hs, f_int, fp_int, _dfdxi, _dfdet, ddxi, ddet) =
+            gradient_interp(p1, p2, p3, p4, p5, p6,
+                            vna1, vna2, vna3, vna4, vna5, vna6,
+                            f1, f2, f3, f4, f5, f6,
+                            fp1, fp2, fp3, fp4, fp5, fp6,
+                            al, be, ga, xiq[i], etq[i]);
+
+        let vn = ddxi.cross(&ddet);
+        let dphi_dt_int = (f_int - fp_int) / dt;
+        let n_hat_da = vn * (0.5 * wq[i]);
+        let r = xvec - body_centre;
+
+        force  += rho_f * dphi_dt_int * n_hat_da;
+        torque += rho_f * dphi_dt_int * r.cross(&n_hat_da);
+    }
+
+    (force, torque)
 }
 
 pub fn gradient_interp_outer_3d(_npts :usize, nelm :usize, mint :usize,

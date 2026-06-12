@@ -29,6 +29,9 @@ pub struct Simulation {
     pub inertia_tensor1: na::Matrix3<f64>,
     pub mass_tensor2: na::Matrix3<f64>,
     pub inertia_tensor2: na::Matrix3<f64>,
+    pub phi_prev: na::DVector<f64>,
+    pub phi_committed: na::DVector<f64>,
+    pub step_dt: f64,
 }
 
 
@@ -63,6 +66,9 @@ impl Simulation {
             inertia_tensor1: na::Matrix3::zeros(),
             mass_tensor2: na::Matrix3::zeros(),
             inertia_tensor2: na::Matrix3::zeros(),
+            phi_prev: na::DVector::zeros(0),
+            phi_committed: na::DVector::zeros(0),
+            step_dt: 0.01,
         };
 
         //Normalise rotational velocity to around 2*pi rad/s

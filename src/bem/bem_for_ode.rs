@@ -125,10 +125,10 @@ impl crate::ode::System4<PhiState> for PhiCalculate {
                 let mut q = DVector::zeros(npts);
                 q[j] = 1.0;
 
-                let dlp = ldlp_3d(npts, nelm, mint,
+                let dlp = ldlp_3d(npts, nelm, mint, nq,
                                   &q, &p, &n, &vna,
                                   &alpha, &beta, &gamma,
-                                  &xiq, &etq, &wq);
+                                  &xiq, &etq, &wq, &zz, &ww);
 
                 col.copy_from_slice(dlp.as_slice());
             });
@@ -315,10 +315,10 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
                 let mut q = DVector::zeros(npts);
                 q[j] = 1.0;
 
-                let dlp = ldlp_3d(npts, nelm, mint,
+                let dlp = ldlp_3d(npts, nelm, mint, nq,
                                   &q, &p, &n, &vna,
                                   &alpha, &beta, &gamma,
-                                  &xiq, &etq, &wq);
+                                  &xiq, &etq, &wq, &zz, &ww);
 
                 col.copy_from_slice(dlp.as_slice());
             });
@@ -341,7 +341,6 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
         #[cfg(feature = "timing")]
         println!("Force solve: {:.3}s", t_solve.elapsed().as_secs_f64());
-        let df = dfdn.clone();
         // println!("Linear system solved!");
         // println!("F = {:?}", f);
         //The value of phi at any point in the domain can be calculated as follows:
@@ -371,8 +370,15 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
 
         #[cfg(feature = "timing")]
         let t_press = Instant::now();
+        let rho_f = sys_ref.fluid.density;
+        let pos1 = sys_ref.body1.position;
+        let pos2 = sys_ref.body2.position;
+        let pos3 = sys_ref.body3.position;
         let zero_vec = || Vector3::new(0.0, 0.0, 0.0);
         let zero_tuple = || (zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec());
+        let phi_committed = sys_ref.phi_committed.clone();
+        let step_dt = sys_ref.step_dt;
+        let has_prev = phi_committed.len() == npts;
         let (linear_pressure1, angular_pressure1, linear_pressure2, angular_pressure2, linear_pressure3, angular_pressure3) = if nbody == 2 {
             (0..nelm)
                 .into_par_iter()
@@ -384,97 +390,15 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
 
 
 
-                let i1 = n[(k, 0)];
-                let i2 = n[(k, 1)];
-                let i3 = n[(k, 2)];
-                let i4 = n[(k, 3)];
-                let i5 = n[(k, 4)];
-                let i6 = n[(k, 5)];
-
-                let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-                let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-                let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
-                let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
-                let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
-                let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
-
-                let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
-                let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
-                let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
-                let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
-                let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
-                let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
-                //
-                let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
-                let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
-
-                let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
-
-
-                let (u_0, _area) = gradient_interp_3d_integral(k, mint,
-                                                              &f, &dfdn,
-                                                              &p, &n, &vna,
-                                                              &alpha, &beta, &gamma,
-                                                              &xiq, &etq, &wq);
-
-                let (p0, vn, _hs, _f_p0, _df_p0,
-                    _dfdxi, _dfdet, _ddxi, _ddet) =
-                    gradient_interp(p1, p2, p3, p4, p5, p6,
-                                    vna1, vna2, vna3, vna4, vna5, vna6,
-                                    f1, f2, f3, f4, f5, f6,
-                                    df1, df2, df3, df4, df5, df6,
-                                    al, be, ga, 1. / 3., 1. / 3.);
-
-
-                //
-                // let p0_n = vn; //Another name for the normal vector at p0.
-                //
-                let which_body = if k < nelm1 {  //Which body is the point we are integrating round on?
-                    1
+                let which_body = if k < nelm1 { 1_usize } else { 2_usize };
+                let centre = if which_body == 1 { pos1 } else { pos2 };
+                let (force, torque) = if has_prev {
+                    dphi_dt_force_element(k, mint, &centre, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
+                } else { (zero_vec(), zero_vec()) };
+                if which_body == 1 {
+                    (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
                 } else {
-                    2
-                };
-
-
-                // let u_square = u_0.norm_squared();
-                let u_square = u_0;
-                // println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
-                // println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
-
-                // let concat_test = vec_concat(&dfdn_1, &dfdn_2);
-                // println!("{:?}",dfdn_2);
-                // println!("dfdn= {:?}", concat_test);
-
-                let pressure = -u_square * 0.5 * sys_ref.fluid.density;
-
-                // println!("Pressure = {:?}",pressure);
-
-                let p0_lab = if which_body == 1 {
-                    p0 - sys_ref.body1.position
-                } else if which_body == 2 {
-                    p0 - sys_ref.body2.position
-                } else {
-                    panic!("Not in either body?!!")
-                };
-
-                let linearity = vn.dot(&p0_lab.normalize());
-                let perpendicularity = vn.cross(&p0_lab).norm();
-
-                let lin_pressure = pressure * linearity;
-                let ang_pressure = pressure * perpendicularity;
-
-                let torque_vec = vn.cross(&p0_lab);
-                // let angular_vec = x_cen.cross(&perp_vec);
-
-                let lin_inc = lin_pressure * vn;
-                let ang_inc = ang_pressure * torque_vec;
-
-                if which_body == 1_usize {
-                    (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
-                } else if which_body == 2_usize {
-                    (zero_vec(), zero_vec(), lin_inc, ang_inc, zero_vec(), zero_vec())
-                } else {
-                    panic!("Not in either body!");
+                    (zero_vec(), zero_vec(), force, torque, zero_vec(), zero_vec())
                 }
             })
             .fold(zero_tuple, |mut acc, val| {
@@ -500,100 +424,18 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
 
 
 
-            let i1 = n[(k, 0)];
-            let i2 = n[(k, 1)];
-            let i3 = n[(k, 2)];
-            let i4 = n[(k, 3)];
-            let i5 = n[(k, 4)];
-            let i6 = n[(k, 5)];
-
-            let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-            let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-            let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
-            let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
-            let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
-            let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
-
-            let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
-            let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
-            let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
-            let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
-            let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
-            let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
-            //
-            let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
-            let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
-
-            let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
-
-
-            let (u_0, _area) = gradient_interp_3d_integral(k, mint,
-                                                          &f, &dfdn,
-                                                          &p, &n, &vna,
-                                                          &alpha, &beta, &gamma,
-                                                          &xiq, &etq, &wq);
-
-            let (p0, vn, _hs, _f_p0, _df_p0,
-                _dfdxi, _dfdet, _ddxi, _ddet) =
-                gradient_interp(p1, p2, p3, p4, p5, p6,
-                                vna1, vna2, vna3, vna4, vna5, vna6,
-                                f1, f2, f3, f4, f5, f6,
-                                df1, df2, df3, df4, df5, df6,
-                                al, be, ga, 1. / 3., 1. / 3.);
-
-
-            //
-            // let p0_n = vn; //Another name for the normal vector at p0.
-            //
-            let which_body = if k < nelm1 {  //Which body is the point we are integrating round on?
-                1
-            } else if k < nelm2 + nelm1 {
-                2
-            } else {
-                3
-            };
-
-            // println!("Nbody = {:?}, k = {:?}, position of element = {:?}", which_body, k, p0);
-
-            // let u_square = u_0.norm_squared();
-            let u_square = u_0;
-
-
-            let pressure = -u_square * 0.5 * sys_ref.fluid.density;
-
-            // println!("Pressure = {:?}",pressure);
-
-            let p0_lab = if which_body == 1 {
-                p0 - sys_ref.body1.position
-            } else if which_body == 2 {
-                p0 - sys_ref.body2.position
-            } else if which_body == 3 {
-                p0 - sys_ref.body3.position
-            } else {
-                panic!("Not in either body?!!")
-            };
-
-            let linearity = vn.dot(&p0_lab.normalize());
-            let perpendicularity = vn.cross(&p0_lab).norm();
-
-            let lin_pressure = pressure * linearity;
-            let ang_pressure = pressure * perpendicularity;
-
-            let torque_vec = vn.cross(&p0_lab);
-            // let angular_vec = x_cen.cross(&perp_vec);
-
-            let lin_inc = lin_pressure * vn;
-            let ang_inc = ang_pressure * torque_vec;
-
-            if which_body == 1_usize {
-                (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
-            } else if which_body == 2_usize {
-                (zero_vec(), zero_vec(), lin_inc, ang_inc, zero_vec(), zero_vec())
-            } else if which_body == 3_usize {
-                (zero_vec(), zero_vec(), zero_vec(), zero_vec(), lin_inc, ang_inc)
-            } else {
-                panic!("Not in either body!");
-            }
+                let which_body = if k < nelm1 { 1_usize } else if k < nelm1 + nelm2 { 2_usize } else { 3_usize };
+                let centre = if which_body == 1 { pos1 } else if which_body == 2 { pos2 } else { pos3 };
+                let (force, torque) = if has_prev {
+                    dphi_dt_force_element(k, mint, &centre, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
+                } else { (zero_vec(), zero_vec()) };
+                if which_body == 1 {
+                    (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
+                } else if which_body == 2 {
+                    (zero_vec(), zero_vec(), force, torque, zero_vec(), zero_vec())
+                } else {
+                    (zero_vec(), zero_vec(), zero_vec(), zero_vec(), force, torque)
+                }
         })
         .fold(zero_tuple, |mut acc, val| {
             acc.0 += val.0;
@@ -618,88 +460,10 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
 
 
 
-                let i1 = n[(k, 0)];
-                let i2 = n[(k, 1)];
-                let i3 = n[(k, 2)];
-                let i4 = n[(k, 3)];
-                let i5 = n[(k, 4)];
-                let i6 = n[(k, 5)];
-
-                let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
-                let p2 = Vector3::new(p[(i2, 0)], p[(i2, 1)], p[(i2, 2)]);
-                let p3 = Vector3::new(p[(i3, 0)], p[(i3, 1)], p[(i3, 2)]);
-                let p4 = Vector3::new(p[(i4, 0)], p[(i4, 1)], p[(i4, 2)]);
-                let p5 = Vector3::new(p[(i5, 0)], p[(i5, 1)], p[(i5, 2)]);
-                let p6 = Vector3::new(p[(i6, 0)], p[(i6, 1)], p[(i6, 2)]);
-
-                let vna1 = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
-                let vna2 = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
-                let vna3 = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
-                let vna4 = Vector3::new(vna[(i4, 0)], vna[(i4, 1)], vna[(i4, 2)]);
-                let vna5 = Vector3::new(vna[(i5, 0)], vna[(i5, 1)], vna[(i5, 2)]);
-                let vna6 = Vector3::new(vna[(i6, 0)], vna[(i6, 1)], vna[(i6, 2)]);
-                //
-                let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
-                let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
-
-                let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
-
-
-                let (u_0, _area) = gradient_interp_3d_integral(k, mint,
-                                                              &f, &dfdn,
-                                                              &p, &n, &vna,
-                                                              &alpha, &beta, &gamma,
-                                                              &xiq, &etq, &wq);
-
-                let (p0, vn, _hs, _f_p0, _df_p0,
-                    _dfdxi, _dfdet, _ddxi, _ddet) =
-                    gradient_interp(p1, p2, p3, p4, p5, p6,
-                                    vna1, vna2, vna3, vna4, vna5, vna6,
-                                    f1, f2, f3, f4, f5, f6,
-                                    df1, df2, df3, df4, df5, df6,
-                                    al, be, ga, 1. / 3., 1. / 3.);
-
-
-                //
-                // let p0_n = vn; //Another name for the normal vector at p0.
-                //
-                let which_body = 1;  //Which body is the point we are integrating round on?
-
-
-
-                // let u_square = u_0.norm_squared();
-                let u_square = u_0;
-                // println!("u1, u2, u3, u^2 = {:?}, {:?}, {:?}, {:?}", u1, u2, u3, u_square);
-                // println!("nelm = {:?}, nelm1 = {:?}, nsize = {:?}", nelm,nelm1, n.shape());
-
-                // let concat_test = vec_concat(&dfdn_1, &dfdn_2);
-                // println!("{:?}",dfdn_2);
-                // println!("dfdn= {:?}", concat_test);
-
-                let pressure = -u_square * 0.5 * sys_ref.fluid.density;
-
-                // println!("Pressure = {:?}",pressure);
-
-                let p0_lab = p0 - sys_ref.body1.position;
-
-
-                let linearity = vn.dot(&p0_lab.normalize());
-                let perpendicularity = vn.cross(&p0_lab).norm();
-
-                let lin_pressure = pressure * linearity;
-                let ang_pressure = pressure * perpendicularity;
-
-                let torque_vec = vn.cross(&p0_lab);
-                // let angular_vec = x_cen.cross(&perp_vec);
-
-                let lin_inc = lin_pressure * vn;
-                let ang_inc = ang_pressure * torque_vec;
-
-                if which_body == 1_usize {
-                    (lin_inc, ang_inc, zero_vec(), zero_vec(), zero_vec(), zero_vec())
-                } else {
-                    panic!("Not in either body!");
-                }
+                let (force, torque) = if has_prev {
+                    dphi_dt_force_element(k, mint, &pos1, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
+                } else { (zero_vec(), zero_vec()) };
+                (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
             })
             .fold(zero_tuple, |mut acc, val| {
                 acc.0 += val.0;
@@ -716,6 +480,9 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         } else {
             panic!("Other number of bodies not supported.");
         };
+
+        sys_ref.phi_committed = sys_ref.phi_prev.clone();
+        sys_ref.phi_prev = f.clone();
 
         let m1 = sys_ref.body1.mass();
         let m2 = sys_ref.body2.mass();

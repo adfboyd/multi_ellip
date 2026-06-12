@@ -20,7 +20,7 @@ pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npt
     for i in 0..npts{
 
         let p_i = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
-        let df = u + (p_i - c).cross(omega);
+        let df = u + omega.cross(&(p_i - c));
 
         let dn = Vector3::new(vna[(i, 0)], vna[(i, 1)], vna[(i, 2)]);
 
@@ -95,10 +95,10 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -161,10 +161,10 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -230,10 +230,10 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint,
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
                               &q, &p, &n, &vna,
                               &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq);
+                              &xiq, &etq, &wq, &zz, &ww);
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -296,10 +296,10 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
 
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint,
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
                               &q, &p, &n, &vna,
                               &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq);
+                              &xiq, &etq, &wq, &zz, &ww);
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -432,10 +432,10 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
             let mut q = DVector::zeros(npts);
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint,
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
                               &q, &p, &n, &vna,
                               &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq);
+                              &xiq, &etq, &wq, &zz, &ww);
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -522,10 +522,10 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
         let mut q = DVector::zeros(npts);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         let mut amat = amat.lock().unwrap();
         for k in 0..npts {

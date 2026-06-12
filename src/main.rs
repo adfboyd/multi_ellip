@@ -417,7 +417,7 @@ fn main() {
 
     println!("Building simulation");
     // Building System for simulation
-    let sys  = Simulation::new(
+    let mut sys  = Simulation::new(
         fluid,
         body1,
         body2,
@@ -425,6 +425,7 @@ fn main() {
         ndiv as u32,
         nbody,
     );
+    sys.step_dt = dt;
 
     println!("Simulation Built");
 
