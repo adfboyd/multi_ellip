@@ -15,28 +15,40 @@ cases = [
 
 T_CMP = 0.25
 
+def col_map(ncol):
+    """Body-1 column indices for either output layout (see convergence_order.py)."""
+    if ncol >= 60:  # old quantity-major layout (65 cols)
+        return dict(vx=10, vy=11, vz=12, ox=31, oy=32, oz=33,
+                    o1=43, o2=44, o3=45, px=1, py=2, pz=3,
+                    ke_lin=56, ke_rot=57, ke_fluid=55)
+    # new energy-first layout: globals 0-5, body 0 block at col 6
+    return dict(vx=9, vy=10, vz=11, ox=16, oy=17, oz=18,
+                o1=20, o2=21, o3=22, px=6, py=7, pz=8,
+                ke_lin=23, ke_rot=24, ke_fluid=2)
+
 datasets = []
 for fname, label, col, ls in cases:
     d = np.loadtxt(fname, delimiter=',', skiprows=1)
+    c = col_map(d.shape[1])
     mask = d[:,0] <= T_CMP + 1e-9
     d = d[mask]
     datasets.append({
         "t": d[:,0], "label": label, "col": col, "ls": ls,
-        "vx": d[:,10], "vy": d[:,11], "vz": d[:,12],
-        "ox": d[:,31], "oy": d[:,32], "oz": d[:,33],
-        "o1": d[:,43], "o2": d[:,44], "o3": d[:,45],
-        "px": d[:,1],  "py": d[:,2],  "pz": d[:,3],
-        "ke_lin": d[:,56], "ke_rot": d[:,57], "ke_fluid": d[:,55],
+        "vx": d[:,c['vx']], "vy": d[:,c['vy']], "vz": d[:,c['vz']],
+        "ox": d[:,c['ox']], "oy": d[:,c['oy']], "oz": d[:,c['oz']],
+        "o1": d[:,c['o1']], "o2": d[:,c['o2']], "o3": d[:,c['o3']],
+        "px": d[:,c['px']], "py": d[:,c['py']], "pz": d[:,c['pz']],
+        "ke_lin": d[:,c['ke_lin']], "ke_rot": d[:,c['ke_rot']], "ke_fluid": d[:,c['ke_fluid']],
     })
-    spd  = np.sqrt(d[:,10]**2 + d[:,11]**2 + d[:,12]**2)
-    omag = np.sqrt(d[:,31]**2 + d[:,32]**2 + d[:,33]**2)
-    ke   = d[:,56] + d[:,57] + d[:,55]
+    spd  = np.sqrt(d[:,c['vx']]**2 + d[:,c['vy']]**2 + d[:,c['vz']]**2)
+    omag = np.sqrt(d[:,c['ox']]**2 + d[:,c['oy']]**2 + d[:,c['oz']]**2)
+    ke   = d[:,c['ke_lin']] + d[:,c['ke_rot']] + d[:,c['ke_fluid']]
     ke0  = ke[d[:,0] >= 0.05][0]
     drift = 100*(ke[-1] - ke0) / ke0
     t_end = d[-1, 0]
     print(f"{label:22s}  steps={len(d)-1:5d}  |v|(t={t_end:.1f})={spd[-1]:.5f}"
           f"  |w|={omag[-1]:.5f}  KE drift={drift:+.2f}%"
-          f"  py={d[-1,2]:+.5f}")
+          f"  py={d[-1,c['py']]:+.5f}")
 
 fig = plt.figure(figsize=(16, 12))
 

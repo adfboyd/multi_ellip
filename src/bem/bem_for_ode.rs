@@ -1,32 +1,22 @@
-// use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "timing")]
 use std::time::Instant;
-// use indicatif::ParallelProgressIterator;
-use nalgebra::{ArrayStorage, DMatrix, DVector, Dyn, Matrix, OMatrix, Quaternion, U1, U9, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Quaternion, UnitQuaternion, Vector3};
 use rayon::prelude::*;
 #[cfg(feature = "lapack")]
 use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
-use crate::bem::potentials::{dfdn_single, vec_concat};
+use crate::bem::potentials::dfdn_single;
 use crate::system::system::Simulation;
 
+/// Linear state for N bodies: (positions, velocities), each a stacked 3*N vector
+/// where body `i` occupies rows `3*i .. 3*i+3`.
+pub type LinearState = (DVector<f64>, DVector<f64>);
 
-type State3 = (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>);
-
-type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
-
-type Linear3State = (Vector9<f64>, Vector9<f64>);
-
-type Angular3State = (State3, State3);
-type PhiState = OMatrix<f64, Dyn, U1>;
-
-
-
-pub struct PhiCalculate {
-    pub system: Arc<Mutex<Simulation>>,
-}
+/// Angular state for N bodies: (orientations, angular velocities), one quaternion
+/// per body (index `i` <-> body `i`).
+pub type AngularState = (Vec<Quaternion<f64>>, Vec<Quaternion<f64>>);
 
 pub struct ForceCalculate {
     pub system: Arc<Mutex<Simulation>>,
@@ -40,273 +30,125 @@ pub struct AngularUpdate {
     pub system: Arc<Mutex<Simulation>>,
 }
 
+/// Grid every body and fold the individual meshes into a single combined surface
+/// mesh. Returns the combined `(nelm, npts, p, n)` plus the per-body element counts,
+/// node counts, and individual node-coordinate matrices (needed for RHS assembly).
+fn grid_all_bodies(
+    sys: &Simulation,
+) -> (
+    usize,
+    usize,
+    DMatrix<f64>,
+    DMatrix<usize>,
+    Vec<usize>,
+    Vec<usize>,
+    Vec<DMatrix<f64>>,
+) {
+    let ndiv = sys.ndiv;
 
-impl crate::ode::System4<PhiState> for PhiCalculate {
-    fn system(&self) -> PhiState {
-        let sys_ref = self.system.lock().unwrap();
+    let mut nelms = Vec::with_capacity(sys.nbody);
+    let mut nptss = Vec::with_capacity(sys.nbody);
+    let mut ps = Vec::with_capacity(sys.nbody);
+    let mut ns = Vec::with_capacity(sys.nbody);
+
+    for b in &sys.bodies {
+        let s = b.shape;
+        // Equivalent radius of the (already shape-normalised) body; reproduces the
+        // body's ellipsoid exactly in ellip_gridder.
+        let req = (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
+        let orient = UnitQuaternion::from_quaternion(b.orientation);
+        let (nelm_i, npts_i, p_i, n_i) =
+            ellip_gridder(ndiv, req, &b.shape, &b.position, &orient);
+        nelms.push(nelm_i);
+        nptss.push(npts_i);
+        ps.push(p_i);
+        ns.push(n_i);
+    }
+
+    let (mut nelm, mut npts, mut p, mut n) =
+        (nelms[0], nptss[0], ps[0].clone(), ns[0].clone());
+    for i in 1..sys.nbody {
+        let (ne, np, pp, nn) =
+            combiner(nelm, nelms[i], npts, nptss[i], &p, &ps[i], &n, &ns[i]);
+        nelm = ne;
+        npts = np;
+        p = pp;
+        n = nn;
+    }
+
+    (nelm, npts, p, n, nelms, nptss, ps)
+}
+
+/// Split a combined per-node quantity (npts x 3) into per-body blocks using the
+/// per-body node counts.
+fn split_per_body(vna: &DMatrix<f64>, nptss: &[usize]) -> Vec<DMatrix<f64>> {
+    let mut out = Vec::with_capacity(nptss.len());
+    let mut off = 0;
+    for &np in nptss {
+        let mut v = DMatrix::zeros(np, 3);
+        for i in 0..np {
+            for j in 0..3 {
+                v[(i, j)] = vna[(off + i, j)];
+            }
+        }
+        out.push(v);
+        off += np;
+    }
+    out
+}
+
+impl crate::ode::System4<LinearState> for ForceCalculate {
+    /// Returns (linear accelerations, torques) stacked over all bodies as 3*N vectors.
+    fn system(&self) -> LinearState {
+        let mut sys_ref = self.system.lock().unwrap();
 
         let (nq, mint) = (12_usize, 13_usize);
-        let ndiv = sys_ref.ndiv;
-        let s1 = sys_ref.body1.shape;
-        let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
-        // sys_ref.body1.linear_momentum = sys_ref.body1.linear_momentum * 0.5;
-
-        let _split_axis_x = Vector3::new(1, 0, 0);
-        let _split_axis_y = Vector3::new(0, 1, 0);
-        let _split_axis_z = Vector3::new(0, 0, 1);
-
-        let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        let (nelm1, npts1, p1, n1) = ellip_gridder(ndiv, req1, &sys_ref.body1.shape, &sys_ref.body1.position, &orientation1);
-
-
-        let s2 = sys_ref.body2.shape;
-        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
-
-        let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-        let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &sys_ref.body2.shape, &sys_ref.body2.position, &orientation2);
-        // let (nelm2, npts2, p2, n2, n2_yline, y_elms_pos, y_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_y);
-        // let (nelm2, npts2, p2, n2, n2_zline, z_elms_pos, z_elms_neg) = ellip_gridder_splitter(ndiv, req2, sys_ref.body2.shape, sys_ref.body2.position, orientation2, split_axis_z);
+        let nbody = sys_ref.nbody;
+        let rho_f = sys_ref.fluid.density;
 
         #[cfg(feature = "timing")]
         let t_geom = Instant::now();
-        let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
+        let (nelm, npts, p, n, nelms, nptss, ps) = grid_all_bodies(&sys_ref);
 
         let (zz, ww) = gauss_leg(nq);
         let (xiq, etq, wq) = gauss_trgl(mint);
 
         let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-        let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                        &p, &n,
-                                        &alpha, &beta, &gamma,
-                                        &xiq, &etq, &wq);
-        #[cfg(feature = "timing")]
-        println!("Phi geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
-
-        let mut vna1 = DMatrix::zeros(npts1, 3);
-        let mut vna2 = DMatrix::zeros(npts2, 3);
-
-        //Can loop over both since npts1 == npts2
-        if npts1 == npts2 {
-            for i in 0..npts1 {
-                for j in 0..3 {
-                    vna1[(i, j)] = vna[(i, j)];
-                    vna2[(i, j)] = vna[(i + npts1, j)];
-                }
-            }
-        };
-
-        #[cfg(feature = "timing")]
-        let t_rhs = Instant::now();
-        let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
-        let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
-        let dfdn = vec_concat(&dfdn_1, &dfdn_2);
-
-        let rhs = lslp_3d(npts, nelm, mint, nq,
-                          &dfdn, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq, &zz, &ww);
-        #[cfg(feature = "timing")]
-        println!("Phi RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
-
-
-        // println!("Grids created");
-        let mut amat_final = DMatrix::zeros(npts, npts);
-
-        println!("Computing columns of influence matrix");
-        #[cfg(feature = "timing")]
-        let t_mat = Instant::now();
-
-        amat_final
-            .as_mut_slice()
-            .par_chunks_mut(npts)
-            .enumerate()
-            .for_each(|(j, col)| {
-                let mut q = DVector::zeros(npts);
-                q[j] = 1.0;
-
-                let dlp = ldlp_3d(npts, nelm, mint, nq,
-                                  &q, &p, &n, &vna,
-                                  &alpha, &beta, &gamma,
-                                  &xiq, &etq, &wq, &zz, &ww);
-
-                col.copy_from_slice(dlp.as_slice());
-            });
-        // println!("Matrix created");
-        #[cfg(feature = "timing")]
-        println!("Phi influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
-
-        #[cfg(feature = "timing")]
-        let t_lu = Instant::now();
-        #[cfg(feature = "lapack")]
-        let decomp = LU::new(amat_final);
-        #[cfg(not(feature = "lapack"))]
-        let decomp = amat_final.lu();
-        // println!("Matrix decomposed");
-        #[cfg(feature = "timing")]
-        println!("Phi LU: {:.3}s", t_lu.elapsed().as_secs_f64());
-
-        #[cfg(feature = "timing")]
-        let t_solve = Instant::now();
-        let f = decomp.solve(&rhs).expect("Linear resolution failed");
-        // println!("Linear system solved!");
-        #[cfg(feature = "timing")]
-        println!("Phi solve: {:.3}s", t_solve.elapsed().as_secs_f64());
-
-
-        f
-
-    }
-
-}
-
-impl crate::ode::System4<Linear3State> for ForceCalculate {
-    ///Returns ((linear force on body1, body2), (torque on body1, body2))
-    fn system(&self) -> Linear3State {
-        let mut sys_ref = self.system.lock().unwrap();
-
-
-        let (nq, mint) = (12_usize, 13_usize);
-        let ndiv = sys_ref.ndiv;
-        let nbody = sys_ref.nbody;
-        let s1 = sys_ref.body1.shape;
-        // println!("Shape = {:?}", s1);
-        let req1 = (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
-
-
-        #[cfg(feature = "timing")]
-        let t_geom = Instant::now();
-        let orientation1 = UnitQuaternion::from_quaternion(sys_ref.body1.orientation);
-        let (nelm1, npts1, p1, n1)
-            = ellip_gridder(ndiv, req1, &sys_ref.body1.shape,
-                            &sys_ref.body1.position,
-                            &orientation1);
-
-        // println!("NDIV = {:?}, nbody = {:?}, Nelm1 = {:?}, npts1 = {:?}", ndiv, nbody,nelm1, npts1);
-
-
-        let s2 = sys_ref.body2.shape;
-        let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
-
-        let orientation2 = UnitQuaternion::from_quaternion(sys_ref.body2.orientation);
-
-        let (nelm2, npts2, p2, n2)
-            = if nbody == 2 || nbody == 3 {
-            ellip_gridder(ndiv, req2, &sys_ref.body2.shape,
-                          &sys_ref.body2.position,
-                          &orientation2)
-        } else if nbody == 1 {
-            (nelm1, npts1, DMatrix::<f64>::from_element(npts1, 3, 0.0), DMatrix::<usize>::from_element(nelm1, 6, 0))
-        } else {
-            panic!("Number of bodies not supported.)")
-        };
-
-        let s3 = sys_ref.body3.shape;
-        let req3 = 1.0 / (s3[0] * s3[1] * s3[2]).powf(1.0 / 3.0);
-
-        let orientation3 = UnitQuaternion::from_quaternion(sys_ref.body3.orientation);
-
-        let (nelm3, npts3, p3, n3)
-            = if nbody == 3 {
-            ellip_gridder(ndiv, req3, &sys_ref.body3.shape,
-                          &sys_ref.body3.position,
-                          &orientation3)
-        } else if nbody == 1 || nbody == 2 {
-            (nelm1, npts1, DMatrix::<f64>::from_element(npts1, 3, 0.0), DMatrix::<usize>::from_element(nelm1, 6, 0))
-        } else {
-            panic!("Number of bodies not supported.)")
-        };
-
-
-        let (nelm, npts, p, n) = if nbody == 2 {
-            combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2)
-        } else if nbody == 1 {
-            (nelm1, npts1, p1.clone(), n1.clone())
-        } else if nbody == 3 {
-            let (nelm12, npts12, p12, n12) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
-            combiner(nelm12, nelm3, npts12, npts3, &p12, &p3, &n12, &n3)
-        } else {
-            panic!("Number of bodies not supported.")
-        };
-
-
-        let (zz, ww) = gauss_leg(nq);
-        let (xiq, etq, wq) = gauss_trgl(mint);
-
-        let (alpha, beta, gamma) =
-            abc_vec(nelm, &p, &n);
-
-        let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                        &p, &n,
-                                        &alpha, &beta, &gamma,
-                                        &xiq, &etq, &wq);
+        let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq);
         #[cfg(feature = "timing")]
         println!("Force geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
+        let vnas = split_per_body(&vna, &nptss);
 
-        let mut vna1 = DMatrix::zeros(npts1, 3);
-        let mut vna2 = DMatrix::zeros(npts2, 3);
-        let mut vna3 = DMatrix::zeros(npts3, 3);
-
-        if nbody == 2 {
-            //Can loop over both since npts1 == npts2
-            if npts1 == npts2 {
-                for i in 0..npts1 {
-                    for j in 0..3 {
-                        vna1[(i, j)] = vna[(i, j)];
-                        vna2[(i, j)] = vna[(i + npts1, j)];
-                    }
-                }
-            };
-        };
-
-        if nbody == 3 {
-            if npts1 == npts2 && npts1 == npts3 {
-                for i in 0..npts1 {
-                    for j in 0..3 {
-                        vna1[(i, j)] = vna[(i, j)];
-                        vna2[(i, j)] = vna[(i + npts1, j)];
-                        vna3[(i, j)] = vna[(i + npts1 + npts2, j)];
-                    }
-                }
-            }
-        }
-
-
+        // Right-hand side: dphi/dn from each body's rigid-body velocity field.
         #[cfg(feature = "timing")]
         let t_rhs = Instant::now();
-        let dfdn_1 = dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna1);
-        let dfdn_2 = dfdn_single(&sys_ref.body2.position, &sys_ref.body2.linear_velocity(), &sys_ref.body2.angular_velocity().imag(), npts2, &p2, &vna2);
-        let dfdn_3 = dfdn_single(&sys_ref.body3.position, &sys_ref.body3.linear_velocity(), &sys_ref.body3.angular_velocity().imag(), npts3, &p3, &vna3);
-        let dfdn = if nbody == 2 {
-            vec_concat(&dfdn_1, &dfdn_2)
-        } else if nbody == 1 {
-            dfdn_single(&sys_ref.body1.position, &sys_ref.body1.linear_velocity(), &sys_ref.body1.angular_velocity().imag(), npts1, &p1, &vna)
-        } else if nbody == 3 {
-            let dfdn_12 = vec_concat(&dfdn_1, &dfdn_2);
-            vec_concat(&dfdn_12, &dfdn_3)
-        } else {
-            panic!("Other number of bodies not supported.");
-        };
-        // sys_ref.body2.print_stats();
-        // println!("dfdn_2 = {:?}", dfdn_2);
-        // println!("dfdn = {:?}", dfdn);
+        let mut dfdn = DVector::zeros(npts);
+        let mut off = 0;
+        for (i, b) in sys_ref.bodies.iter().enumerate() {
+            let d_i = dfdn_single(
+                &b.position,
+                &b.linear_velocity(),
+                &b.angular_velocity().imag(),
+                nptss[i],
+                &ps[i],
+                &vnas[i],
+            );
+            for k in 0..nptss[i] {
+                dfdn[off + k] = d_i[k];
+            }
+            off += nptss[i];
+        }
 
-        let rhs = lslp_3d(npts, nelm, mint, nq,
-                          &dfdn, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq, &zz, &ww);
+        let rhs = lslp_3d(npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
         #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
-
-        // println!("Grids created");
+        // Double-layer influence matrix, assembled column by column.
         let mut amat_final = DMatrix::zeros(npts, npts);
-
-        // println!("Computing columns of influence matrix");
         #[cfg(feature = "timing")]
         let t_mat = Instant::now();
-
         amat_final
             .as_mut_slice()
             .par_chunks_mut(npts)
@@ -314,15 +156,9 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
             .for_each(|(j, col)| {
                 let mut q = DVector::zeros(npts);
                 q[j] = 1.0;
-
-                let dlp = ldlp_3d(npts, nelm, mint, nq,
-                                  &q, &p, &n, &vna,
-                                  &alpha, &beta, &gamma,
-                                  &xiq, &etq, &wq, &zz, &ww);
-
+                let dlp = ldlp_3d(npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
                 col.copy_from_slice(dlp.as_slice());
             });
-        // println!("Matrix created");
         #[cfg(feature = "timing")]
         println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
@@ -332,249 +168,103 @@ impl crate::ode::System4<Linear3State> for ForceCalculate {
         let decomp = LU::new(amat_final);
         #[cfg(not(feature = "lapack"))]
         let decomp = amat_final.lu();
-        // println!("Matrix decomposed");
         #[cfg(feature = "timing")]
         println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
 
-        #[cfg(feature = "timing")]
-        let t_solve = Instant::now();
         let f = decomp.solve(&rhs).expect("Linear resolution failed");
-        #[cfg(feature = "timing")]
-        println!("Force solve: {:.3}s", t_solve.elapsed().as_secs_f64());
-        // println!("Linear system solved!");
-        // println!("F = {:?}", f);
-        //The value of phi at any point in the domain can be calculated as follows:
-        //
-        // let test_p = Vector3::new(0.0, 0.0, 0.0);
-        //
-        // let phi_eg = lsdlpp_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna,
-        //                             &alpha, &beta, &gamma,
-        //                             &xiq, &etq, &wq,
-        //                             &test_p);
-        //
-        // // println!("Test value of phi is {:?} at {:?}", phi_eg, test_p);
-        //
-        // let grad_phi_eg = grad_3d(nelm, mint, &f, &dfdn, &p, &n, &vna,
-        //                               &alpha, &beta, &gamma,
-        //                               &xiq, &etq, &wq,
-        //                               &test_p);
-        //
-        // println!("The test value of gradphi is {:?}", grad_phi_eg);
 
-        let (_srf_area, ke_integral) = ke_3d(npts, nelm, mint,
-                                             &f, &dfdn,
-                                             &p, &n, &vna,
-                                             &alpha, &beta, &gamma,
-                                             &xiq, &etq, &wq);
+        let (_srf_area, ke_integral) = ke_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
         sys_ref.fluid.kinetic_energy = 0.5 * sys_ref.fluid.density * ke_integral;
 
+        // Pressure (dphi/dt) force and torque per body.
         #[cfg(feature = "timing")]
         let t_press = Instant::now();
-        let rho_f = sys_ref.fluid.density;
-        let pos1 = sys_ref.body1.position;
-        let pos2 = sys_ref.body2.position;
-        let pos3 = sys_ref.body3.position;
-        let zero_vec = || Vector3::new(0.0, 0.0, 0.0);
-        let zero_tuple = || (zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec(), zero_vec());
+        let positions: Vec<Vector3<f64>> = sys_ref.bodies.iter().map(|b| b.position).collect();
+        let masses: Vec<f64> = sys_ref.bodies.iter().map(|b| b.mass()).collect();
+
+        // Map each element index to its owning body.
+        let mut elm_body = vec![0_usize; nelm];
+        let mut eoff = 0;
+        for (i, &ne) in nelms.iter().enumerate() {
+            for k in 0..ne {
+                elm_body[eoff + k] = i;
+            }
+            eoff += ne;
+        }
+
         let phi_committed = sys_ref.phi_committed.clone();
         let step_dt = sys_ref.step_dt;
         let has_prev = phi_committed.len() == npts;
-        let (linear_pressure1, angular_pressure1, linear_pressure2, angular_pressure2, linear_pressure3, angular_pressure3) = if nbody == 2 {
-            (0..nelm)
-                .into_par_iter()
-                .map(|k| {
 
-
-                // println!();
-                // println!("Iterating over {:?}th element", k);
-
-
-
-                let which_body = if k < nelm1 { 1_usize } else { 2_usize };
-                let centre = if which_body == 1 { pos1 } else { pos2 };
+        let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
+            .into_par_iter()
+            .map(|k| {
+                let body = elm_body[k];
                 let (force, torque) = if has_prev {
-                    dphi_dt_force_element(k, mint, &centre, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
-                } else { (zero_vec(), zero_vec()) };
-                if which_body == 1 {
-                    (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
+                    dphi_dt_force_element(k, mint, &positions[body], rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
                 } else {
-                    (zero_vec(), zero_vec(), force, torque, zero_vec(), zero_vec())
-                }
+                    (Vector3::zeros(), Vector3::zeros())
+                };
+                (body, force, torque)
             })
-            .fold(zero_tuple, |mut acc, val| {
-                acc.0 += val.0;
-                acc.1 += val.1;
-                acc.2 += val.2;
-                acc.3 += val.3;
-                acc.4 += val.4;
-                acc.5 += val.5;
-                acc
-            })
-            .reduce(zero_tuple, |a, b| {
-                (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
-            })
-        } else if nbody == 3 {
-            (0..nelm)
-                .into_par_iter()
-                .map(|k| {
+            .collect();
 
-
-            // println!();
-            // println!("Iterating over {:?}th element", k);
-
-
-
-                let which_body = if k < nelm1 { 1_usize } else if k < nelm1 + nelm2 { 2_usize } else { 3_usize };
-                let centre = if which_body == 1 { pos1 } else if which_body == 2 { pos2 } else { pos3 };
-                let (force, torque) = if has_prev {
-                    dphi_dt_force_element(k, mint, &centre, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
-                } else { (zero_vec(), zero_vec()) };
-                if which_body == 1 {
-                    (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
-                } else if which_body == 2 {
-                    (zero_vec(), zero_vec(), force, torque, zero_vec(), zero_vec())
-                } else {
-                    (zero_vec(), zero_vec(), zero_vec(), zero_vec(), force, torque)
-                }
-        })
-        .fold(zero_tuple, |mut acc, val| {
-            acc.0 += val.0;
-            acc.1 += val.1;
-            acc.2 += val.2;
-            acc.3 += val.3;
-            acc.4 += val.4;
-            acc.5 += val.5;
-            acc
-        })
-        .reduce(zero_tuple, |a, b| {
-            (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
-        })
-        } else if nbody == 1 {
-            (0..nelm)
-                .into_par_iter()
-                .map(|k| {
-
-
-                // println!();
-                // println!("Iterating over {:?}th element", k);
-
-
-
-                let (force, torque) = if has_prev {
-                    dphi_dt_force_element(k, mint, &pos1, rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
-                } else { (zero_vec(), zero_vec()) };
-                (force, torque, zero_vec(), zero_vec(), zero_vec(), zero_vec())
-            })
-            .fold(zero_tuple, |mut acc, val| {
-                acc.0 += val.0;
-                acc.1 += val.1;
-                acc.2 += val.2;
-                acc.3 += val.3;
-                acc.4 += val.4;
-                acc.5 += val.5;
-                acc
-            })
-            .reduce(zero_tuple, |a, b| {
-                (a.0 + b.0, a.1 + b.1, a.2 + b.2, a.3 + b.3, a.4 + b.4, a.5 + b.5)
-            })
-        } else {
-            panic!("Other number of bodies not supported.");
-        };
+        let mut lin_force = vec![Vector3::zeros(); nbody];
+        let mut torque = vec![Vector3::zeros(); nbody];
+        for (body, fo, to) in contributions {
+            lin_force[body] += fo;
+            torque[body] += to;
+        }
 
         sys_ref.phi_committed = sys_ref.phi_prev.clone();
         sys_ref.phi_prev = f.clone();
-
-        let m1 = sys_ref.body1.mass();
-        let m2 = sys_ref.body2.mass();
-        let m3 = sys_ref.body3.mass();
         #[cfg(feature = "timing")]
         println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());
 
-
-        let lin_accel_1 = linear_pressure1 / m1;
-        let lin_accel_2 = linear_pressure2 / m2;
-        let lin_accel_3 = linear_pressure3 / m3;
-
-
-        let torque1 = angular_pressure1;
-        let torque2 = angular_pressure2;
-        let torque3 = angular_pressure3;
-
-        let lin_accel = Vector9::from_row_slice(&[lin_accel_1[0], lin_accel_1[1], lin_accel_1[2], lin_accel_2[0], lin_accel_2[1], lin_accel_2[2], lin_accel_3[0], lin_accel_3[1], lin_accel_3[2]]);
-        let ang_accel = Vector9::from_row_slice(&[torque1[0], torque1[1], torque1[2], torque2[0], torque2[1], torque2[2], torque3[0], torque3[1], torque3[2]]);
+        let mut lin_accel = DVector::zeros(3 * nbody);
+        let mut ang_accel = DVector::zeros(3 * nbody);
+        for i in 0..nbody {
+            let a = lin_force[i] / masses[i];
+            for c in 0..3 {
+                lin_accel[3 * i + c] = a[c];
+                ang_accel[3 * i + c] = torque[i][c];
+            }
+        }
 
         (lin_accel, ang_accel)
-
-        // let v1 = Vector6::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-        // let v2 = Vector6::new(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
-        // (v1, v2)
-
     }
 }
 
-impl crate::ode::System2<Linear3State> for LinearUpdate {
-    fn system(&self, _x: f64, y: &Linear3State) -> Linear3State {
-
+impl crate::ode::System2<LinearState> for LinearUpdate {
+    fn system(&self, _x: f64, y: &LinearState) -> LinearState {
         let mut sys_ref = self.system.lock().unwrap();
 
-        let (p, v) = y.clone();
+        let (p, v) = y;
+        for i in 0..sys_ref.nbody {
+            let pos = Vector3::new(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
+            let vel = Vector3::new(v[3 * i], v[3 * i + 1], v[3 * i + 2]);
+            sys_ref.bodies[i].position = pos;
+            let m = sys_ref.bodies[i].mass();
+            sys_ref.bodies[i].linear_momentum = vel * m;
+        }
 
-        let p1 = Vector3::new(p[0], p[1], p[2]);
-        let p2 = Vector3::new(p[3], p[4], p[5]);
-        let p3 = Vector3::new(p[6], p[7], p[8]);
-
-
-        let v1 = Vector3::new(v[0], v[1], v[2]);
-        let v2 = Vector3::new(v[3], v[4], v[5]);
-        let v3 = Vector3::new(v[6], v[7], v[8]);
-
-
-        sys_ref.body1.position = p1;
-        sys_ref.body2.position = p2;
-        sys_ref.body3.position = p3;
-
-        sys_ref.body1.linear_momentum = v1 * sys_ref.body1.mass();
-        sys_ref.body2.linear_momentum = v2 * sys_ref.body2.mass();
-        sys_ref.body3.linear_momentum = v3 * sys_ref.body3.mass();
-
-        // sys_ref.body1.print_stats();
-        // sys_ref.body2.print_stats();
-
-        (p, v)
+        y.clone()
     }
 }
 
-impl crate::ode::System2<Angular3State> for AngularUpdate {
-    fn system(&self, _x: f64, y: &Angular3State) -> Angular3State {
-
+impl crate::ode::System2<AngularState> for AngularUpdate {
+    fn system(&self, _x: f64, y: &AngularState) -> AngularState {
         let mut sys_ref = self.system.lock().unwrap();
 
-        let (q, omega) = y.clone();
+        let (q, omega) = y;
+        for i in 0..sys_ref.nbody {
+            sys_ref.bodies[i].orientation = q[i];
+            let inertia = sys_ref.bodies[i].inertia;
+            let o_vec = omega[i].vector();
+            let ang_mom_vec = inertia.try_inverse().unwrap() * o_vec;
+            sys_ref.bodies[i].angular_momentum = Quaternion::from_imag(ang_mom_vec);
+        }
 
-        let (q1, q2, q3) = q;
-        let (omega1, omega2, omega3) = omega;
-
-        sys_ref.body1.orientation = q1;
-        sys_ref.body2.orientation = q2;
-        sys_ref.body3.orientation = q3;
-
-        let i1 = sys_ref.body1.inertia;
-        let i2 = sys_ref.body2.inertia;
-        let i3 = sys_ref.body3.inertia;
-
-        let o1_vec = omega1.vector();
-        let o2_vec = omega2.vector();
-        let o3_vec = omega3.vector();
-
-        let ang_mom_vec1 = i1.try_inverse().unwrap() * o1_vec;
-        sys_ref.body1.angular_momentum = Quaternion::from_imag(ang_mom_vec1);
-
-        let ang_mom_vec2 =  i2.try_inverse().unwrap() * o2_vec;
-        sys_ref.body2.angular_momentum = Quaternion::from_imag(ang_mom_vec2);
-
-        let ang_mom_vec3 = i3.try_inverse().unwrap() * o3_vec;
-        sys_ref.body3.angular_momentum = Quaternion::from_imag(ang_mom_vec3);
-
-        (q, omega)
+        y.clone()
     }
 }
