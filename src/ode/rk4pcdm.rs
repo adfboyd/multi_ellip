@@ -1,10 +1,13 @@
 use nalgebra as na;
-use nalgebra::{Quaternion, Vector3, Vector6};
+use nalgebra::{ArrayStorage, Matrix, Quaternion, U1, U9, Vector3};
+use std::io::Write;
 use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 
-
+type Vector9<T>=Matrix<T, U9, U1, ArrayStorage<T, 9, 1>>;
+type Linear3State = (Vector9<f64>, Vector9<f64>);
+type Angular3State = ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>));
 
 pub struct Rk4PCDM<Q, W, F, G, I>
     where
@@ -20,30 +23,51 @@ pub struct Rk4PCDM<Q, W, F, G, I>
     t: f64,
     x: W,
     // x_lab: A,
-    o_lab: Vector6<f64>,
+    o_lab: Vector9<f64>,
     o: Q,
     inertia: na::Matrix3<f64>,
     inertia2: na::Matrix3<f64>,
+    inertia3: na::Matrix3<f64>,
+    mass1: f64,
+    mass2: f64,
+    mass3: f64,
+    fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
     t_begin: f64,
     t_end: f64,
     step_size: f64,
     half_step: f64,
     quarter_step: f64,
     pub samp_rate: u32,
+    pub print_rate: u32,
     pub t_out: Vec<f64>,
     pub x_out: Vec<W>,
     // pub x_lab_out: Vec<A>,
     pub o_out: Vec<Q>,
-    pub o_lab_out: Vec<Vector6<f64>>,
+    pub o_lab_out: Vec<Vector9<f64>>,
     stats: Stats,
+}
+
+struct SolidEnergy {
+    total_lin: f64,
+    total_rot: f64,
+    total: f64,
+    b1_lin: f64,
+    b1_rot: f64,
+    b1_total: f64,
+    b2_lin: f64,
+    b2_rot: f64,
+    b2_total: f64,
+    b3_lin: f64,
+    b3_rot: f64,
+    b3_total: f64,
 }
 
 impl<F, G, I> //Need to generalise this to type T instead of f64.
 Rk4PCDM<
     // (na::OVector<f64, D>, na::OVector<f64, D>),
-    ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)),
+    ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)),
     // OVector<f64, D>,
-    (Vector6<f64>, Vector6<f64>),
+    (Vector9<f64>, Vector9<f64>),
     F,
     G,
     // H,
@@ -51,11 +75,11 @@ Rk4PCDM<
 >
     where
         // D: na::Dim + na::DimName,
-        F: System2<(Vector6<f64>, Vector6<f64>)>,
+        F: System2<(Vector9<f64>, Vector9<f64>)>,
         // OVector<f64, D>: std::ops::Mul<f64, Output=OVector<f64, D>>,
-        G: System2<((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>))>,
+        G: System2<((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>))>,
         // H: System3<OVector<f64, D>, (Vector6<f64>, Vector6<f64>), ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>))>,
-        I: System4<(Vector6<f64>, Vector6<f64>)>,
+        I: System4<(Vector9<f64>, Vector9<f64>)>,
         // na::DefaultAllocator: na::allocator::Allocator<f64, D>,
         // na::Owned<f64, D>: Copy,
 {
@@ -66,14 +90,21 @@ Rk4PCDM<
         g: G,
         i: I,
         t_begin: f64,
-        x: (Vector6<f64>, Vector6<f64>), // (position, velocity)
+        x: (Vector9<f64>, Vector9<f64>), // (position, velocity)
         o1: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 1
         o2: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 2
+        o3: (Quaternion<f64>, Quaternion<f64>),// (orientation, angular velocity) of body 3
         inertia: na::Matrix3<f64>,
         inertia2: na::Matrix3<f64>,
+        inertia3: na::Matrix3<f64>,
+        mass1: f64,
+        mass2: f64,
+        mass3: f64,
+        fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
         t_end: f64,
         step_size: f64,
         samp_rate: u32,
+        print_rate: u32
     ) -> Self {
         Rk4PCDM {
             f,
@@ -82,16 +113,22 @@ Rk4PCDM<
             t: t_begin,
             x,
             // x_lab: na::OVector::zeros(),
-            o: ((o1.0, o2.0), (o1.1, o2.1)),
-            o_lab: Vector6::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+            o: ((o1.0, o2.0, o3.0), (o1.1, o2.1, o3.1)),
+            o_lab: Vector9::from_row_slice (&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
             inertia,
             inertia2,
+            inertia3,
+            mass1,
+            mass2,
+            mass3,
+            fluid_ke_getter,
             t_begin,
             t_end,
             step_size,
             half_step: step_size * 0.5,
             quarter_step: step_size * 0.25,
             samp_rate,
+            print_rate,
             t_out: Vec::new(),
             x_out: Vec::new(),
             // x_lab_out: vec![],
@@ -113,24 +150,47 @@ Rk4PCDM<
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
-        let print_rate = 100 as usize;
+        let print_rate = self.print_rate as usize;
 
         let start_t = Instant::now();
+        let mut start_dt = Instant::now();
         //should be for i in 0..num_steps
-        for i in 0..1 {
+        for i in 0..num_steps {
             if (i % print_rate == 0) & (i > 0) {
+                let elapsed_dt = start_dt.elapsed();
+
                 let elapsed = start_t.elapsed();
                 let ratio = ((num_steps - i) as f64) / (i as f64);
                 let ratio2 = (num_steps as f64) / (i as f64);
                 let remain_est = self.multiply_duration(elapsed, ratio);
-                let total_est = self.multiply_duration(elapsed, ratio2);
-                println!("Time = {:.7}. Estimated time remaining = {:?}/{:?}s.", self.t, remain_est.as_secs(), total_est.as_secs());  //Print progress
-                let vels = self.x.1;
-                println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
-                println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
-            };
+                // let total_est = self.multiply_duration(elapsed, ratio2);
+                let completion_percentage = 100./ratio2;
+                let dt_millisec = elapsed_dt.as_millis();
+                let dt_sec = (dt_millisec as f64) * 0.001;
+                if remain_est.as_secs() >= 3600 {
+                    let hrs = remain_est.as_secs()/3600;
+                    let mins = (remain_est.as_secs() - hrs*3600)/60;
+                    let secs = remain_est.as_secs() - hrs*3600 - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);  //Print progress
+                }
+                else if remain_est.as_secs() >= 60 {
+                    let mins = remain_est.as_secs()/60;
+                    let secs = remain_est.as_secs() - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);  //Print progress
 
-            //Get (lin,ang) forces for bodies 1 & 2.
+                }
+                else {
+                    let secs = remain_est.as_secs();
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, secs, completion_percentage, dt_sec);  //Print progress
+
+                }
+                // println!("Velocities = {:?} & {:?}", Vector3::new(vels[0], vels[1], vels[2]).norm(), Vector3::new(vels[3], vels[4], vels[5]).norm() );
+                // println!("Angular velocities = {:?} & {:?}", self.o.1.0.norm(), self.o.1.1.norm())
+            };
+            start_dt = Instant::now();
+            // println!("Time = {:.7}", self.t);
+
+            //Get (lin,ang) forces for bodies 1 & 2 & 3.
             let (linear_accel, angular_force) = self.force_get();
             // println!("Linear acceleration = {:?}, angular acceleration = {:?}", linear_accel, angular_force);
             //
@@ -158,7 +218,6 @@ Rk4PCDM<
 
             let o_lab_new_v = self.orientation_to_marker_point(); //Calculate orientation vector position in lab frame
 
-            // let (_, x_lab_new) = self.euler_frame_step(); //Calculate position of body in lab frame
 
             if i % samp_rate == 0 { //Record current state of body
                 self.t_out.push(t_new);
@@ -181,7 +240,234 @@ Rk4PCDM<
         Ok(self.stats)
     }
 
-    fn force_get(&mut self) -> (Vector6<f64>, Vector6<f64>) {
+    pub fn integrate_with_writer<W: Write>(&mut self, writer: &mut W) -> Result<Stats, IntegrationError> {
+        self.t_out.push(self.t);
+        self.x_out.push(self.x.clone());
+        println!("Initial positions and velocities = {:?}", &self.x);
+        self.o_out.push(self.o.clone());
+        println!("Initial orientations and angular velocities = {:?}", &self.o);
+        self.o_lab = self.orientation_to_marker_point();  //Start with correct value of marker point
+        self.o_lab_out.push(self.o_lab.clone());
+
+        self.write_header(writer)?;
+        self.write_row(writer, self.t, &self.x, &self.o, &self.o_lab)?;
+
+        let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
+        let samp_rate = self.samp_rate as usize;
+        let print_rate = self.print_rate as usize;
+
+        let start_t = Instant::now();
+        let mut start_dt = Instant::now();
+        //should be for i in 0..num_steps
+        for i in 0..num_steps {
+            if (i % print_rate == 0) & (i > 0) {
+                let elapsed_dt = start_dt.elapsed();
+
+                let elapsed = start_t.elapsed();
+                let ratio = ((num_steps - i) as f64) / (i as f64);
+                let ratio2 = (num_steps as f64) / (i as f64);
+                let remain_est = self.multiply_duration(elapsed, ratio);
+                // let total_est = self.multiply_duration(elapsed, ratio2);
+                let completion_percentage = 100./ratio2;
+                let dt_millisec = elapsed_dt.as_millis();
+                let dt_sec = (dt_millisec as f64) * 0.001;
+                if remain_est.as_secs() >= 3600 {
+                    let hrs = remain_est.as_secs()/3600;
+                    let mins = (remain_est.as_secs() - hrs*3600)/60;
+                    let secs = remain_est.as_secs() - hrs*3600 - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);  //Print progress
+                }
+                else if remain_est.as_secs() >= 60 {
+                    let mins = remain_est.as_secs()/60;
+                    let secs = remain_est.as_secs() - mins * 60;
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);  //Print progress
+
+                }
+                else {
+                    let secs = remain_est.as_secs();
+                    println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, secs, completion_percentage, dt_sec);  //Print progress
+
+                }
+            };
+            start_dt = Instant::now();
+
+            //Get (lin,ang) forces for bodies 1 & 2 & 3.
+            let (linear_accel, angular_force) = self.force_get();
+            //
+            //Calculate new positions and velocities at half time-step
+            let (p_half, v_half) = self.lin_half_step(&linear_accel);
+
+            let (q_half, o_half) = self.ang_half_step(&angular_force);
+
+            //Update the bodies' positions and velocities
+            let _ = self.f.system(0.0, &(p_half, v_half));
+            let _ = self.g.system(0.0, &(q_half, o_half));
+
+            let (linear_force_half, angular_force_half) = self.force_get();
+
+            let t_new = self.t + self.step_size;
+
+            let x_new = self.lin_full_step(&linear_force_half);
+
+            let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
+
+            //Update the bodies' positions and velocities
+            let _ = self.f.system(0.0, &x_new);
+            let _ = self.g.system(0.0, &o_new);
+
+            let o_lab_new_v = self.orientation_to_marker_point(); //Calculate orientation vector position in lab frame
+
+            if i % samp_rate == 0 { //Record current state of body
+                self.t_out.push(t_new);
+                self.x_out.push(x_new.clone());
+                self.o_out.push(o_new.clone());
+                self.o_lab_out.push(o_lab_new_v.clone());
+                self.write_row(writer, t_new, &x_new, &o_new, &o_lab_new_v)?;
+            }
+
+            self.t = t_new;
+            self.x = x_new;
+            self.o = o_new;
+            self.o_lab = o_lab_new_v;
+
+            self.stats.accepted_steps += 1;
+        }
+        Ok(self.stats)
+    }
+
+    fn write_header<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        writer.write_all(b"time,p1_1,p2_1,p3_1,p1_2,p2_2,p3_2,p1_3,p2_3,p3_3,v1_1,v2_1,v3_1,v1_2,v2_2,v3_2,v1_3,v2_3,v3_3,q1_1,q2_1,q3_1,q0_1,q1_2,q2_2,q3_2,q0_2,q1_3,q2_3,q3_3,q0_3,o1_1,o2_1,o3_1,o0_1,o1_2,o2_2,o3_2,o0_2,o1_3,o2_3,o3_3,o0_3,ofix1_1,ofix2_1,ofix3_1,ofix1_2,ofix2_2,ofix3_2,ofix1_3,ofix2_3,ofix3_3,ke_lin_solid,ke_rot_solid,ke_solid,ke_fluid,ke_lin_b1,ke_rot_b1,ke_b1,ke_lin_b2,ke_rot_b2,ke_b2,ke_lin_b3,ke_rot_b3,ke_b3\n")
+    }
+
+    fn write_row<W: Write>(
+        &self,
+        writer: &mut W,
+        time: f64,
+        x: &Linear3State,
+        o: &Angular3State,
+        o_lab: &Vector9<f64>,
+    ) -> std::io::Result<()> {
+        write!(writer, "{}", time)?;
+        for val in x.0.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in x.1.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.0.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.1.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.0.2.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.0.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.1.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o.1.2.as_vector().iter() {
+            write!(writer, ", {}", val)?;
+        }
+        for val in o_lab.iter() {
+            write!(writer, ", {}", val)?;
+        }
+        let ke = self.solid_kinetic_energy(x, o);
+        let ke_fluid = self.fluid_kinetic_energy();
+        write!(
+            writer,
+            ", {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}",
+            ke.total_lin,
+            ke.total_rot,
+            ke.total,
+            ke_fluid,
+            ke.b1_lin,
+            ke.b1_rot,
+            ke.b1_total,
+            ke.b2_lin,
+            ke.b2_rot,
+            ke.b2_total,
+            ke.b3_lin,
+            ke.b3_rot,
+            ke.b3_total
+        )?;
+        writeln!(writer)
+    }
+
+    fn solid_kinetic_energy(&self, x: &Linear3State, o: &Angular3State) -> SolidEnergy {
+        let v1 = Vector3::new(x.1[0], x.1[1], x.1[2]);
+        let v2 = Vector3::new(x.1[3], x.1[4], x.1[5]);
+        let v3 = Vector3::new(x.1[6], x.1[7], x.1[8]);
+
+        let mut ke_lin = 0.0;
+        let mut ke_lin_b1 = 0.0;
+        let mut ke_lin_b2 = 0.0;
+        let mut ke_lin_b3 = 0.0;
+        if self.mass1 > 0.0 {
+            ke_lin_b1 = 0.5 * self.mass1 * v1.dot(&v1);
+            ke_lin += ke_lin_b1;
+        }
+        if self.mass2 > 0.0 {
+            ke_lin_b2 = 0.5 * self.mass2 * v2.dot(&v2);
+            ke_lin += ke_lin_b2;
+        }
+        if self.mass3 > 0.0 {
+            ke_lin_b3 = 0.5 * self.mass3 * v3.dot(&v3);
+            ke_lin += ke_lin_b3;
+        }
+
+        let (q, omega_lab) = o;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_lab;
+
+        let omega_b1 = self.lab_to_body(omega_lab1, q1).imag();
+        let omega_b2 = self.lab_to_body(omega_lab2, q2).imag();
+        let omega_b3 = self.lab_to_body(omega_lab3, q3).imag();
+
+        let mut ke_rot = 0.0;
+        let mut ke_rot_b1 = 0.0;
+        let mut ke_rot_b2 = 0.0;
+        let mut ke_rot_b3 = 0.0;
+        if self.mass1 > 0.0 {
+            ke_rot_b1 = 0.5 * omega_b1.dot(&(self.inertia * omega_b1));
+            ke_rot += ke_rot_b1;
+        }
+        if self.mass2 > 0.0 {
+            ke_rot_b2 = 0.5 * omega_b2.dot(&(self.inertia2 * omega_b2));
+            ke_rot += ke_rot_b2;
+        }
+        if self.mass3 > 0.0 {
+            ke_rot_b3 = 0.5 * omega_b3.dot(&(self.inertia3 * omega_b3));
+            ke_rot += ke_rot_b3;
+        }
+
+        SolidEnergy {
+            total_lin: ke_lin,
+            total_rot: ke_rot,
+            total: ke_lin + ke_rot,
+            b1_lin: ke_lin_b1,
+            b1_rot: ke_rot_b1,
+            b1_total: ke_lin_b1 + ke_rot_b1,
+            b2_lin: ke_lin_b2,
+            b2_rot: ke_rot_b2,
+            b2_total: ke_lin_b2 + ke_rot_b2,
+            b3_lin: ke_lin_b3,
+            b3_rot: ke_rot_b3,
+            b3_total: ke_lin_b3 + ke_rot_b3,
+        }
+    }
+
+    fn fluid_kinetic_energy(&self) -> f64 {
+        self.fluid_ke_getter
+            .as_ref()
+            .map(|get| get())
+            .unwrap_or(0.0)
+    }
+
+    fn force_get(&mut self) -> (Vector9<f64>, Vector9<f64>) {
         let (lin, ang) = self.i.system();
         (lin, ang)
     }
@@ -196,7 +482,7 @@ Rk4PCDM<
     //     ((f1_lin, f1_ang),(f2_lin, f2_ang))
     // }
 
-    fn lin_half_step(&mut self, lin_force :&Vector6<f64>) -> (Vector6<f64>, Vector6<f64>){
+    fn lin_half_step(&mut self, lin_force :&Vector9<f64>) -> (Vector9<f64>, Vector9<f64>){
 
         let (p, v) = self.x.clone();
 
@@ -210,7 +496,7 @@ Rk4PCDM<
 
     }
 
-    fn lin_full_step(&mut self, lin_force :&Vector6<f64>) -> (Vector6<f64>, Vector6<f64>) {
+    fn lin_full_step(&mut self, lin_force :&Vector9<f64>) -> (Vector9<f64>, Vector9<f64>) {
 
         let (p, v) = self.x.clone();
 
@@ -221,82 +507,110 @@ Rk4PCDM<
         (p_new, v_new)
     }
 
-    fn ang_half_step(&mut self, ang :&Vector6<f64>) -> ((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)) {
+    fn ang_half_step(&mut self, ang :&Vector9<f64>) -> ((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)) {
         let (q, omega_b) = self.o.clone();
 
-        let (q1, q2) = q;
-        let (omega_lab1, omega_lab2) = omega_b;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_b;
         let inertia1 = self.inertia;
         let inertia2 = self.inertia2;
+        let inertia3 = self.inertia3;
+
 
         // println!("Doin ang half step");
 
         let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
         let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
+        let omega_b3 = self.lab_to_body(&omega_lab3, &q3);
+
         // println!("Done ang half step");
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
+        let torque3_lab = Quaternion::new(0.0, ang[6], ang[7], ang[8]);
+
 
         let torque1 = self.lab_to_body(&torque1_lab, &q1);
         let torque2 = self.lab_to_body(&torque2_lab, &q2);
+        let torque3 = self.lab_to_body(&torque3_lab, &q3);
+
 
         let ang_accel_b1 = accel_get(&omega_b1, &inertia1, &torque1);
         let ang_accel_b2 = accel_get(&omega_b2, &inertia2, &torque2);
+        let ang_accel_b3 = accel_get(&omega_b3, &inertia3, &torque3);
+
 
 
         let omega_n_quarter_b1 = self.omega_stepper(&omega_b1, &ang_accel_b1, self.quarter_step);
         let omega_n_half_b1 = self.omega_stepper(&omega_b1, &ang_accel_b1, self.half_step);
-
         let omega_n_quarter1 = self.body_to_lab(&omega_n_quarter_b1, &q1);
         // println!("omega_n_quarter1 = {:?}", omega_n_quarter1);
         let q1_half_predict = self.orientation_stepper(&q1, &omega_n_quarter1, self.half_step);
         // println!("q1_half predict = {:?}", q1_half_predict);
+
         let omega_n_quarter_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.quarter_step);
         // println!("l254");
         let omega_n_half_b2 = self.omega_stepper(&omega_b2, &ang_accel_b2, self.half_step);
-
         let omega_n_quarter2 = self.body_to_lab(&omega_n_quarter_b2, &q2);
         let q2_half_predict = self.orientation_stepper(&q2, &omega_n_quarter2, self.half_step);
+
+        let omega_n_quarter_b3 = self.omega_stepper(&omega_b3, &ang_accel_b3, self.quarter_step);
+        // println!("l354");
+        let omega_n_half_b3 = self.omega_stepper(&omega_b3, &ang_accel_b3, self.half_step);
+        let omega_n_quarter3 = self.body_to_lab(&omega_n_quarter_b3, &q3);
+        let q3_half_predict = self.orientation_stepper(&q3, &omega_n_quarter3, self.half_step);
+
         let omega_n_half_lab1 = self.body_to_lab(&omega_n_half_b1, &q1_half_predict);
         // println!("l260");
         let omega_n_half_lab2 = self.body_to_lab(&omega_n_half_b2, &q2_half_predict);
+        let omega_n_half_lab3 = self.body_to_lab(&omega_n_half_b3, &q3_half_predict);
 
-        let q_new = (q1_half_predict, q2_half_predict);
-        let o_new = (omega_n_half_lab1, omega_n_half_lab2);
+
+        let q_new = (q1_half_predict, q2_half_predict, q3_half_predict);
+        let o_new = (omega_n_half_lab1, omega_n_half_lab2, omega_n_half_lab3);
 
         (q_new, o_new)
 
     }
 
     fn ang_full_step(&mut self,
-                     ang :&Vector6<f64>,
-                     half_qo :&((Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>)))
-        ->((Quaternion<f64>, Quaternion<f64>),
-           (Quaternion<f64>, Quaternion<f64>)) {
+                     ang :&Vector9<f64>,
+                     half_qo :&((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),(Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)))
+        ->((Quaternion<f64>, Quaternion<f64>, Quaternion<f64>),
+           (Quaternion<f64>, Quaternion<f64>, Quaternion<f64>)) {
 
         let (q, omega_lab) = self.o.clone();
         let (q_half, o_half) = half_qo;
-        let (q1_half, q2_half) = q_half;
-        let (omega_n_half_lab1, omega_n_half_lab2) = o_half;
+        let (q1_half, q2_half, q3_half) = q_half;
+        let (omega_n_half_lab1, omega_n_half_lab2, omega_n_half_lab3) = o_half;
 
-        let (q1, q2) = q;
-        let (omega_lab1, omega_lab2) = omega_lab;
+        let (q1, q2, q3) = q;
+        let (omega_lab1, omega_lab2, omega_lab3) = omega_lab;
 
         let omega_b1 = self.lab_to_body(&omega_lab1, &q1);
         let omega_b2 = self.lab_to_body(&omega_lab2, &q2);
+        let omega_b3 = self.lab_to_body(&omega_lab3, &q3);
+
 
         let omega_n_half_b1 = self.lab_to_body(&omega_n_half_lab1, &q1_half);
         let omega_n_half_b2 = self.lab_to_body(&omega_n_half_lab2, &q2_half);
+        let omega_n_half_b3 = self.lab_to_body(&omega_n_half_lab3, &q3_half);
+
 
         let inertia1 = self.inertia;
         let inertia2 = self.inertia2;
+        let inertia3 = self.inertia3;
+
 
         let torque1_lab = Quaternion::new(0.0, ang[0], ang[1], ang[2]);
         let torque2_lab = Quaternion::new(0.0, ang[3], ang[4], ang[5]);
+        let torque3_lab = Quaternion::new(0.0, ang[6], ang[7], ang[8]);
+
 
         let torque1 = self.lab_to_body(&torque1_lab, &q1_half);
         let torque2 = self.lab_to_body(&torque2_lab, &q2_half);
+        let torque3 = self.lab_to_body(&torque3_lab, &q3_half);
+
 
         let ang_accel_half_b1 = accel_get(&omega_n_half_b1, &inertia1, &torque1);
         let omega_n_half1 = self.body_to_lab(&omega_n_half_b1, &q1_half);
@@ -314,10 +628,18 @@ Rk4PCDM<
         let omega2_b = self.omega_stepper(&omega_b2, &ang_accel_half_b2, self.step_size);
         let omega2 = self.body_to_lab(&omega2_b, &q2_full);
 
-        self.stats.num_eval += 2;
+        let ang_accel_half_b3 = accel_get(&omega_n_half_b3, &inertia3, &torque3);
+        let omega_n_half3 = self.body_to_lab(&omega_n_half_b3, &q3_half);
 
-        let q_full = (q1_full, q2_full);
-        let omega = (omega1, omega2);
+        let q3_full = self.orientation_stepper(&q3, &omega_n_half3, self.step_size);
+
+        let omega3_b = self.omega_stepper(&omega_b3, &ang_accel_half_b3, self.step_size);
+        let omega3 = self.body_to_lab(&omega3_b, &q3_full);
+
+        self.stats.num_eval += 3;
+
+        let q_full = (q1_full, q2_full, q3_full);
+        let omega = (omega1, omega2, omega3);
 
         (q_full, omega)
 
@@ -487,9 +809,9 @@ Rk4PCDM<
     // }
 
 
-    fn orientation_to_marker_point(&self) -> Vector6<f64> {
+    fn orientation_to_marker_point(&self) -> Vector9<f64> {
         let (q, _) = self.o;
-        let (q1, q2) = q;
+        let (q1, q2, q3) = q;
 
         let o_lab_new1 = self.body_to_lab(&Quaternion::from_imag(
             Vector3::new(1.0, 0.0, 0.0)), &q1);
@@ -501,7 +823,12 @@ Rk4PCDM<
         let o_lab_new_v = o_lab_new2.vector();
         let qp2 = Vector3::new(o_lab_new_v[0], o_lab_new_v[1], o_lab_new_v[2]);
 
-        let qp = Vector6::new(qp1[0], qp1[1], qp1[2], qp2[0], qp2[1], qp2[2]);
+        let o_lab_new3 = self.body_to_lab(&Quaternion::from_imag(
+            Vector3::new(1.0, 0.0, 0.0)), &q3);
+        let o_lab_new_v = o_lab_new3.vector();
+        let qp3 = Vector3::new(o_lab_new_v[0], o_lab_new_v[1], o_lab_new_v[2]);
+
+        let qp = Vector9::from_row_slice(&[qp1[0], qp1[1], qp1[2], qp2[0], qp2[1], qp2[2], qp3[0], qp3[1], qp3[2]]);
 
         qp
     }
@@ -526,7 +853,11 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         // let &q_quaternion = q.quaternion();
         // println!("Norm of q = {}, q = {:?}", q.norm(),q);
-        let q_inv = q.try_inverse().unwrap();
+        let q_inv = if q.norm() > 0.00001 {
+            q.try_inverse().unwrap()
+        } else {
+            Quaternion::from_real(0.0)
+        };
         let p_space = q * (p_body * q_inv);
         p_space
     }
@@ -542,6 +873,26 @@ Rk4PCDM<
         omega_n1
     }
 
+    fn force_norm(&self, vels: &Vector9<f64>) -> Vector9<f64> {
+        let mut v1 = Vector3::new(vels[0], vels[1], vels[2]).norm();
+        let mut v2 = Vector3::new(vels[3], vels[4], vels[5]).norm();
+        let mut v3 = Vector3::new(vels[6], vels[7], vels[8]).norm();
+
+
+        if v1 < 1.0 {
+            v1 = 1.0;
+        }
+        if v2 < 1.0 {
+            v2 = 1.0;
+        }
+        if v3 < 1.0 {
+            v3 = 1.0;
+        }
+
+        let vels_out = Vector9::from_row_slice(&[vels[0]/v1,vels[1]/v1,vels[2]/v1,vels[3]/v2,vels[4]/v2,vels[5]/v2, vels[6]/v3,vels[7]/v3,vels[8]/v3]);
+        vels_out
+    }
+
 
     //Steps forward the orientation of a body given initial orientation q1 and rotational velocity omega.
     fn orientation_stepper(
@@ -552,7 +903,7 @@ Rk4PCDM<
     ) -> Quaternion<f64> {
         let mag = omega.norm();
         let real_part = (mag * dt * 0.5).cos();
-        let imag_scalar = if (mag > 0.0000001) {
+        let imag_scalar = if mag > 0.0000001 {
             (mag * dt * 0.5).sin() / mag}
             else {
                 0.0

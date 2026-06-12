@@ -17,16 +17,21 @@ pub struct Simulation {
     pub fluid: Fluid,
     pub body1: Body,
     pub body2: Body,
-    pub time: f64,
-    pub t_begin: f64,
-    pub t_end: f64,
-    pub t_delta: f64,
+    pub body3: Body,
+    // pub time: f64,
+    // pub t_begin: f64,
+    // pub t_end: f64,
+    // pub t_delta: f64,
     pub ndiv: u32,
-    pub samp_rate: u32,
+    // pub samp_rate: u32,
+    pub nbody: usize,
     pub mass_tensor1: na::Matrix3<f64>,
     pub inertia_tensor1: na::Matrix3<f64>,
     pub mass_tensor2: na::Matrix3<f64>,
     pub inertia_tensor2: na::Matrix3<f64>,
+    pub phi_prev: na::DVector<f64>,
+    pub phi_committed: na::DVector<f64>,
+    pub step_dt: f64,
 }
 
 
@@ -38,26 +43,32 @@ impl Simulation {
         fluid: Fluid,
         body1: Body,
         body2: Body,
-        t_end: f64,
-        t_delta: f64,
+        body3: Body,
+        // t_end: f64,
+        // t_delta: f64,
         ndiv: u32,
-        samp_rate: u32,
-        ratio: f64,
+        // samp_rate: u32,
+        nbody: usize,
     ) -> Self {
         let mut sim = Self {
             fluid,
             body1,
             body2,
-            time: 0.0,
-            t_begin: 0.0,
-            t_end,
-            t_delta,
+            body3,
+            // time: 0.0,
+            // t_begin: 0.0,
+            // t_end,
+            // t_delta,
             ndiv,
-            samp_rate,
+            // samp_rate,
+            nbody,
             mass_tensor1: na::Matrix3::zeros(),
             inertia_tensor1: na::Matrix3::zeros(),
             mass_tensor2: na::Matrix3::zeros(),
             inertia_tensor2: na::Matrix3::zeros(),
+            phi_prev: na::DVector::zeros(0),
+            phi_committed: na::DVector::zeros(0),
+            step_dt: 0.01,
         };
 
         //Normalise rotational velocity to around 2*pi rad/s
@@ -76,12 +87,12 @@ impl Simulation {
 
 
 
-        let (mass1, inert1) = sim.body1.inertia_tensor(sim.fluid.density);
+        let (mass1, inert1) = sim.body1.m_i_tensor();
 
         sim.mass_tensor1 = mass1;
         sim.inertia_tensor1 = inert1;
 
-        let (mass2, inert2) = sim.body2.inertia_tensor(sim.fluid.density);
+        let (mass2, inert2) = sim.body2.m_i_tensor();
 
         sim.mass_tensor2 = mass2;
         sim.inertia_tensor2 = inert2;
@@ -188,6 +199,11 @@ impl Simulation {
 
     pub fn added_inertia_calc2(&self) -> na::Matrix3<f64> {
         let (_, i) = self.body2.inertia_tensor(self.fluid.density);
+        i
+    }
+
+    pub fn added_inertia_calc3(&self) -> na::Matrix3<f64> {
+        let (_, i) = self.body3.inertia_tensor(self.fluid.density);
         i
     }
 }

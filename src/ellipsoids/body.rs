@@ -5,7 +5,7 @@ use nalgebra::{Matrix3, Quaternion, Vector3};
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
-use crate::ode::pcdm::{body_to_lab, lab_to_body};
+use crate::ode::pcdm::lab_to_body;
 use crate::system::hamiltonian::{calc_shape_factor, if_calc, is_calc, mf_calc};
 
 #[derive(Debug, Copy, Clone, Serialize)]
@@ -37,7 +37,7 @@ impl Body {
     }
 
     pub fn angular_velocity(&self) -> Quaternion<f64> {
-        let omega = self.angular_momentum.imag() * 2.0;
+        let omega = self.angular_momentum.imag();
         let vec = self.inertia.try_inverse().map(|m| m * omega).unwrap();
         Quaternion::from_imag(vec)
     }
@@ -163,6 +163,14 @@ impl Body {
         (m, i)
     }
 
+    pub fn m_i_tensor(&self) -> (Matrix3<f64>, Matrix3<f64>) {
+        let m_s = na::Matrix3::from_diagonal(&self.shape);
+        let i_s = is_calc(m_s, self.density);
+
+        (m_s, i_s)
+
+    }
+
     pub fn print_vel(&self) {
         println!("Linear velocity is {:?}", self.linear_velocity());
     }
@@ -210,19 +218,18 @@ impl Body {
     }
 
     pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> (usize, usize) {
-        ///Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the orientation of the body to split the surface by.
-        /// outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
+        // Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the
+        // orientation of the body to split the surface by.
+        // Outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
 
         let p0_lin_transformed = p0 - self.position;
         let p0_quaternion = na::Quaternion::from_imag(p0_lin_transformed);
         let p0_body = lab_to_body(&p0_quaternion, &self.orientation);
-        let shape = self.shape;
-
         // println!("Point in lab frame is {:?}", p0);
         // println!("Point in body frame is {:?}", p0_lin_transformed);
         // println!("Point rotated is {:?}", p0_body);
 
-        let mut scaled_p0 = p0_body.imag();
+        let scaled_p0 = p0_body.imag();
 
 
         // println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());

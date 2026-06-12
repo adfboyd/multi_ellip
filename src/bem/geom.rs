@@ -1,8 +1,7 @@
+use std::f64::consts::PI;
 use nalgebra as na;
-use nalgebra::{DMatrix, DVector, Dynamic, OMatrix, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, Dyn, OMatrix, Vector3, Vector6};
 use nalgebra::{U1};
-use num_traits::Signed;
-use crate::bem::stacking::Block;
 
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
@@ -257,7 +256,7 @@ pub fn ellip_gridder_no_rotation(ndiv : u32)
         }
 
     }
-    (npts, nelm, p, n)
+    (nelm, npts, p, n)
 }
 
 pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
@@ -287,7 +286,7 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
     let npts_line = 4_usize * 2_usize.pow(ndiv);
     let mut n_line = MatrixU3::zeros(npts_line, 3);
 
-    ///Add in capability to split surface into halves.
+    // Add in capability to split surface into halves.
 
     //Set component for splitting
     let mut axis_index = 0_usize;
@@ -297,11 +296,10 @@ pub fn ellip_gridder_splitter(ndiv : u32, req :f64,
         }
     }
     //Set direction for splitting
-    let mut axis_direction = 0_f64;
-    if split_axis[axis_index] > 0 {
-        axis_direction = 1_f64;
+    let axis_direction = if split_axis[axis_index] > 0 {
+        1_f64
     } else {
-        axis_direction = -1_f64;
+        -1_f64
     };
 
     //New list of elements on the singular side
@@ -476,7 +474,7 @@ pub fn combiner_splitter(nelm1 :usize, nelm2 :usize, npts1 :usize, npts2 :usize,
         sing_elms.push(i);
     };
 
-    ///nelm1 not npts1
+    // nelm1 not npts1
     for &i in sing_elms_2 {
         let i2 = i + nelm1;
         sing_elms.push(i2);
@@ -786,7 +784,7 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
     // let mut v = na::DMatrix::zeros(6, 3);
     let mut itally = DVector::zeros(npts);
 
-    let mut arel :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
+    let mut arel :OMatrix<f64, Dyn, U1> = DVector::zeros(nelm);
     // let mut xmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
     // let mut ymom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
     // let mut zmom :OMatrix<f64, Dynamic, U1> = DVector::zeros(nelm);
@@ -886,5 +884,58 @@ pub fn elm_geom(npts :usize, nelm :usize, mint :usize,
 
     (vna, vlm, area)
 
+
+}
+///Returns the principal (all +ve values) coordinates in cartesian frame of ellipsoidal coordinates
+pub fn ellipsoidal_to_cartesian(p_el :&Vector3<f64>, shape :&Vector3<f64>) -> Vector3<f64> {
+
+    let (a,b,c) = (shape[0], shape[1], shape[2]);
+    let k = (a.powi(2) - c.powi(2)).sqrt();
+    let h = (a.powi(2) - b.powi(2)).sqrt();
+    let (k2, h2) = (k*k, h*h);
+
+    let (chi, mu, nu) = (p_el[0], p_el[1], p_el[2]); //Chi is surface of constant ellipsoidal radius, mu is parabaloid, nu is hyperboloid.
+    let (chi2, mu2, nu2) = (chi*chi, mu*mu, nu*nu);
+    let x_sq = ((chi * mu * nu)/(k * h)).powi(2);
+    let y_sq = ((chi2 - h2)*(mu2 - h2)*(h2-nu2))/(h2 * (k2 - h2));
+    let z_sq = ((chi2 - k2)*(k2 - mu2)*(k2 - nu2))/(k2 * (k2 - h2));
+
+    let x = x_sq.sqrt();
+    let y = y_sq.sqrt();
+    let z = z_sq.sqrt();
+
+    Vector3::new(x,y,z)
+}
+
+///Returns the ellipsoidal coordinates of a cartesian vector (in frame of ellipsoid)
+pub fn cartesian_to_ellipsoidal(p_cart :&Vector3<f64>, shape :&Vector3<f64>) -> Vector3<f64> {
+
+    let (a,b,c) = (shape[0], shape[1], shape[2]);
+    let k = (a.powi(2) - c.powi(2)).sqrt();
+    let h = (a.powi(2) - b.powi(2)).sqrt();
+    let (k2, h2) = (k*k, h*h);
+
+    let (x, y, z) = (p_cart[0], p_cart[1], p_cart[2]);
+    let (x2, y2, z2) = (x*x, y*y, z*z);
+    let a_1 = -(x2 + y2 + z2 + k2 + h2);
+    let a_2 = x2 * (k2 + h2) + y2 * k2 + z2 * h2 + h2 * k2;
+    let a_3 = - k2 * h2 * x2;
+
+    let q = (a_1 * a_1 - 3.0 * a_2) / 9.0;
+    let r = (9.0 * a_1 * a_2 - 27.0 * a_3 - 2.0 * a_1.powi(3)) / 54.0 ;
+    let cos_v = q.powf(-1.5) * r;
+    let v = cos_v.acos();
+
+    let prefac = 2.0 * q.sqrt();
+
+    let chi2 = prefac * (v / 3.0).cos() - (a_1 / 3.0);
+    let mu2 = prefac * (v / 3.0 + 4.0 * PI / 3.0) - (a_1 / 3.0);
+    let nu2 = prefac * (v / 3.0 + 2.0 * PI / 3.0) - (a_1 / 3.0);
+
+    let chi = chi2.sqrt();
+    let mu = mu2.sqrt();
+    let nu = nu2.sqrt();
+
+    Vector3::new(chi, mu, nu)
 
 }

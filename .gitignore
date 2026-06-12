@@ -1,1 +1,31 @@
 /target
+
+# Build artifacts from malformed commands
+/--release/
+
+# Machine-specific cargo config (local LAPACK linker paths)
+/.cargo/
+
+# Simulation output data
+*.dat
+out_*/
+output*/
+outputinc/
+
+# Run logs and console captures
+*_stdout.txt
+*_stderr.txt
+*_log.txt
+*_run_log.txt
+seq_run_log.txt
+nd*_log.txt
+
+# Driver scripts (machine-specific run helpers)
+run_*.ps1
+run_seq_driver.ps1
+
+# Plots
+*.png
+
+# Misc scratch
+lamb_formulation.html

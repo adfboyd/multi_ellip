@@ -3,6 +3,8 @@ use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
 use indicatif::{ParallelProgressIterator, ProgressBar};
 use indicatif::ProgressIterator;
 use rayon::prelude::*;
+#[cfg(feature = "lapack")]
+use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
 use crate::ellipsoids::body::Body;
@@ -18,7 +20,7 @@ pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npt
     for i in 0..npts{
 
         let p_i = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
-        let df = u + (p_i - c).cross(omega);
+        let df = u + omega.cross(&(p_i - c));
 
         let dn = Vector3::new(vna[(i, 0)], vna[(i, 1)], vna[(i, 2)]);
 
@@ -93,10 +95,10 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -105,6 +107,9 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
         bar.inc(1);
     }
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -156,10 +161,10 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -167,6 +172,9 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
         q[j] = 0.0;
     }
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -210,31 +218,29 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::new(amat_1);
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
-    let js = (0..npts).collect::<Vec<usize>>();
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j| {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        q[j] = 1.0;
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq, &zz, &ww);
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+            col.copy_from_slice(dlp.as_slice());
+        });
 
-        let mut amat = amat.lock().unwrap();
-
-        for k in 0..npts {
-            amat[(k, j)] = dlp[k];
-        }
-    });
-
-    let amat_final = amat.into_inner().unwrap();
-
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -278,31 +284,29 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::new(amat_1);
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
-    let js = (0..npts).collect::<Vec<usize>>();
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j| {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        q[j] = 1.0;
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq, &zz, &ww);
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+            col.copy_from_slice(dlp.as_slice());
+        });
 
-        let mut amat = amat.lock().unwrap();
-
-        for k in 0..npts {
-            amat[(k, j)] = dlp[k];
-        }
-    });
-
-    let amat_final = amat.into_inner().unwrap();
-
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
 
     let f = decomp.solve(&rhs).expect("Linear resolution failed");
@@ -415,33 +419,31 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
     println!("RHS is calculated");
 
 
-    let amat_1 = DMatrix::zeros(npts, npts);
-    let amat = Mutex::from(amat_1);
-
-    let js = (0..npts).collect::<Vec<usize>>();
+    let mut amat_final = DMatrix::zeros(npts, npts);
 
     println!("Computing columns of influence matrix");
 
-    js.par_iter().progress_count(npts as u64).for_each(|&j|  {
-        // println!("Computing column {} of the influence matrix", j);
-        let mut q = DVector::zeros(npts);
-        q[j] = 1.0;
+    amat_final
+        .as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .progress_count(npts as u64)
+        .for_each(|(j, col)| {
+            let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+            let dlp = ldlp_3d(npts, nelm, mint, nq,
+                              &q, &p, &n, &vna,
+                              &alpha, &beta, &gamma,
+                              &xiq, &etq, &wq, &zz, &ww);
 
-        for k in 0..npts {
-            let mut amat = amat.lock().unwrap();
-            amat[(k, j)] = dlp[k];
-        }
-        q[j] = 0.0;
-    });
-
-    let amat_final = amat.into_inner().unwrap();
+            col.copy_from_slice(dlp.as_slice());
+        });
     println!("Matrix created");
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
     println!("Matrix decomposed");
 
@@ -520,10 +522,10 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
         let mut q = DVector::zeros(npts);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint,
+        let dlp = ldlp_3d(npts, nelm, mint, nq,
                           &q, &p, &n, &vna,
                           &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq);
+                          &xiq, &etq, &wq, &zz, &ww);
 
         let mut amat = amat.lock().unwrap();
         for k in 0..npts {
@@ -536,6 +538,9 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
     let amat_final = amat.into_inner().unwrap();
     println!("Matrix created");
 
+    #[cfg(feature = "lapack")]
+    let decomp = LU::new(amat_final);
+    #[cfg(not(feature = "lapack"))]
     let decomp = amat_final.lu();
     println!("Matrix decomposed");
 
