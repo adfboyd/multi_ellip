@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "timing")]
 use std::time::Instant;
-use nalgebra::{DMatrix, DVector, Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Dyn, Quaternion, UnitQuaternion, Vector3};
 use rayon::prelude::*;
 #[cfg(feature = "lapack")]
 use nalgebra_lapack::LU;
@@ -9,6 +9,12 @@ use crate::bem::geom::*;
 use crate::bem::integ::*;
 use crate::bem::potentials::dfdn_single;
 use crate::system::system::Simulation;
+
+/// Type of the cached LU factorisation, matching whichever backend is active.
+#[cfg(feature = "lapack")]
+type CachedLu = LU<f64, Dyn, Dyn>;
+#[cfg(not(feature = "lapack"))]
+type CachedLu = nalgebra::linalg::LU<f64, Dyn, Dyn>;
 
 /// Linear state for N bodies: (positions, velocities), each a stacked 3*N vector
 /// where body `i` occupies rows `3*i .. 3*i+3`.
@@ -20,6 +26,21 @@ pub type AngularState = (Vec<Quaternion<f64>>, Vec<Quaternion<f64>>);
 
 pub struct ForceCalculate {
     pub system: Arc<Mutex<Simulation>>,
+    /// Cached LU factorisation of the time-invariant influence matrix. The
+    /// double-layer operator is invariant under rigid-body motion, so for a
+    /// single body it is constant for all time: build + factor once, reuse
+    /// forever. Multi-body rebuilds each step (until block-structured caching
+    /// of the per-body self-blocks lands).
+    cache: Mutex<Option<CachedLu>>,
+}
+
+impl ForceCalculate {
+    pub fn new(system: Arc<Mutex<Simulation>>) -> Self {
+        Self {
+            system,
+            cache: Mutex::new(None),
+        }
+    }
 }
 
 pub struct LinearUpdate {
@@ -145,33 +166,51 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
         #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
-        // Double-layer influence matrix, assembled column by column.
-        let mut amat_final = DMatrix::zeros(npts, npts);
-        #[cfg(feature = "timing")]
-        let t_mat = Instant::now();
-        amat_final
-            .as_mut_slice()
-            .par_chunks_mut(npts)
-            .enumerate()
-            .for_each(|(j, col)| {
-                let mut q = DVector::zeros(npts);
-                q[j] = 1.0;
-                let dlp = ldlp_3d(npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
-                col.copy_from_slice(dlp.as_slice());
-            });
-        #[cfg(feature = "timing")]
-        println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
+        // Double-layer influence matrix. For a single rigid body the operator is
+        // invariant under rigid-body motion, so we build + factor it once and reuse
+        // the cached LU on every subsequent call. Multi-body rebuilds each step.
+        let reuse = nbody == 1;
+        let mut cache_guard = self.cache.lock().unwrap();
 
-        #[cfg(feature = "timing")]
-        let t_lu = Instant::now();
-        #[cfg(feature = "lapack")]
-        let decomp = LU::new(amat_final);
-        #[cfg(not(feature = "lapack"))]
-        let decomp = amat_final.lu();
-        #[cfg(feature = "timing")]
-        println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
+        let f = if reuse && cache_guard.is_some() {
+            cache_guard
+                .as_ref()
+                .unwrap()
+                .solve(&rhs)
+                .expect("Linear resolution failed")
+        } else {
+            let mut amat_final = DMatrix::zeros(npts, npts);
+            #[cfg(feature = "timing")]
+            let t_mat = Instant::now();
+            amat_final
+                .as_mut_slice()
+                .par_chunks_mut(npts)
+                .enumerate()
+                .for_each(|(j, col)| {
+                    let mut q = DVector::zeros(npts);
+                    q[j] = 1.0;
+                    let dlp = ldlp_3d(npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+                    col.copy_from_slice(dlp.as_slice());
+                });
+            #[cfg(feature = "timing")]
+            println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
-        let f = decomp.solve(&rhs).expect("Linear resolution failed");
+            #[cfg(feature = "timing")]
+            let t_lu = Instant::now();
+            #[cfg(feature = "lapack")]
+            let decomp = LU::new(amat_final);
+            #[cfg(not(feature = "lapack"))]
+            let decomp = amat_final.lu();
+            #[cfg(feature = "timing")]
+            println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
+
+            let f = decomp.solve(&rhs).expect("Linear resolution failed");
+            if reuse {
+                *cache_guard = Some(decomp);
+            }
+            f
+        };
+        drop(cache_guard);
 
         let (_srf_area, ke_integral) = ke_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
         sys_ref.fluid.kinetic_energy = 0.5 * sys_ref.fluid.density * ke_integral;

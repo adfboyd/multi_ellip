@@ -157,7 +157,7 @@ fn main() {
 
     let linear_system = bem_for_ode::LinearUpdate { system: sys_mutex.clone() };
     let angular_system = bem_for_ode::AngularUpdate { system: sys_mutex.clone() };
-    let forcing_system = bem_for_ode::ForceCalculate { system: sys_mutex.clone() };
+    let forcing_system = bem_for_ode::ForceCalculate::new(sys_mutex.clone());
 
     let mut stepper = rk4pcdm::Rk4PCDM::new(
         linear_system,
