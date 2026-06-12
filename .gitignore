@@ -27,5 +27,12 @@ run_seq_driver.ps1
 # Plots
 *.png
 
+# Scratch / ad-hoc test inputs (input_ref*.txt are kept as validation cases)
+input_1body_*.txt
+input_sphere*.txt
+input_cachetest.txt
+input_speedtest.txt
+input_timing*.txt
+
 # Misc scratch
 lamb_formulation.html
