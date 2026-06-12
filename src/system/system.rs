@@ -15,20 +15,14 @@ use crate::system::fluid::Fluid;
 #[derive(Clone)]
 pub struct Simulation {
     pub fluid: Fluid,
-    pub body1: Body,
-    pub body2: Body,
-    pub body3: Body,
-    // pub time: f64,
-    // pub t_begin: f64,
-    // pub t_end: f64,
-    // pub t_delta: f64,
+    /// All rigid bodies in the simulation. `nbody == bodies.len()`.
+    pub bodies: Vec<Body>,
     pub ndiv: u32,
-    // pub samp_rate: u32,
     pub nbody: usize,
-    pub mass_tensor1: na::Matrix3<f64>,
-    pub inertia_tensor1: na::Matrix3<f64>,
-    pub mass_tensor2: na::Matrix3<f64>,
-    pub inertia_tensor2: na::Matrix3<f64>,
+    /// Per-body solid mass tensors (index i <-> bodies[i]).
+    pub mass_tensors: Vec<na::Matrix3<f64>>,
+    /// Per-body solid inertia tensors (index i <-> bodies[i]).
+    pub inertia_tensors: Vec<na::Matrix3<f64>>,
     pub phi_prev: na::DVector<f64>,
     pub phi_committed: na::DVector<f64>,
     pub step_dt: f64,
@@ -41,62 +35,25 @@ pub struct Simulation {
 impl Simulation {
     pub fn new(
         fluid: Fluid,
-        body1: Body,
-        body2: Body,
-        body3: Body,
-        // t_end: f64,
-        // t_delta: f64,
+        bodies: Vec<Body>,
         ndiv: u32,
-        // samp_rate: u32,
-        nbody: usize,
     ) -> Self {
-        let mut sim = Self {
+        let nbody = bodies.len();
+
+        let mass_tensors = bodies.iter().map(|b| b.m_i_tensor().0).collect();
+        let inertia_tensors = bodies.iter().map(|b| b.m_i_tensor().1).collect();
+
+        Self {
             fluid,
-            body1,
-            body2,
-            body3,
-            // time: 0.0,
-            // t_begin: 0.0,
-            // t_end,
-            // t_delta,
+            bodies,
             ndiv,
-            // samp_rate,
             nbody,
-            mass_tensor1: na::Matrix3::zeros(),
-            inertia_tensor1: na::Matrix3::zeros(),
-            mass_tensor2: na::Matrix3::zeros(),
-            inertia_tensor2: na::Matrix3::zeros(),
+            mass_tensors,
+            inertia_tensors,
             phi_prev: na::DVector::zeros(0),
             phi_committed: na::DVector::zeros(0),
             step_dt: 0.01,
-        };
-
-        //Normalise rotational velocity to around 2*pi rad/s
-        // let init_frequency1 = body1.rotational_frequency();
-        // sim.body1.angular_momentum = body1.angular_momentum / init_frequency1;
-        //
-        // let init_frequency2= body2.rotational_frequency();
-        // sim.body2.angular_momentum = body2.angular_momentum / init_frequency2;
-        //
-        // //Setup linear velocity for desired energy ratio
-        // let init_direction1 = body1.linear_momentum;
-        // sim.body1.linear_momentum = body1.ic_generator(init_direction1, ratio);
-        //
-        // let init_direction2 = body2.linear_momentum;
-        // sim.body2.linear_momentum = body2.ic_generator(init_direction2, ratio);
-
-
-
-        let (mass1, inert1) = sim.body1.m_i_tensor();
-
-        sim.mass_tensor1 = mass1;
-        sim.inertia_tensor1 = inert1;
-
-        let (mass2, inert2) = sim.body2.m_i_tensor();
-
-        sim.mass_tensor2 = mass2;
-        sim.inertia_tensor2 = inert2;
-        sim
+        }
     }
 
     // pub fn make_hamiltonian1(&self) -> (Hamiltonian, na::Matrix3<f64>, na::Matrix3<f64>) {
@@ -192,18 +149,9 @@ impl Simulation {
     //     Ok(())
     // }
 
-    pub fn added_inertia_calc1(&self) -> na::Matrix3<f64> {
-        let (_, i) = self.body1.inertia_tensor(self.fluid.density);
-        i
-    }
-
-    pub fn added_inertia_calc2(&self) -> na::Matrix3<f64> {
-        let (_, i) = self.body2.inertia_tensor(self.fluid.density);
-        i
-    }
-
-    pub fn added_inertia_calc3(&self) -> na::Matrix3<f64> {
-        let (_, i) = self.body3.inertia_tensor(self.fluid.density);
-        i
+    /// Added (fluid) inertia tensor for body `i`.
+    pub fn added_inertia_calc(&self, i: usize) -> na::Matrix3<f64> {
+        let (_, inertia) = self.bodies[i].inertia_tensor(self.fluid.density);
+        inertia
     }
 }

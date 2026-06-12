@@ -6,12 +6,24 @@ cases = [
     ('conv_nd4_dt0p01.dat', 4),
 ]
 
+def col_idx(ncol):
+    """Body-1 position/velocity column indices for either output layout.
+
+    Old layout (quantity-major, fixed 3 bodies, 65 cols): py=2, v=(10,11,12).
+    New layout (energy-first, 20-col per-body blocks): body 0 starts at col 6,
+    so px,py,pz = 6,7,8 and vx,vy,vz = 9,10,11.
+    """
+    if ncol >= 60:
+        return {'py': 2, 'vx': 10, 'vy': 11, 'vz': 12}
+    return {'py': 7, 'vx': 9, 'vy': 10, 'vz': 11}
+
 vals = {}
 for fname, n in cases:
     d = np.loadtxt(fname, delimiter=',', skiprows=1)
+    ix = col_idx(d.shape[1])
     row = d[d[:,0] <= 0.25 + 1e-9][-1]
-    vals[n] = {'py': row[2], 'vz': row[12], 'vy': row[11],
-               'spd': (row[10]**2+row[11]**2+row[12]**2)**0.5}
+    vals[n] = {'py': row[ix['py']], 'vz': row[ix['vz']], 'vy': row[ix['vy']],
+               'spd': (row[ix['vx']]**2+row[ix['vy']]**2+row[ix['vz']]**2)**0.5}
 
 print("At t=0.25 s  (dt=0.01, temporally converged):")
 for n in [2, 3, 4]:
