@@ -34,6 +34,10 @@ pub struct Rk4PCDM<F, G, I>
     pub o_out: Vec<AngularState>,
     pub o_lab_out: Vec<DVector<f64>>,
     stats: Stats,
+    /// Timing of the most recent integration, for the end-of-run summary.
+    pub run_wall_secs: f64,
+    pub run_first_step_secs: f64,
+    pub run_steady_per_step: f64,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -96,6 +100,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             o_out: Vec::new(),
             o_lab_out: vec![],
             stats: Stats::new(),
+            run_wall_secs: 0.0,
+            run_first_step_secs: 0.0,
+            run_steady_per_step: 0.0,
         }
     }
 
@@ -113,14 +120,19 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let print_rate = self.print_rate as usize;
 
         let start_t = Instant::now();
+        // Timer for the ETA average, reset after the first (build-heavy) step.
+        let mut steady_start = start_t;
         let mut start_dt = Instant::now();
         for i in 0..num_steps {
             if (i % print_rate == 0) & (i > 0) {
-                self.print_progress(i, num_steps, start_t.elapsed(), start_dt.elapsed());
+                self.print_progress(i, num_steps, steady_start.elapsed(), start_dt.elapsed());
             };
             start_dt = Instant::now();
 
             self.advance_one_step();
+            if i == 0 {
+                steady_start = Instant::now();
+            }
             let t_new = self.t + self.step_size;
 
             if i % samp_rate == 0 {
@@ -156,14 +168,19 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let print_rate = self.print_rate as usize;
 
         let start_t = Instant::now();
+        // Timer for the ETA average, reset after the first (build-heavy) step.
+        let mut steady_start = start_t;
         let mut start_dt = Instant::now();
         for i in 0..num_steps {
             if (i % print_rate == 0) & (i > 0) {
-                self.print_progress(i, num_steps, start_t.elapsed(), start_dt.elapsed());
+                self.print_progress(i, num_steps, steady_start.elapsed(), start_dt.elapsed());
             };
             start_dt = Instant::now();
 
             self.advance_one_step();
+            if i == 0 {
+                steady_start = Instant::now();
+            }
             let t_new = self.t + self.step_size;
 
             if i % samp_rate == 0 {
@@ -180,6 +197,13 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             self.t = t_new;
             self.stats.accepted_steps += 1;
         }
+
+        // Record timing for the end-of-run summary.
+        self.run_wall_secs = start_t.elapsed().as_secs_f64();
+        self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
+        let steady_steps = num_steps.saturating_sub(1).max(1) as f64;
+        self.run_steady_per_step = steady_start.elapsed().as_secs_f64() / steady_steps;
+
         Ok(self.stats)
     }
 
@@ -212,12 +236,18 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         self.o_lab = o_lab_new;
     }
 
-    fn print_progress(&self, i: usize, num_steps: usize, elapsed: Duration, elapsed_dt: Duration) {
-        let ratio = ((num_steps - i) as f64) / (i as f64);
-        let ratio2 = (num_steps as f64) / (i as f64);
-        let remain_est = self.multiply_duration(elapsed, ratio);
-        let completion_percentage = 100. / ratio2;
+    fn print_progress(&self, i: usize, num_steps: usize, steady_elapsed: Duration, elapsed_dt: Duration) {
+        let completion_percentage = 100.0 * (i as f64) / (num_steps as f64);
         let dt_sec = (elapsed_dt.as_millis() as f64) * 0.001;
+
+        // Average over steady-state steps only: `steady_elapsed` excludes the
+        // first (build-heavy) step, and `i - 1` steady steps have completed.
+        if i < 2 {
+            println!("Time = {:.7}. Timestep {:?}/{:?}. Estimating time remaining... - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, completion_percentage, dt_sec);
+            return;
+        }
+        let ratio = ((num_steps - i) as f64) / ((i - 1) as f64);
+        let remain_est = self.multiply_duration(steady_elapsed, ratio);
         if remain_est.as_secs() >= 3600 {
             let hrs = remain_est.as_secs() / 3600;
             let mins = (remain_est.as_secs() - hrs * 3600) / 60;
