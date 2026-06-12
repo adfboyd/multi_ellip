@@ -32,10 +32,14 @@ enum SolveCache {
     /// Single body: the whole influence matrix is time-invariant, so its LU is
     /// cached and reused directly.
     Direct(CachedLu),
-    /// Multi-body: each per-body self-block is time-invariant. Their LU
-    /// factorisations are cached and used as a block-diagonal preconditioner for
-    /// GMRES (only the off-diagonal interaction blocks change each step).
-    BlockDiag(Vec<CachedLu>),
+    /// Multi-body: each per-body self-block is time-invariant. The dense
+    /// self-blocks are cached (for the matrix-vector product) along with their
+    /// LU factorisations (used as a block-diagonal GMRES preconditioner). Only
+    /// the off-diagonal interaction blocks are reassembled each step.
+    BlockDiag {
+        self_dense: Vec<DMatrix<f64>>,
+        self_lu: Vec<CachedLu>,
+    },
 }
 
 /// Linear state for N bodies: (positions, velocities), each a stacked 3*N vector
@@ -210,28 +214,54 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 _ => unreachable!(),
             }
         } else {
-            // Assemble the full matrix (needed for the GMRES matrix-vector product).
+            // Multi-body. Cache the time-invariant self-blocks once; each step
+            // reassemble only the (non-singular) interaction blocks.
             #[cfg(feature = "timing")]
             let t_mat = Instant::now();
-            let amat_final = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
-            #[cfg(feature = "timing")]
-            println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
-            // Cache the per-body self-block LUs once (constant in time).
-            if cache_guard.is_none() {
-                let mut blocks = Vec::with_capacity(nbody);
+            let a_int = if cache_guard.is_none() {
+                // First evaluation: assemble the full matrix, split out the
+                // dense self-blocks (+ LU), then zero their positions so the
+                // remainder is exactly the interaction matrix.
+                let mut amat_full = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+                let mut self_dense = Vec::with_capacity(nbody);
+                let mut self_lu = Vec::with_capacity(nbody);
                 let mut off = 0;
                 for b in 0..nbody {
                     let np = nptss[b];
-                    let sub = amat_final.view_range(off..off + np, off..off + np).into_owned();
-                    blocks.push(factor(sub));
+                    let sub = amat_full.view_range(off..off + np, off..off + np).into_owned();
+                    self_lu.push(factor(sub.clone()));
+                    self_dense.push(sub);
+                    amat_full.view_range_mut(off..off + np, off..off + np).fill(0.0);
                     off += np;
                 }
-                *cache_guard = Some(SolveCache::BlockDiag(blocks));
-            }
-            let blocks = match cache_guard.as_ref().unwrap() {
-                SolveCache::BlockDiag(b) => b,
+                *cache_guard = Some(SolveCache::BlockDiag { self_dense, self_lu });
+                amat_full
+            } else {
+                ldlp_3d_assemble_interactions(npts, nelm, mint, &nptss, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq)
+            };
+            #[cfg(feature = "timing")]
+            println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
+
+            let (self_dense, self_lu) = match cache_guard.as_ref().unwrap() {
+                SolveCache::BlockDiag { self_dense, self_lu } => (self_dense, self_lu),
                 _ => unreachable!(),
+            };
+
+            // A v = (interaction blocks) v + sum_b (self-block_b) v_b
+            let matvec = |v: &DVector<f64>| -> DVector<f64> {
+                let mut out = &a_int * v;
+                let mut off = 0;
+                for b in 0..nbody {
+                    let np = nptss[b];
+                    let vb = v.rows(off, np).into_owned();
+                    let yb = &self_dense[b] * vb;
+                    for k in 0..np {
+                        out[off + k] += yb[k];
+                    }
+                    off += np;
+                }
+                out
             };
 
             // Block-diagonal preconditioner: apply each cached self-block LU.
@@ -241,7 +271,7 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 for b in 0..nbody {
                     let np = nptss[b];
                     let rb = r.rows(off, np).into_owned();
-                    let xb = blocks[b].solve(&rb).expect("block solve failed");
+                    let xb = self_lu[b].solve(&rb).expect("block solve failed");
                     for k in 0..np {
                         out[off + k] = xb[k];
                     }
@@ -249,7 +279,6 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 }
                 out
             };
-            let matvec = |v: &DVector<f64>| -> DVector<f64> { &amat_final * v };
 
             #[cfg(feature = "timing")]
             let t_solve = Instant::now();

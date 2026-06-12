@@ -687,6 +687,77 @@ pub fn ldlp_3d_assemble(npts :usize, nelm :usize,
     amat
 }
 
+/// Assembles only the *interaction* (off-diagonal-block) part of the influence
+/// matrix: entries `A[i,j]` where field node `i` and source node `j` belong to
+/// different bodies. The diagonal blocks (each body's self-influence) are left
+/// zero, since they are time-invariant and cached separately.
+///
+/// Cross-body entries are always non-singular (the field point is never a node
+/// of a source element on another body), and the desingularisation term `-q0`
+/// only affects diagonal entries (`q0 = q[i] = delta_ij = 0` here), so every
+/// contribution is a plain regular `ldlp_3d_integral`. `nptss` gives the
+/// per-body node counts (nodes are blocked by body in the combined mesh).
+pub fn ldlp_3d_assemble_interactions(npts :usize, nelm :usize, mint :usize,
+                                     nptss :&[usize],
+                                     p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                                     alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                                     xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> DMatrix<f64> {
+
+    // node -> body index
+    let mut node_body = vec![0_usize; npts];
+    {
+        let mut off = 0;
+        for (b, &np) in nptss.iter().enumerate() {
+            for t in 0..np {
+                node_body[off + t] = b;
+            }
+            off += np;
+        }
+    }
+
+    // node -> elements containing it
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); npts];
+    for k in 0..nelm {
+        for c in 0..6 {
+            adj[n[(k, c)]].push(k);
+        }
+    }
+
+    let mut amat = DMatrix::zeros(npts, npts);
+
+    amat.as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .for_each(|(j, col)| {
+            let cbody = node_body[j];
+
+            // Unit source on node j.
+            let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
+
+            for i in 0..npts {
+                // Same-body entries belong to the cached self-block.
+                if node_body[i] == cbody {
+                    continue;
+                }
+                let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+
+                let mut ptl = 0.0;
+                for &k in &adj[j] {
+                    // Cross-body => never singular; q0 = q[i] = 0.
+                    let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, &q, 0.0,
+                                                         p, n, vna,
+                                                         alpha, beta, gamma,
+                                                         xiq, etq, wq);
+                    ptl += pptl;
+                }
+                col[i] = ptl;
+            }
+        });
+
+    amat
+}
+
 ///Computes the single-layer potential for a given f = d(phi)/dn
 
 pub fn lslp_3d(npts :usize, nelm :usize,
