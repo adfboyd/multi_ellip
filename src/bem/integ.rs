@@ -687,16 +687,134 @@ pub fn ldlp_3d_assemble(npts :usize, nelm :usize,
     amat
 }
 
+/// The six quadratic shape functions and their `xi`/`eta` derivatives at a
+/// parametric point, for the curvilinear element parameters (al, be, ga).
+/// Matches the basis used in `ldlp_3d_interp`.
+#[inline]
+fn ldlp_3d_shape(al :f64, be :f64, ga :f64, xi :f64, eta :f64)
+    -> ([f64; 6], [f64; 6], [f64; 6]) {
+
+    let (alc, bec, gac) = (1.0 - al, 1.0 - be, 1.0 - ga);
+    let (alalc, bebec, gagac) = (al * alc, be * bec, ga * gac);
+
+    // Values.
+    let ph2 = xi * (xi - al + eta * (al - ga) / gac) / alc;
+    let ph3 = eta * (eta - be + xi * (be + ga - 1.0) / ga) / bec;
+    let ph4 = xi * (1.0 - xi - eta) / alalc;
+    let ph5 = xi * eta / gagac;
+    let ph6 = eta * (1.0 - xi - eta) / bebec;
+    let ph1 = 1.0 - ph2 - ph3 - ph4 - ph5 - ph6;
+
+    // d/d(xi).
+    let dph2 = (2.0 * xi - al + eta * (al - ga) / gac) / alc;
+    let dph3 = eta * (be + ga - 1.0) / (ga * bec);
+    let dph4 = (1.0 - 2.0 * xi - eta) / alalc;
+    let dph5 = eta / gagac;
+    let dph6 = -eta / bebec;
+    let dph1 = -dph2 - dph3 - dph4 - dph5 - dph6;
+
+    // d/d(eta).
+    let pph2 = xi * (al - ga) / (alc * gac);
+    let pph3 = (2.0 * eta - be + xi * (be + ga - 1.0) / ga) / bec;
+    let pph4 = -xi / alalc;
+    let pph5 = xi / gagac;
+    let pph6 = (1.0 - xi - 2.0 * eta) / bebec;
+    let pph1 = -pph2 - pph3 - pph4 - pph5 - pph6;
+
+    (
+        [ph1, ph2, ph3, ph4, ph5, ph6],
+        [dph1, dph2, dph3, dph4, dph5, dph6],
+        [pph1, pph2, pph3, pph4, pph5, pph6],
+    )
+}
+
+/// Per-element quadrature geometry, precomputed once and reused across all
+/// (non-singular) field points. For each quadrature point it stores the surface
+/// position, the interpolated normal, the quadrature factor `0.5 * hs * wq`, and
+/// the six shape-function values.
+struct ElemQuad {
+    nodes: [usize; 6],
+    x: Vec<Vector3<f64>>,
+    v: Vec<Vector3<f64>>,
+    cf: Vec<f64>,
+    ph: Vec<[f64; 6]>,
+}
+
+/// Precompute the quadrature geometry of element `k`.
+fn elem_quad(k :usize, mint :usize,
+             p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+             alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+             xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>) -> ElemQuad {
+
+    let nodes = [n[(k, 0)], n[(k, 1)], n[(k, 2)], n[(k, 3)], n[(k, 4)], n[(k, 5)]];
+    let pv: [Vector3<f64>; 6] = std::array::from_fn(|m| {
+        Vector3::new(p[(nodes[m], 0)], p[(nodes[m], 1)], p[(nodes[m], 2)])
+    });
+    let vv: [Vector3<f64>; 6] = std::array::from_fn(|m| {
+        Vector3::new(vna[(nodes[m], 0)], vna[(nodes[m], 1)], vna[(nodes[m], 2)])
+    });
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    let mut x = Vec::with_capacity(mint);
+    let mut v = Vec::with_capacity(mint);
+    let mut cf = Vec::with_capacity(mint);
+    let mut ph_all = Vec::with_capacity(mint);
+
+    for qi in 0..mint {
+        let (xi, eta) = (xiq[qi], etq[qi]);
+        let (ph, dph, pph) = ldlp_3d_shape(al, be, ga, xi, eta);
+
+        let mut xvec = Vector3::zeros();
+        let mut vvec = Vector3::zeros();
+        let mut ddxi = Vector3::zeros();
+        let mut ddet = Vector3::zeros();
+        for m in 0..6 {
+            xvec += ph[m] * pv[m];
+            vvec += ph[m] * vv[m];
+            ddxi += dph[m] * pv[m];
+            ddet += pph[m] * pv[m];
+        }
+        let hs = ddxi.cross(&ddet).norm();
+
+        x.push(xvec);
+        v.push(vvec);
+        cf.push(0.5 * hs * wq[qi]);
+        ph_all.push(ph);
+    }
+
+    ElemQuad { nodes, x, v, cf, ph: ph_all }
+}
+
+/// The six per-basis double-layer contributions of one element to field point
+/// `x0` (non-singular case). The kernel `v . grad G` is evaluated once per
+/// quadrature point and shared across all six shape functions.
+#[inline]
+fn elem_basis_row(eq :&ElemQuad, x0 :&Vector3<f64>) -> [f64; 6] {
+    let mut g = [0.0_f64; 6];
+    for q in 0..eq.x.len() {
+        let (_gf, dg) = lgf_3d_fs(&eq.x[q], x0);
+        let kq = eq.v[q].dot(&dg) * eq.cf[q];
+        let ph = &eq.ph[q];
+        for m in 0..6 {
+            g[m] += ph[m] * kq;
+        }
+    }
+    g
+}
+
 /// Assembles only the *interaction* (off-diagonal-block) part of the influence
 /// matrix: entries `A[i,j]` where field node `i` and source node `j` belong to
 /// different bodies. The diagonal blocks (each body's self-influence) are left
 /// zero, since they are time-invariant and cached separately.
 ///
 /// Cross-body entries are always non-singular (the field point is never a node
-/// of a source element on another body), and the desingularisation term `-q0`
-/// only affects diagonal entries (`q0 = q[i] = delta_ij = 0` here), so every
-/// contribution is a plain regular `ldlp_3d_integral`. `nptss` gives the
-/// per-body node counts (nodes are blocked by body in the combined mesh).
+/// of a source element on another body) and the `-q0` desingularisation term
+/// vanishes (`q0 = q[i] = delta_ij = 0`). Assembly is element-centric: each
+/// element's quadrature geometry is precomputed once, and at every field point
+/// the kernel is evaluated once per quadrature point and shared across the six
+/// shape functions, giving all six matrix entries from a single pass (vs the
+/// previous column build, which re-integrated each element once per node).
+/// `nptss` gives the per-body node counts (nodes are blocked by body).
 pub fn ldlp_3d_assemble_interactions(npts :usize, nelm :usize, mint :usize,
                                      nptss :&[usize],
                                      p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
@@ -715,47 +833,38 @@ pub fn ldlp_3d_assemble_interactions(npts :usize, nelm :usize, mint :usize,
         }
     }
 
-    // node -> elements containing it
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); npts];
-    for k in 0..nelm {
-        for c in 0..6 {
-            adj[n[(k, c)]].push(k);
-        }
-    }
+    // Every node of an element shares its body; use the first node.
+    let elem_body: Vec<usize> = (0..nelm).map(|k| node_body[n[(k, 0)]]).collect();
 
-    let mut amat = DMatrix::zeros(npts, npts);
+    // Precompute each element's quadrature geometry once.
+    let eqs: Vec<ElemQuad> = (0..nelm)
+        .into_par_iter()
+        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq))
+        .collect();
 
-    amat.as_mut_slice()
+    // Build A^T column-major (column i of A^T = row i of A), parallel over field
+    // points. Each thread owns one field-point row, so the scatter is race-free.
+    let mut at = DMatrix::zeros(npts, npts);
+    at.as_mut_slice()
         .par_chunks_mut(npts)
         .enumerate()
-        .for_each(|(j, col)| {
-            let cbody = node_body[j];
-
-            // Unit source on node j.
-            let mut q = DVector::zeros(npts);
-            q[j] = 1.0;
-
-            for i in 0..npts {
-                // Same-body entries belong to the cached self-block.
-                if node_body[i] == cbody {
+        .for_each(|(i, row_i)| {
+            let ibody = node_body[i];
+            let x0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+            for k in 0..nelm {
+                // Same-body => self-block (cached separately); skip.
+                if elem_body[k] == ibody {
                     continue;
                 }
-                let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
-
-                let mut ptl = 0.0;
-                for &k in &adj[j] {
-                    // Cross-body => never singular; q0 = q[i] = 0.
-                    let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, &q, 0.0,
-                                                         p, n, vna,
-                                                         alpha, beta, gamma,
-                                                         xiq, etq, wq);
-                    ptl += pptl;
+                let g = elem_basis_row(&eqs[k], &x0);
+                let nd = &eqs[k].nodes;
+                for m in 0..6 {
+                    row_i[nd[m]] += g[m];
                 }
-                col[i] = ptl;
             }
         });
 
-    amat
+    at.transpose()
 }
 
 ///Computes the single-layer potential for a given f = d(phi)/dn
