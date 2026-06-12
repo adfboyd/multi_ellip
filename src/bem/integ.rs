@@ -871,11 +871,19 @@ pub fn ldlp_3d_assemble_interactions(npts :usize, nelm :usize, mint :usize,
 
 pub fn lslp_3d(npts :usize, nelm :usize,
                mint :usize, nq :usize, f :&DVector<f64>,
-               p :&DMatrix<f64>, n :&DMatrix<usize>, _vna :&DMatrix<f64>,
+               p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
                alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
                xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
                zz :&DVector<f64>, ww :&DVector<f64>) -> DVector<f64> {
     let tol = 1e-8;
+
+    // Precompute each element's quadrature geometry once, reused across all
+    // (non-singular) field points (the single layer needs position, Jacobian
+    // and shape functions; the cached normal is simply unused here).
+    let eqs: Vec<ElemQuad> = (0..nelm)
+        .into_par_iter()
+        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq))
+        .collect();
 
     let slp_vals: Vec<f64> = (0..npts)
         .into_par_iter()
@@ -1129,16 +1137,16 @@ pub fn lslp_3d(npts :usize, nelm :usize,
 
                     ptl += pptl;
                     srf_area += arelm;
-                } else //Do non-singular integral
+                } else //Do non-singular integral (precomputed element geometry)
                 {
-
-                    let (pptl, arelm) = lslp_3d_integral(p0, k, mint,
-                                                         f, p, n,
-                                                         alpha, beta, gamma,
-                                                         xiq, etq, wq);
-
-                    ptl += pptl;
-                    srf_area += arelm;
+                    let eq = &eqs[k];
+                    for q in 0..mint {
+                        let (g, _dg) = lgf_3d_fs(&eq.x[q], &p0);
+                        let ph = &eq.ph[q];
+                        let f_int = f1 * ph[0] + f2 * ph[1] + f3 * ph[2]
+                                  + f4 * ph[3] + f5 * ph[4] + f6 * ph[5];
+                        ptl += g * f_int * eq.cf[q];
+                    }
                 }
             }
         }
