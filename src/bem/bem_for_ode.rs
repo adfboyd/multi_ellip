@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
+use crate::bem::gmres::gmres;
 use crate::bem::potentials::dfdn_single;
 use crate::system::system::Simulation;
 
@@ -15,6 +16,27 @@ use crate::system::system::Simulation;
 type CachedLu = LU<f64, Dyn, Dyn>;
 #[cfg(not(feature = "lapack"))]
 type CachedLu = nalgebra::linalg::LU<f64, Dyn, Dyn>;
+
+/// LU-factor a dense matrix with whichever backend is active.
+#[cfg(feature = "lapack")]
+fn factor(m: DMatrix<f64>) -> CachedLu {
+    LU::new(m)
+}
+#[cfg(not(feature = "lapack"))]
+fn factor(m: DMatrix<f64>) -> CachedLu {
+    m.lu()
+}
+
+/// Cached factorisation strategy for the influence-matrix solve.
+enum SolveCache {
+    /// Single body: the whole influence matrix is time-invariant, so its LU is
+    /// cached and reused directly.
+    Direct(CachedLu),
+    /// Multi-body: each per-body self-block is time-invariant. Their LU
+    /// factorisations are cached and used as a block-diagonal preconditioner for
+    /// GMRES (only the off-diagonal interaction blocks change each step).
+    BlockDiag(Vec<CachedLu>),
+}
 
 /// Linear state for N bodies: (positions, velocities), each a stacked 3*N vector
 /// where body `i` occupies rows `3*i .. 3*i+3`.
@@ -26,12 +48,12 @@ pub type AngularState = (Vec<Quaternion<f64>>, Vec<Quaternion<f64>>);
 
 pub struct ForceCalculate {
     pub system: Arc<Mutex<Simulation>>,
-    /// Cached LU factorisation of the time-invariant influence matrix. The
-    /// double-layer operator is invariant under rigid-body motion, so for a
-    /// single body it is constant for all time: build + factor once, reuse
-    /// forever. Multi-body rebuilds each step (until block-structured caching
-    /// of the per-body self-blocks lands).
-    cache: Mutex<Option<CachedLu>>,
+    /// Cached factorisation(s) of the time-invariant part of the influence
+    /// matrix. The double-layer operator is invariant under rigid-body motion,
+    /// so each body's self-block is constant for all time. Single body: cache
+    /// the full LU (Direct). Multi-body: cache the self-block LUs as a GMRES
+    /// preconditioner (BlockDiag). Built once on the first force evaluation.
+    cache: Mutex<Option<SolveCache>>,
 }
 
 impl ForceCalculate {
@@ -166,38 +188,76 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
         #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
-        // Double-layer influence matrix. For a single rigid body the operator is
-        // invariant under rigid-body motion, so we build + factor it once and reuse
-        // the cached LU on every subsequent call. Multi-body rebuilds each step.
-        let reuse = nbody == 1;
+        // Double-layer influence matrix solve. Each body's self-block is
+        // invariant under rigid-body motion. Single body: the whole matrix is
+        // constant, so cache its LU and back-substitute each step. Multi-body:
+        // cache the self-block LUs once as a block-diagonal preconditioner and
+        // solve with GMRES, rebuilding only the (smooth) interaction blocks
+        // implicitly via the freshly assembled matrix-vector product.
         let mut cache_guard = self.cache.lock().unwrap();
 
-        let f = if reuse && cache_guard.is_some() {
-            cache_guard
-                .as_ref()
-                .unwrap()
-                .solve(&rhs)
-                .expect("Linear resolution failed")
+        let f = if nbody == 1 {
+            if cache_guard.is_none() {
+                #[cfg(feature = "timing")]
+                let t_mat = Instant::now();
+                let amat_final = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+                #[cfg(feature = "timing")]
+                println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
+                *cache_guard = Some(SolveCache::Direct(factor(amat_final)));
+            }
+            match cache_guard.as_ref().unwrap() {
+                SolveCache::Direct(lu) => lu.solve(&rhs).expect("Linear resolution failed"),
+                _ => unreachable!(),
+            }
         } else {
+            // Assemble the full matrix (needed for the GMRES matrix-vector product).
             #[cfg(feature = "timing")]
             let t_mat = Instant::now();
             let amat_final = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
             #[cfg(feature = "timing")]
             println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 
-            #[cfg(feature = "timing")]
-            let t_lu = Instant::now();
-            #[cfg(feature = "lapack")]
-            let decomp = LU::new(amat_final);
-            #[cfg(not(feature = "lapack"))]
-            let decomp = amat_final.lu();
-            #[cfg(feature = "timing")]
-            println!("Force LU: {:.3}s", t_lu.elapsed().as_secs_f64());
-
-            let f = decomp.solve(&rhs).expect("Linear resolution failed");
-            if reuse {
-                *cache_guard = Some(decomp);
+            // Cache the per-body self-block LUs once (constant in time).
+            if cache_guard.is_none() {
+                let mut blocks = Vec::with_capacity(nbody);
+                let mut off = 0;
+                for b in 0..nbody {
+                    let np = nptss[b];
+                    let sub = amat_final.view_range(off..off + np, off..off + np).into_owned();
+                    blocks.push(factor(sub));
+                    off += np;
+                }
+                *cache_guard = Some(SolveCache::BlockDiag(blocks));
             }
+            let blocks = match cache_guard.as_ref().unwrap() {
+                SolveCache::BlockDiag(b) => b,
+                _ => unreachable!(),
+            };
+
+            // Block-diagonal preconditioner: apply each cached self-block LU.
+            let precond = |r: &DVector<f64>| -> DVector<f64> {
+                let mut out = DVector::zeros(npts);
+                let mut off = 0;
+                for b in 0..nbody {
+                    let np = nptss[b];
+                    let rb = r.rows(off, np).into_owned();
+                    let xb = blocks[b].solve(&rb).expect("block solve failed");
+                    for k in 0..np {
+                        out[off + k] = xb[k];
+                    }
+                    off += np;
+                }
+                out
+            };
+            let matvec = |v: &DVector<f64>| -> DVector<f64> { &amat_final * v };
+
+            #[cfg(feature = "timing")]
+            let t_solve = Instant::now();
+            let x0 = DVector::zeros(npts);
+            let (f, _iters, _res) = gmres(matvec, precond, &rhs, &x0, 1e-11, 200);
+            #[cfg(feature = "timing")]
+            println!("Force GMRES: {:.3}s  ({} iters, res {:.1e})", t_solve.elapsed().as_secs_f64(), _iters, _res);
+
             f
         };
         drop(cache_guard);
