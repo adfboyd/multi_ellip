@@ -32,6 +32,7 @@ input_1body_*.txt
 input_sphere*.txt
 input_cachetest.txt
 input_speedtest.txt
+input_timing*.txt
 
 # Misc scratch
 lamb_formulation.html

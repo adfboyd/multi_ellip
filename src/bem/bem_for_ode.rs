@@ -179,19 +179,9 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 .solve(&rhs)
                 .expect("Linear resolution failed")
         } else {
-            let mut amat_final = DMatrix::zeros(npts, npts);
             #[cfg(feature = "timing")]
             let t_mat = Instant::now();
-            amat_final
-                .as_mut_slice()
-                .par_chunks_mut(npts)
-                .enumerate()
-                .for_each(|(j, col)| {
-                    let mut q = DVector::zeros(npts);
-                    q[j] = 1.0;
-                    let dlp = ldlp_3d(npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
-                    col.copy_from_slice(dlp.as_slice());
-                });
+            let amat_final = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
             #[cfg(feature = "timing")]
             println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
 

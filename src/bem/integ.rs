@@ -557,6 +557,136 @@ pub fn ldlp_3d(npts :usize, nelm :usize,
 
 }
 
+/// Assembles the full double-layer influence matrix `A` (npts x npts) directly.
+///
+/// This is equivalent to building the matrix column-by-column with
+/// `ldlp_3d(e_j)` for each unit vector `e_j`, but avoids the O(N^3) cost of
+/// scanning every element for every (column, field-point) pair: for a unit
+/// source `e_j` the only elements that contribute are those containing node
+/// `j`, so we precompute a node->element adjacency and iterate just those.
+/// The per-element integration reuses the identical `ldlp_3d_integral` /
+/// `ldlp_3d_integral_sing` routines, so the assembled matrix is bit-identical
+/// to the column-by-column build. Columns are filled in parallel.
+pub fn ldlp_3d_assemble(npts :usize, nelm :usize,
+                        mint :usize, nq :usize,
+                        p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
+                        alpha :&DVector<f64>, beta :&DVector<f64>, gamma :&DVector<f64>,
+                        xiq :&DVector<f64>, etq :&DVector<f64>, wq :&DVector<f64>,
+                        zz :&DVector<f64>, ww :&DVector<f64>) -> DMatrix<f64> {
+
+    // node -> elements containing it
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); npts];
+    for k in 0..nelm {
+        for c in 0..6 {
+            adj[n[(k, c)]].push(k);
+        }
+    }
+
+    let mut amat = DMatrix::zeros(npts, npts);
+
+    // DMatrix is column-major, so each contiguous npts-chunk is one column.
+    amat.as_mut_slice()
+        .par_chunks_mut(npts)
+        .enumerate()
+        .for_each(|(j, col)| {
+            // Unit source on node j.
+            let mut q = DVector::zeros(npts);
+            q[j] = 1.0;
+
+            for i in 0..npts {
+                let p0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+                let q0 = q[i];
+
+                let mut ptl = 0.0;
+
+                for &k in &adj[j] {
+                    let i1 = n[(k, 0)];
+                    let i2 = n[(k, 1)];
+                    let i3 = n[(k, 2)];
+                    let i4 = n[(k, 3)];
+                    let i5 = n[(k, 4)];
+                    let i6 = n[(k, 5)];
+
+                    let (q1, q2, q3) = (q[i1], q[i2], q[i3]);
+
+                    if i == i1 {
+                        let pa = Vector3::new(p[(i1,0)], p[(i1,1)], p[(i1,2)]);
+                        let pb = Vector3::new(p[(i2,0)], p[(i2,1)], p[(i2,2)]);
+                        let pc = Vector3::new(p[(i3,0)], p[(i3,1)], p[(i3,2)]);
+                        let va = Vector3::new(vna[(i1,0)], vna[(i1,1)], vna[(i1,2)]);
+                        let vb = Vector3::new(vna[(i2,0)], vna[(i2,1)], vna[(i2,2)]);
+                        let vc = Vector3::new(vna[(i3,0)], vna[(i3,1)], vna[(i3,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww);
+
+                    } else if i == i2 {
+                        let (ia, ib, ic) = (i2, i3, i1);
+                        let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                        let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                        let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                        let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                        let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                        let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+
+                    } else if i == i3 {
+                        let (ia, ib, ic) = (i3, i1, i2);
+                        let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                        let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                        let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                        let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                        let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                        let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                        ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+
+                    } else if i == i4 {
+                        for &(ia, ib, ic) in &[(i4,i6,i1),(i4,i3,i6),(i4,i5,i3),(i4,i2,i5)] {
+                            let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                            let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                            let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                            let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                            let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                            let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                            ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                        }
+
+                    } else if i == i5 {
+                        for &(ia, ib, ic) in &[(i5,i4,i2),(i5,i1,i4),(i5,i6,i1),(i5,i3,i6)] {
+                            let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                            let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                            let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                            let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                            let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                            let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                            ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                        }
+
+                    } else if i == i6 {
+                        for &(ia, ib, ic) in &[(i6,i1,i4),(i6,i4,i2),(i6,i2,i5),(i6,i5,i3)] {
+                            let pa = Vector3::new(p[(ia,0)], p[(ia,1)], p[(ia,2)]);
+                            let pb = Vector3::new(p[(ib,0)], p[(ib,1)], p[(ib,2)]);
+                            let pc = Vector3::new(p[(ic,0)], p[(ic,1)], p[(ic,2)]);
+                            let va = Vector3::new(vna[(ia,0)], vna[(ia,1)], vna[(ia,2)]);
+                            let vb = Vector3::new(vna[(ib,0)], vna[(ib,1)], vna[(ib,2)]);
+                            let vc = Vector3::new(vna[(ic,0)], vna[(ic,1)], vna[(ic,2)]);
+                            ptl += ldlp_3d_integral_sing(nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww);
+                        }
+
+                    } else {
+                        let (pptl, _arelm) = ldlp_3d_integral(p0, k, mint, &q, q0,
+                                                             p, n, vna,
+                                                             alpha, beta, gamma,
+                                                             xiq, etq, wq);
+                        ptl += pptl;
+                    }
+                }
+
+                col[i] = ptl - 0.5 * q0;
+            }
+        });
+
+    amat
+}
+
 ///Computes the single-layer potential for a given f = d(phi)/dn
 
 pub fn lslp_3d(npts :usize, nelm :usize,
