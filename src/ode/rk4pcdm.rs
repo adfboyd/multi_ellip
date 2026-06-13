@@ -39,6 +39,9 @@ pub struct Rk4PCDM<F, G, I>
     pub run_wall_secs: f64,
     pub run_first_step_secs: f64,
     pub run_steady_per_step: f64,
+    /// Fluid KE captured at the start of the current step (stage-A force call,
+    /// evaluated at exactly z_n), used to write the row sampled at time t_n.
+    fluid_ke_step_start: f64,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -104,6 +107,7 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             run_wall_secs: 0.0,
             run_first_step_secs: 0.0,
             run_steady_per_step: 0.0,
+            fluid_ke_step_start: 0.0,
         }
     }
 
@@ -165,7 +169,11 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let x0 = self.x.clone();
         let o0 = self.o.clone();
         let olab0 = self.o_lab.clone();
-        self.write_row(writer, self.t, &x0, &o0, &olab0)?;
+        // Defer writing each sampled row until the next step has run, so its
+        // fluid KE can be taken from that step's stage-A solve (evaluated at the
+        // row's own state) rather than the dt/2-stale half-step value.
+        let mut pending: Option<(f64, LinearState, AngularState, DVector<f64>)> =
+            Some((self.t, x0, o0, olab0));
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
@@ -190,19 +198,32 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             }
             let t_new = self.t + self.step_size;
 
+            // Flush the pending row now: its state is the start state of the step
+            // just run, so `fluid_ke_step_start` (captured in stage A) is the
+            // fluid KE at exactly that row's state.
+            if let Some((tp, xp, op, olp)) = pending.take() {
+                self.write_row(writer, tp, &xp, &op, &olp, self.fluid_ke_step_start)?;
+            }
+
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
                 self.x_out.push(self.x.clone());
                 self.o_out.push(self.o.clone());
                 self.o_lab_out.push(self.o_lab.clone());
-                let x_new = self.x.clone();
-                let o_new = self.o.clone();
-                let olab_new = self.o_lab.clone();
-                self.write_row(writer, t_new, &x_new, &o_new, &olab_new)?;
+                pending = Some((t_new, self.x.clone(), self.o.clone(), self.o_lab.clone()));
             }
 
             self.t = t_new;
             self.stats.accepted_steps += 1;
+        }
+
+        // Flush the final pending row. Its state is the end state, whose fluid KE
+        // has not yet been computed, so run one extra BEM solve to obtain it (the
+        // side effects — φ history push, fluid KE update — are harmless).
+        if let Some((tp, xp, op, olp)) = pending.take() {
+            let _ = self.force_get();
+            let kef = self.fluid_kinetic_energy();
+            self.write_row(writer, tp, &xp, &op, &olp, kef)?;
         }
 
         // Record timing for the end-of-run summary.
@@ -240,6 +261,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
     fn advance_one_step(&mut self) {
         // Forces at the start of the step.
         let (linear_accel, angular_force) = self.force_get();
+        // Stage A is evaluated at exactly the step-start state z_n, so its fluid
+        // KE is the correct value to write for the row sampled at time t_n.
+        self.fluid_ke_step_start = self.fluid_kinetic_energy();
 
         // Half-step prediction.
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
@@ -312,9 +336,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         x: &LinearState,
         o: &AngularState,
         o_lab: &DVector<f64>,
+        ke_fluid: f64,
     ) -> std::io::Result<()> {
         let ke = self.solid_kinetic_energy(x, o);
-        let ke_fluid = self.fluid_kinetic_energy();
         let ke_total = ke.total + ke_fluid;
 
         write!(
