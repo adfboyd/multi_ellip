@@ -65,11 +65,15 @@ fn main() {
     let t_end = get("tend", 10.0);
     let dt = get("dt", 0.1);
     let tprint = get("tprint", 1.0) as u32;
+    // Console progress interval (steps). Decoupled from tprint, which controls
+    // how often rows are written to the output .dat file.
+    let logevery = get("logevery", 100.0) as u32;
     let nbody = get("nbody", 2.0) as usize;
 
     println!("Density of fluid = {:?}", rho_f);
     println!("{:?} divisions.", ndiv);
     println!("Running with timestep = {:?}, until t = {:?}", dt, t_end);
+    println!("Writing output every {:?} step(s); console progress every {:?} step(s)", tprint, logevery);
     println!("Running with {:?} body(s)", nbody);
 
     // Build each body from its 1-indexed input variables (cex1, oriw1, shx1, ...).
@@ -171,8 +175,8 @@ fn main() {
         fluid_ke_getter,
         t_end,
         dt,
-        tprint,
-        tprint,
+        tprint,   // samp_rate: .dat row every tprint steps
+        logevery, // print_rate: console progress every logevery steps
     );
 
     println!("Solver initialised");

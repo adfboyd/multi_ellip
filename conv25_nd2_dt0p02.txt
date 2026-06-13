@@ -21,4 +21,6 @@ ndiv=2.0
 tend=25
 dt=0.02
 tprint=1
+logevery=100
 nbody=1
+
