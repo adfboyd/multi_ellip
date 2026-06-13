@@ -8,6 +8,7 @@
 
 # Simulation output data
 *.dat
+*.csv
 out_*/
 output*/
 outputinc/
