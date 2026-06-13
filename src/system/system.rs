@@ -12,6 +12,16 @@ use crate::system::fluid::Fluid;
 // use crate::system::hamiltonian::*;
 // use crate::system::state::State;
 
+/// Number of provisional first-step passes used to bootstrap the ∂φ/∂t
+/// history at t = 0. The dphi force needs temporal φ history that doesn't
+/// exist at startup (the initial acceleration and φ̇ are mutually dependent
+/// through the added mass), so the integrator runs the first step this many
+/// times, rewinding the state after each pass; every pass refines the initial
+/// φ̇ estimate by a geometric (added-mass contraction) factor. The integrator
+/// loop count and the `bootstrap_redos` bookkeeping in ForceCalculate must
+/// both use this constant.
+pub const BOOTSTRAP_PASSES: usize = 10;
+
 #[derive(Clone)]
 pub struct Simulation {
     pub fluid: Fluid,
@@ -23,8 +33,15 @@ pub struct Simulation {
     pub mass_tensors: Vec<na::Matrix3<f64>>,
     /// Per-body solid inertia tensors (index i <-> bodies[i]).
     pub inertia_tensors: Vec<na::Matrix3<f64>>,
-    pub phi_prev: na::DVector<f64>,
-    pub phi_committed: na::DVector<f64>,
+    /// Surface-potential history for the same-stage BDF2 ∂φ/∂t stencil.
+    /// Each force evaluation pushes its solved φ; entries are previous calls,
+    /// most recent last. Bounded to the last 4 calls.
+    pub phi_history: std::collections::VecDeque<na::DVector<f64>>,
+    /// Remaining first-step bootstrap passes (see [`BOOTSTRAP_PASSES`]). While
+    /// positive, a force call that sees exactly two history entries treats them
+    /// as the previous provisional pass over [t0, t0+dt/2] and seeds φ̇ from
+    /// their forward difference, then clears the history for the next pass.
+    pub bootstrap_redos: usize,
     pub step_dt: f64,
 }
 
@@ -50,8 +67,8 @@ impl Simulation {
             nbody,
             mass_tensors,
             inertia_tensors,
-            phi_prev: na::DVector::zeros(0),
-            phi_committed: na::DVector::zeros(0),
+            phi_history: std::collections::VecDeque::new(),
+            bootstrap_redos: BOOTSTRAP_PASSES,
             step_dt: 0.01,
         }
     }

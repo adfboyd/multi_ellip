@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::system::system::BOOTSTRAP_PASSES;
 
 pub struct Rk4PCDM<F, G, I>
     where
@@ -129,6 +130,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             };
             start_dt = Instant::now();
 
+            if i == 0 {
+                self.bootstrap_first_step();
+            }
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
@@ -177,6 +181,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             };
             start_dt = Instant::now();
 
+            if i == 0 {
+                self.bootstrap_first_step();
+            }
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
@@ -205,6 +212,27 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         self.run_steady_per_step = steady_start.elapsed().as_secs_f64() / steady_steps;
 
         Ok(self.stats)
+    }
+
+    /// Bootstrap the ∂φ/∂t history at t = 0. The dphi force needs temporal φ
+    /// history that doesn't exist at startup (initial acceleration and φ̇ are
+    /// mutually dependent through the added mass), so run the first step
+    /// provisionally [`BOOTSTRAP_PASSES`] times, rewinding the state after each
+    /// pass. Each pass refines the seed φ̇ by a geometric (added-mass
+    /// contraction) factor; the bookkeeping on the force side lives in
+    /// `ForceCalculate` via `Simulation::bootstrap_redos`.
+    fn bootstrap_first_step(&mut self) {
+        let x0 = self.x.clone();
+        let o0 = self.o.clone();
+        for _ in 0..BOOTSTRAP_PASSES {
+            self.advance_one_step();
+            // Rewind to the initial state and push it back into the system.
+            self.x = x0.clone();
+            self.o = o0.clone();
+            let _ = self.f.system(0.0, &self.x);
+            let o_push = self.o.clone();
+            let _ = self.g.system(0.0, &o_push);
+        }
     }
 
     /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the

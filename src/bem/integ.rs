@@ -1494,11 +1494,10 @@ pub fn dphi_dt_force_element(
     k: usize, mint: usize,
     body_centre: &Vector3<f64>,
     rho_f: f64,
-    f: &DVector<f64>, f_prev: &DVector<f64>,
+    f: &DVector<f64>, phi_dot: &DVector<f64>,
     p: &DMatrix<f64>, n: &DMatrix<usize>, vna: &DMatrix<f64>,
     alpha: &DVector<f64>, beta: &DVector<f64>, gamma: &DVector<f64>,
     xiq: &DVector<f64>, etq: &DVector<f64>, wq: &DVector<f64>,
-    dt: f64,
 ) -> (Vector3<f64>, Vector3<f64>) {
     let mut force  = Vector3::zeros();
     let mut torque = Vector3::zeros();
@@ -1521,20 +1520,21 @@ pub fn dphi_dt_force_element(
     let vna6 = Vector3::new(vna[(i6,0)], vna[(i6,1)], vna[(i6,2)]);
 
     let (f1,f2,f3,f4,f5,f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
-    // Pass f_prev as the "df" parameter; gradient_interp returns dfdn_int = interpolated f_prev
-    let (fp1,fp2,fp3,fp4,fp5,fp6) = (f_prev[i1], f_prev[i2], f_prev[i3], f_prev[i4], f_prev[i5], f_prev[i6]);
+    // Pass the nodal ∂φ/∂t (phi_dot) as the "df" parameter; gradient_interp
+    // returns dfdn_int = phi_dot interpolated to the quadrature point.
+    let (pd1,pd2,pd3,pd4,pd5,pd6) = (phi_dot[i1], phi_dot[i2], phi_dot[i3], phi_dot[i4], phi_dot[i5], phi_dot[i6]);
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
 
     for i in 0..mint {
-        let (xvec, _v, _hs, f_int, fp_int, _dfdxi, _dfdet, ddxi, ddet) =
+        let (xvec, _v, _hs, _f_int, phi_dot_int, _dfdxi, _dfdet, ddxi, ddet) =
             gradient_interp(p1, p2, p3, p4, p5, p6,
                             vna1, vna2, vna3, vna4, vna5, vna6,
                             f1, f2, f3, f4, f5, f6,
-                            fp1, fp2, fp3, fp4, fp5, fp6,
+                            pd1, pd2, pd3, pd4, pd5, pd6,
                             al, be, ga, xiq[i], etq[i]);
 
         let vn = ddxi.cross(&ddet);
-        let dphi_dt_int = (f_int - fp_int) / dt;
+        let dphi_dt_int = phi_dot_int;
         let n_hat_da = vn * (0.5 * wq[i]);
         let r = xvec - body_centre;
 

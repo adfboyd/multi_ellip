@@ -310,19 +310,44 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             eoff += ne;
         }
 
-        let phi_committed = sys_ref.phi_committed.clone();
+        // Same-stage BDF2 ∂φ/∂t stencil. The history holds φ from previous force
+        // evaluations (most recent last). Same-stage spacing is dt (two calls per
+        // step), so φ_{c−2} = phi_history[n−2] is one timestep back and
+        // φ_{c−4} = phi_history[n−4] two timesteps back, both at the current stage.
         let step_dt = sys_ref.step_dt;
-        let has_prev = phi_committed.len() == npts;
+        let bootstrap = sys_ref.bootstrap_redos > 0;
+        let hist = &sys_ref.phi_history;
+        let n_hist = hist.len();
+        let valid = |idx: usize| -> bool { idx < n_hist && hist[idx].len() == npts };
+
+        let fire_bootstrap = bootstrap && n_hist == 2 && valid(0) && valid(1);
+        let phi_dot: DVector<f64> = if fire_bootstrap {
+            // First-step bootstrap (stage A at t0 of a repeat pass): the two
+            // history entries are the previous provisional pass's φ at t0 and
+            // t0 + dt/2; their forward difference seeds φ̇(t0). Each pass
+            // contracts the initial added-mass acceleration error geometrically.
+            (&hist[1] - &hist[0]) / (0.5 * step_dt)
+        } else if n_hist >= 4 && valid(n_hist - 2) && valid(n_hist - 4) {
+            // BDF2 (2nd order at the current call's time): h = dt.
+            (3.0 * &f - 4.0 * &hist[n_hist - 2] + &hist[n_hist - 4]) / (2.0 * step_dt)
+        } else if n_hist >= 2 && valid(n_hist - 2) {
+            // 1st-order backward difference fallback (same-stage spacing dt).
+            (&f - &hist[n_hist - 2]) / step_dt
+        } else if n_hist == 1 && valid(0) {
+            // Stage B of the first step (real or provisional): the single entry
+            // is the stage-A φ at t0, half a step earlier.
+            (&f - &hist[0]) / (0.5 * step_dt)
+        } else {
+            // Very first call ever: no temporal information at all.
+            DVector::zeros(npts)
+        };
 
         let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
             .into_par_iter()
             .map(|k| {
                 let body = elm_body[k];
-                let (force, torque) = if has_prev {
-                    dphi_dt_force_element(k, mint, &positions[body], rho_f, &f, &phi_committed, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, step_dt)
-                } else {
-                    (Vector3::zeros(), Vector3::zeros())
-                };
+                let (force, torque) =
+                    dphi_dt_force_element(k, mint, &positions[body], rho_f, &f, &phi_dot, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
                 (body, force, torque)
             })
             .collect();
@@ -334,8 +359,16 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             torque[body] += to;
         }
 
-        sys_ref.phi_committed = sys_ref.phi_prev.clone();
-        sys_ref.phi_prev = f.clone();
+        if fire_bootstrap {
+            // Discard the provisional pass's history so the next pass (or the
+            // real first step) rebuilds it from this refined starting force.
+            sys_ref.phi_history.clear();
+            sys_ref.bootstrap_redos -= 1;
+        }
+        sys_ref.phi_history.push_back(f.clone());
+        while sys_ref.phi_history.len() > 4 {
+            sys_ref.phi_history.pop_front();
+        }
         #[cfg(feature = "timing")]
         println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());
 
