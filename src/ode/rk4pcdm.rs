@@ -22,6 +22,14 @@ pub struct Rk4PCDM<F, G, I>
     nbody: usize,
     inertias: Vec<Matrix3<f64>>,
     masses: Vec<f64>,
+    /// Per-body body-frame (diagonal) added-mass tensors, scaled by the safety
+    /// factor: M_a_safe = SAFETY * M_a. Used by the semi-implicit stabiliser.
+    added_mass_safe: Vec<Matrix3<f64>>,
+    /// Enable the semi-implicit added-mass-partitioned (Robin) velocity update.
+    added_mass_stab: bool,
+    /// Previous accepted linear acceleration per body (lab frame), the `a_prev`
+    /// of the single-step Robin form. Zero on the first step.
+    lin_accel_prev: DVector<f64>,
     fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
     t_begin: f64,
     t_end: f64,
@@ -70,6 +78,8 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         orientations: Vec<(Quaternion<f64>, Quaternion<f64>)>, // (orientation, angular velocity) per body
         inertias: Vec<Matrix3<f64>>,
         masses: Vec<f64>,
+        added_mass_tensors: Vec<Matrix3<f64>>,
+        added_mass_stab: bool,
         fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
         t_end: f64,
         step_size: f64,
@@ -79,6 +89,12 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
         let omega: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.1).collect();
+
+        // added_mass_tensors are already scaled by the safety factor in main
+        // (input key added_mass_safety). M_a only needs to be >= the true
+        // effective added mass for stability of the Robin update and does not
+        // change the fixed point (a_stab = a_expl).
+        let added_mass_safe: Vec<Matrix3<f64>> = added_mass_tensors;
 
         Rk4PCDM {
             f,
@@ -91,6 +107,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             nbody,
             inertias,
             masses,
+            added_mass_safe,
+            added_mass_stab,
+            lin_accel_prev: DVector::zeros(3 * nbody),
             fluid_ke_getter,
             t_begin,
             t_end,
@@ -260,10 +279,21 @@ impl<F, G, I> Rk4PCDM<F, G, I>
     /// full state `(self.x, self.o, self.o_lab)` by one timestep.
     fn advance_one_step(&mut self) {
         // Forces at the start of the step.
-        let (linear_accel, angular_force) = self.force_get();
+        let (linear_accel_expl, angular_force) = self.force_get();
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
         // KE is the correct value to write for the row sampled at time t_n.
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
+
+        // Optional semi-implicit added-mass stabilisation (single-step Robin):
+        // a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), with
+        // a_prev the accepted acceleration from the previous step. Answer-
+        // preserving (fixed point a_stab = a_prev = a_expl) and unconditionally
+        // stable for M_a_safe >= effective added mass. Applied to both stages.
+        let linear_accel = if self.added_mass_stab {
+            self.stabilise_lin_accel(&linear_accel_expl)
+        } else {
+            linear_accel_expl.clone()
+        };
 
         // Half-step prediction.
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
@@ -273,7 +303,13 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
 
         // Forces at the half step.
-        let (linear_force_half, angular_force_half) = self.force_get();
+        let (linear_force_half_expl, angular_force_half) = self.force_get();
+
+        let linear_force_half = if self.added_mass_stab {
+            self.stabilise_lin_accel(&linear_force_half_expl)
+        } else {
+            linear_force_half_expl
+        };
 
         let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
@@ -286,6 +322,63 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         self.x = x_new;
         self.o = o_new;
         self.o_lab = o_lab_new;
+
+        // Carry the stage-A explicit acceleration as a_prev for the next step's
+        // Robin update. At steady state a_prev -> a_expl, so the stabiliser is
+        // answer-preserving.
+        if self.added_mass_stab {
+            self.lin_accel_prev = linear_accel_expl;
+        }
+    }
+
+    /// Single-step semi-implicit (Robin) added-mass stabilisation of the
+    /// lab-frame linear acceleration. Per body: rotate a_expl and a_prev into
+    /// the body frame (where M_a is diagonal/constant), solve
+    /// a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), and
+    /// rotate back to the lab frame.
+    fn stabilise_lin_accel(&self, accel_expl: &DVector<f64>) -> DVector<f64> {
+        let (q, _) = &self.o;
+        let mut out = DVector::zeros(3 * self.nbody);
+        for i in 0..self.nbody {
+            let ms = self.masses[i];
+            // Bodies with zero mass (fixed) are left untouched.
+            if ms <= 0.0 {
+                for c in 0..3 {
+                    out[3 * i + c] = accel_expl[3 * i + c];
+                }
+                continue;
+            }
+            let a_expl_lab = Vector3::new(
+                accel_expl[3 * i],
+                accel_expl[3 * i + 1],
+                accel_expl[3 * i + 2],
+            );
+            let a_prev_lab = Vector3::new(
+                self.lin_accel_prev[3 * i],
+                self.lin_accel_prev[3 * i + 1],
+                self.lin_accel_prev[3 * i + 2],
+            );
+
+            // Rotate lab -> body using the body orientation quaternion.
+            let a_expl_b = self.lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i]).imag();
+            let a_prev_b = self.lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i]).imag();
+
+            let ms_i = Matrix3::identity() * ms;
+            let m_a = self.added_mass_safe[i];
+            let lhs = ms_i + m_a;
+            let rhs = ms_i * a_expl_b + m_a * a_prev_b;
+            let a_stab_b = lhs
+                .try_inverse()
+                .map(|inv| inv * rhs)
+                .unwrap_or(a_expl_b);
+
+            // Rotate body -> lab.
+            let a_stab_lab = self.body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i]).imag();
+            for c in 0..3 {
+                out[3 * i + c] = a_stab_lab[c];
+            }
+        }
+        out
     }
 
     fn print_progress(&self, i: usize, num_steps: usize, steady_elapsed: Duration, elapsed_dt: Duration) {

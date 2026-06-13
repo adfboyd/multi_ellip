@@ -328,8 +328,20 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             // contracts the initial added-mass acceleration error geometrically.
             (&hist[1] - &hist[0]) / (0.5 * step_dt)
         } else if n_hist >= 4 && valid(n_hist - 2) && valid(n_hist - 4) {
-            // BDF2 (2nd order at the current call's time): h = dt.
-            (3.0 * &f - 4.0 * &hist[n_hist - 2] + &hist[n_hist - 4]) / (2.0 * step_dt)
+            // BDF2 (2nd order at the current call's time): h = dt. Optionally
+            // blended toward the 1st-order same-stage difference by `phidot_blend`
+            // (eps): phi_dot = (1-eps)*BDF2 + eps*BDF1. BDF2's high-frequency
+            // (period-2) stencil gain is 4/dt vs 2/dt for BDF1; blending lowers
+            // it to (4-2eps)/dt to damp the explicit added-mass instability that
+            // appears at fine meshes (ndiv=4). eps=0 is pure BDF2 (default).
+            let eps = sys_ref.phidot_blend;
+            let bdf2 = (3.0 * &f - 4.0 * &hist[n_hist - 2] + &hist[n_hist - 4]) / (2.0 * step_dt);
+            if eps > 0.0 {
+                let bdf1 = (&f - &hist[n_hist - 2]) / step_dt;
+                (1.0 - eps) * bdf2 + eps * bdf1
+            } else {
+                bdf2
+            }
         } else if n_hist >= 2 && valid(n_hist - 2) {
             // 1st-order backward difference fallback (same-stage spacing dt).
             (&f - &hist[n_hist - 2]) / step_dt

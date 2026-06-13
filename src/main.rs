@@ -44,6 +44,16 @@ fn main() {
         }
     };
 
+    // Keep only "key=value" lines before parsing: the nom many0 parser stops at
+    // the first line it can't parse (blank line, comment, trailing whitespace),
+    // which would silently drop every key after it. Filtering first makes key
+    // order and blank lines irrelevant.
+    let input_data: String = input_data
+        .lines()
+        .filter(|l| l.contains('='))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     // Parse "key=value" assignments into a map.
     let mut values: HashMap<String, f64> = HashMap::new();
     match parse_assignments(&input_data) {
@@ -133,6 +143,14 @@ fn main() {
     if sys.impulse_transport {
         println!("Impulse transport terms (omega x L) ENABLED");
     }
+    sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
+    if sys.added_mass_stab {
+        println!("Semi-implicit added-mass stabilisation ENABLED");
+    }
+    sys.phidot_blend = get("phidot_blend", 0.0);
+    if sys.phidot_blend > 0.0 {
+        println!("BDF2->BDF1 phi_dot blend eps = {}", sys.phidot_blend);
+    }
     println!("Simulation Built");
 
     // Initial integrator state, stacked over bodies.
@@ -156,6 +174,17 @@ fn main() {
 
     let x = (p0, v0);
 
+    // Per-body body-frame added-mass tensors for the optional stabiliser,
+    // pre-scaled by the safety factor (input key added_mass_safety, default 2).
+    // Constant in the body frame; harmless when the flag is off.
+    let added_mass_safety = get("added_mass_safety", 2.0);
+    let added_mass_tensors: Vec<na::Matrix3<f64>> =
+        sys.added_mass_tensors().iter().map(|m| m * added_mass_safety).collect();
+    let added_mass_stab = sys.added_mass_stab;
+    if added_mass_stab {
+        println!("Added-mass safety factor = {}", added_mass_safety);
+    }
+
     let sys_mutex = Arc::new(Mutex::new(sys));
     let sys_for_ke = sys_mutex.clone();
     let fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>> = Some(Box::new(move || {
@@ -176,6 +205,8 @@ fn main() {
         orientations,
         inertias,
         masses,
+        added_mass_tensors,
+        added_mass_stab,
         fluid_ke_getter,
         t_end,
         dt,

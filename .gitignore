@@ -39,3 +39,13 @@ input_close*.txt
 
 # Misc scratch
 lamb_formulation.html
+
+# stabilisation scratch inputs
+be_*.txt
+bo_*.txt
+s3_*.txt
+s4_*.txt
+stab*.txt
+blend_*.txt
+stabsweep_*.txt
+_*.txt

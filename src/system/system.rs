@@ -47,6 +47,17 @@ pub struct Simulation {
     /// Lamb-impulse rate dL/dt carries for a rotating body, which the
     /// per-element ∂φ/∂t force omits. Off by default (validated path).
     pub impulse_transport: bool,
+    /// Opt-in (input key `added_mass_stab`): enable the semi-implicit
+    /// added-mass-partitioned (Robin) velocity update in the integrator, which
+    /// stabilises the explicit added-mass reaction force at fine meshes
+    /// (ndiv=4). Off by default; when off the integrator path is byte-identical
+    /// to the explicit scheme.
+    pub added_mass_stab: bool,
+    /// Optional blend of the BDF2 ∂φ/∂t stencil toward the 1st-order same-stage
+    /// difference (input key `phidot_blend`, eps in [0,1]): lowers the BDF2
+    /// high-frequency stencil gain (4/dt) toward BDF1's (2/dt) to damp the
+    /// fine-mesh explicit added-mass instability. 0 = pure BDF2 (default).
+    pub phidot_blend: f64,
     pub step_dt: f64,
 }
 
@@ -75,6 +86,8 @@ impl Simulation {
             phi_history: std::collections::VecDeque::new(),
             bootstrap_redos: BOOTSTRAP_PASSES,
             impulse_transport: false,
+            added_mass_stab: false,
+            phidot_blend: 0.0,
             step_dt: 0.01,
         }
     }
@@ -176,5 +189,22 @@ impl Simulation {
     pub fn added_inertia_calc(&self, i: usize) -> na::Matrix3<f64> {
         let (_, inertia) = self.bodies[i].inertia_tensor(self.fluid.density);
         inertia
+    }
+
+    /// Body-frame (diagonal) added-mass tensor M_a for each body, used by the
+    /// semi-implicit added-mass stabiliser. Constant in the body frame, so
+    /// computed once at setup from the analytic potential-flow shape factors.
+    pub fn added_mass_tensors(&self) -> Vec<na::Matrix3<f64>> {
+        use crate::system::hamiltonian::{calc_shape_factor, mf_calc};
+        use std::f64::consts::PI;
+        self.bodies
+            .iter()
+            .map(|b| {
+                let m_s = na::Matrix3::from_diagonal(&b.shape);
+                let v_s = 4.0 / 3.0 * PI * b.shape.iter().fold(1.0, |acc, x| acc * x);
+                let sf = calc_shape_factor(1e4, m_s).unwrap();
+                mf_calc(sf.alpha, sf.beta, sf.gamma, v_s, self.fluid.density)
+            })
+            .collect()
     }
 }
