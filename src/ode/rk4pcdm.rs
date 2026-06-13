@@ -269,13 +269,13 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
         let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-        let _ = self.f.system(0.0, &(p_half, v_half));
+        let _ = self.f.system(0.0, &(p_half, v_half.clone()));
         let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
 
         // Forces at the half step.
         let (linear_force_half, angular_force_half) = self.force_get();
 
-        let x_new = self.lin_full_step(&linear_force_half);
+        let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
         let _ = self.f.system(0.0, &x_new);
@@ -428,9 +428,11 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         (p_new, v_new)
     }
 
-    fn lin_full_step(&mut self, lin_force: &DVector<f64>) -> LinearState {
+    fn lin_full_step(&mut self, lin_force: &DVector<f64>, v_half: &DVector<f64>) -> LinearState {
         let (p, v) = self.x.clone();
-        let p_new = &p + &v * self.step_size;
+        // Position uses the midpoint velocity v_{n+1/2} (previously v_n — explicit
+        // Euler for position, the source of a small O(dt) global position error).
+        let p_new = &p + v_half * self.step_size;
         let v_new = &v + lin_force * self.step_size;
         (p_new, v_new)
     }
