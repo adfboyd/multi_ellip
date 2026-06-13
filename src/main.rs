@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use nom::{
     IResult,
-    bytes::complete::tag,
-    character::complete::{alphanumeric1, line_ending},
+    bytes::complete::{tag, take_while1},
+    character::complete::line_ending,
     number::complete::double,
     sequence::{separated_pair, terminated},
     combinator::opt,
@@ -129,6 +129,10 @@ fn main() {
     println!("Building simulation");
     let mut sys = Simulation::new(fluid, bodies, ndiv as u32);
     sys.step_dt = dt;
+    sys.impulse_transport = get("impulse_transport", 0.0) > 0.5;
+    if sys.impulse_transport {
+        println!("Impulse transport terms (omega x L) ENABLED");
+    }
     println!("Simulation Built");
 
     // Initial integrator state, stacked over bodies.
@@ -256,7 +260,11 @@ fn fmt_hms(secs: f64) -> String {
 }
 
 fn parse_assignment(input: &str) -> IResult<&str, (&str, f64)> {
-    separated_pair(alphanumeric1, tag("="), double)(input)
+    // Keys are alphanumeric plus underscore (e.g. impulse_transport); plain
+    // alphanumeric1 silently rejected underscore keys and, via many0, dropped
+    // every key after the first such line.
+    let key = take_while1(|c: char| c.is_alphanumeric() || c == '_');
+    separated_pair(key, tag("="), double)(input)
 }
 
 fn parse_assignments(input: &str) -> IResult<&str, Vec<(&str, f64)>> {

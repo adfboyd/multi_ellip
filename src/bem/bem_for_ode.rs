@@ -342,21 +342,42 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             DVector::zeros(npts)
         };
 
-        let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
+        let impulse_transport = sys_ref.impulse_transport;
+
+        let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>)> = (0..nelm)
             .into_par_iter()
             .map(|k| {
                 let body = elm_body[k];
                 let (force, torque) =
                     dphi_dt_force_element(k, mint, &positions[body], rho_f, &f, &phi_dot, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
-                (body, force, torque)
+                let (l_lin, l_ang) = if impulse_transport {
+                    lamb_impulse_element(k, mint, &positions[body], rho_f, &f, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq)
+                } else {
+                    (Vector3::zeros(), Vector3::zeros())
+                };
+                (body, force, torque, l_lin, l_ang)
             })
             .collect();
 
         let mut lin_force = vec![Vector3::zeros(); nbody];
         let mut torque = vec![Vector3::zeros(); nbody];
-        for (body, fo, to) in contributions {
+        let mut l_lin = vec![Vector3::zeros(); nbody];
+        let mut l_ang = vec![Vector3::zeros(); nbody];
+        for (body, fo, to, ll, la) in contributions {
             lin_force[body] += fo;
             torque[body] += to;
+            l_lin[body] += ll;
+            l_ang[body] += la;
+        }
+
+        if impulse_transport {
+            // F = dL_lin/dt = (∂φ/∂t term) + ω × L_lin;  N similarly + ω × L_ang.
+            // ω is the body's lab-frame angular velocity (same vector dfdn uses).
+            for b in 0..nbody {
+                let omega = sys_ref.bodies[b].angular_velocity().imag();
+                lin_force[b] += omega.cross(&l_lin[b]);
+                torque[b] += omega.cross(&l_ang[b]);
+            }
         }
 
         if fire_bootstrap {

@@ -1545,6 +1545,64 @@ pub fn dphi_dt_force_element(
     (force, torque)
 }
 
+/// Lamb hydrodynamic impulse of one element:
+///   L_lin = rho ∮ φ n̂ dA      L_ang = rho ∮ φ (r × n̂) dA      (r = x − body_centre)
+/// Used to form the rotating-frame transport terms ω×L_lin (force) and
+/// ω×L_ang (torque) that the exact impulse rate dL/dt carries for a rotating
+/// body, but the per-element ∂φ/∂t integral in `dphi_dt_force_element` omits.
+pub fn lamb_impulse_element(
+    k: usize, mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>,
+    p: &DMatrix<f64>, n: &DMatrix<usize>, vna: &DMatrix<f64>,
+    alpha: &DVector<f64>, beta: &DVector<f64>, gamma: &DVector<f64>,
+    xiq: &DVector<f64>, etq: &DVector<f64>, wq: &DVector<f64>,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let mut l_lin = Vector3::zeros();
+    let mut l_ang = Vector3::zeros();
+
+    let i1 = n[(k,0)]; let i2 = n[(k,1)]; let i3 = n[(k,2)];
+    let i4 = n[(k,3)]; let i5 = n[(k,4)]; let i6 = n[(k,5)];
+
+    let p1 = Vector3::new(p[(i1,0)], p[(i1,1)], p[(i1,2)]);
+    let p2 = Vector3::new(p[(i2,0)], p[(i2,1)], p[(i2,2)]);
+    let p3 = Vector3::new(p[(i3,0)], p[(i3,1)], p[(i3,2)]);
+    let p4 = Vector3::new(p[(i4,0)], p[(i4,1)], p[(i4,2)]);
+    let p5 = Vector3::new(p[(i5,0)], p[(i5,1)], p[(i5,2)]);
+    let p6 = Vector3::new(p[(i6,0)], p[(i6,1)], p[(i6,2)]);
+
+    let vna1 = Vector3::new(vna[(i1,0)], vna[(i1,1)], vna[(i1,2)]);
+    let vna2 = Vector3::new(vna[(i2,0)], vna[(i2,1)], vna[(i2,2)]);
+    let vna3 = Vector3::new(vna[(i3,0)], vna[(i3,1)], vna[(i3,2)]);
+    let vna4 = Vector3::new(vna[(i4,0)], vna[(i4,1)], vna[(i4,2)]);
+    let vna5 = Vector3::new(vna[(i5,0)], vna[(i5,1)], vna[(i5,2)]);
+    let vna6 = Vector3::new(vna[(i6,0)], vna[(i6,1)], vna[(i6,2)]);
+
+    let (f1,f2,f3,f4,f5,f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
+    let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    for i in 0..mint {
+        // Reuse gradient_interp for geometry + interpolated φ (f_int); the "df"
+        // slot is unused here so f is passed again as a dummy.
+        let (xvec, _v, _hs, f_int, _df_int, _dfdxi, _dfdet, ddxi, ddet) =
+            gradient_interp(p1, p2, p3, p4, p5, p6,
+                            vna1, vna2, vna3, vna4, vna5, vna6,
+                            f1, f2, f3, f4, f5, f6,
+                            f1, f2, f3, f4, f5, f6,
+                            al, be, ga, xiq[i], etq[i]);
+
+        let vn = ddxi.cross(&ddet);
+        let n_hat_da = vn * (0.5 * wq[i]);
+        let r = xvec - body_centre;
+
+        l_lin += rho_f * f_int * n_hat_da;
+        l_ang += rho_f * f_int * r.cross(&n_hat_da);
+    }
+
+    (l_lin, l_ang)
+}
+
 pub fn gradient_interp_outer_3d(_npts :usize, nelm :usize, mint :usize,
                  f :&DVector<f64>, dfdn :&DVector<f64>,
                  p :&DMatrix<f64>, n :&DMatrix<usize>, vna :&DMatrix<f64>,
