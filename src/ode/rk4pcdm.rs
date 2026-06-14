@@ -1,3 +1,14 @@
+use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
+use crate::ode::pcdm::accel_get;
+use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
+
+/// Max Newton iterations for the strong-coupling implicit-midpoint velocity solve.
+const STRONG_MAXITER: usize = 30;
 use crate::bem::bem_for_ode::{AngularState, LinearState};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
@@ -50,6 +61,15 @@ where
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
+    /// Prototype B: strong (implicit-midpoint) FSI coupling for the linear DOF.
+    strong_couple: bool,
+    /// Approach A: implicit impulse-difference scheme. Force/torque are formed
+    /// from -(L_{n+1}-L_n)/dt using the BEM state-function impulse, so the
+    /// scheme conserves momentum/impulse and the energy oscillation vanishes.
+    impulse_scheme: bool,
+    /// Shared simulation handle, used to toggle `freeze_phi_history` /
+    /// `impulse_mode` around trial force evaluations.
+    sim: Arc<Mutex<Simulation>>,
     initial_total_ke: Option<f64>,
 }
 
@@ -86,6 +106,9 @@ where
         step_size: f64,
         samp_rate: u32,
         print_rate: u32,
+        strong_couple: bool,
+        impulse_scheme: bool,
+        sim: Arc<Mutex<Simulation>>,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -128,6 +151,9 @@ where
             run_first_step_secs: 0.0,
             run_steady_per_step: 0.0,
             fluid_ke_step_start: 0.0,
+            strong_couple,
+            impulse_scheme,
+            sim,
             initial_total_ke: None,
         }
     }
@@ -265,6 +291,12 @@ where
     /// contraction) factor; the bookkeeping on the force side lives in
     /// `ForceCalculate` via `Simulation::bootstrap_redos`.
     fn bootstrap_first_step(&mut self) {
+        // The implicit schemes iterate each step to consistency, so they do not
+        // need (and are corrupted by) the explicit scheme's repeated provisional
+        // first step. Skip it.
+        if self.strong_couple || self.impulse_scheme {
+            return;
+        }
         println!(
             "Preparing first step: {} bootstrap pass(es).",
             BOOTSTRAP_PASSES
@@ -287,6 +319,14 @@ where
     /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the
     /// full state `(self.x, self.o, self.o_lab)` by one timestep.
     fn advance_one_step(&mut self) {
+        if self.impulse_scheme {
+            self.advance_one_step_impulse();
+            return;
+        }
+        if self.strong_couple {
+            self.advance_one_step_strong();
+            return;
+        }
         // Forces at the start of the step.
         let (linear_accel_expl, angular_force) = self.force_get();
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
@@ -342,6 +382,176 @@ where
         if self.added_mass_stab {
             self.lin_accel_prev = linear_accel_expl;
         }
+    }
+
+    /// Toggle the shared `freeze_phi_history` flag so strong-coupling trial
+    /// force evaluations don't push provisional φ into the committed history.
+    fn set_freeze(&self, freeze: bool) {
+        if let Ok(mut s) = self.sim.lock() {
+            s.freeze_phi_history = freeze;
+        }
+    }
+
+    /// Solve the BEM at the current synced body state and return the lab-frame
+    /// fluid impulse (L_lin, L_ang) per body, packed as DVectors. State function:
+    /// no ∂φ/∂t, no φ-history side effects.
+    fn impulse_get(&mut self) -> (DVector<f64>, DVector<f64>) {
+        if let Ok(mut s) = self.sim.lock() {
+            s.impulse_mode = true;
+        }
+        let out = self.i.system();
+        if let Ok(mut s) = self.sim.lock() {
+            s.impulse_mode = false;
+        }
+        out
+    }
+
+    /// Approach A: one timestep with the implicit impulse-difference scheme.
+    /// Force/torque are F = -(L_{n+1}-L_n)/dt, τ = -(Λ_{n+1}-Λ_n)/dt using the
+    /// BEM state-function impulse. The linear velocity is solved implicitly so
+    /// that m_s u + L_lin is conserved; the angular DOF are integrated by the
+    /// existing Euler/PCDM machinery driven by the impulse-difference torque.
+    /// Coupled end-state fixed point (linear + torque) with the added-mass
+    /// preconditioner. No φ-history, no bootstrap.
+    fn advance_one_step_impulse(&mut self) {
+        let (l_lin_n, l_ang_n) = self.impulse_get();
+        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+
+        let (p_n, v_n) = self.x.clone();
+        let mut v_new = v_n.clone();
+        let mut torque = DVector::zeros(3 * self.nbody);
+        let mut o_new = self.o.clone();
+
+        let tol = 1e-9 * (v_n.norm() + 1.0);
+        for _it in 0..STRONG_MAXITER {
+            // Angular: integrate from the start state with the current torque
+            // estimate (same step-averaged torque for both stages).
+            let (q_half, o_half) = self.ang_half_step(&torque);
+            o_new = self.ang_full_step(&torque, &(q_half, o_half));
+            let q_end = o_new.0.clone();
+
+            // Position uses the midpoint velocity; sync the end state.
+            let v_mid = 0.5 * (&v_n + &v_new);
+            let p_new = &p_n + &v_mid * self.step_size;
+            let _ = self.f.system(0.0, &(p_new, v_new.clone()));
+            let _ = self.g.system(0.0, &o_new);
+
+            let (l_lin_np1, l_ang_np1) = self.impulse_get();
+
+            // The fluid force/torque on the body is F = +dL/dt (validated sign;
+            // L = ρ∮φn̂dA is negative for positive velocity, so the body conserves
+            // m_s u - L, i.e. effective mass m_s + M_a). Residual of the implicit
+            // midpoint m_s(v_{n+1}-v_n) = (L_{n+1}-L_n); torque N = dΛ/dt.
+            let mut r_lin = DVector::zeros(3 * self.nbody);
+            let mut new_torque = DVector::zeros(3 * self.nbody);
+            for b in 0..self.nbody {
+                let ms = self.masses[b];
+                for c in 0..3 {
+                    r_lin[3 * b + c] =
+                        ms * (v_new[3 * b + c] - v_n[3 * b + c]) - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
+                    new_torque[3 * b + c] = (l_ang_np1[3 * b + c] - l_ang_n[3 * b + c]) / self.step_size;
+                }
+            }
+            let dtorque = (&new_torque - &torque).norm();
+            torque = new_torque;
+            if r_lin.norm() < tol && dtorque < tol {
+                break;
+            }
+
+            // Preconditioned Newton update: P = m_s I + M_a (body frame).
+            for b in 0..self.nbody {
+                let ms = self.masses[b];
+                if ms <= 0.0 {
+                    continue;
+                }
+                let r_lab = Vector3::new(r_lin[3 * b], r_lin[3 * b + 1], r_lin[3 * b + 2]);
+                let r_b = self.lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b]).imag();
+                let p_mat = Matrix3::identity() * ms + self.added_mass_safe[b];
+                let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b / ms);
+                let d_lab = self.body_to_lab(&Quaternion::from_imag(d_b), &q_end[b]).imag();
+                for c in 0..3 {
+                    v_new[3 * b + c] -= d_lab[c];
+                }
+            }
+        }
+
+        let v_mid = 0.5 * (&v_n + &v_new);
+        let p_new = &p_n + &v_mid * self.step_size;
+        let x_new = (p_new, v_new);
+
+        let _ = self.f.system(0.0, &x_new);
+        let _ = self.g.system(0.0, &o_new);
+        let o_lab_new = self.orientation_to_marker_point();
+
+        self.x = x_new;
+        self.o = o_new;
+        self.o_lab = o_lab_new;
+    }
+
+    /// Prototype B: one timestep with strong (implicit-midpoint) coupling of the
+    /// linear velocity. Solves v_half = v_n + half_step * a(v_half) by Newton
+    /// iteration with the analytic added-mass preconditioner P = I + M_a/(2 M_s),
+    /// re-solving the BEM force at each trial v_half (history frozen). The
+    /// added-mass reaction is then implicit, removing the explicit oscillation
+    /// while preserving 2nd order. The angular DOF use the existing explicit
+    /// midpoint (the added-mass instability is translational).
+    fn advance_one_step_strong(&mut self) {
+        // Stage A at z_n (commits φ(v_n) to the history).
+        let (a_n, torque_n) = self.force_get();
+        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+
+        let (q_half, o_half) = self.ang_half_step(&torque_n);
+
+        let (p_n, v_n) = self.x.clone();
+        let mut v_half = &v_n + &a_n * self.half_step; // explicit initial guess
+
+        self.set_freeze(true);
+        let tol = 1e-9 * (v_n.norm() + 1.0);
+        for _it in 0..STRONG_MAXITER {
+            let p_half = &p_n + &v_half * self.half_step;
+            let _ = self.f.system(0.0, &(p_half, v_half.clone()));
+            let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
+            let (a_h, _torque_h) = self.force_get(); // frozen: no history push
+            let resid = &v_half - &v_n - &a_h * self.half_step; // g(v_half)
+            if resid.norm() < tol {
+                break;
+            }
+            for b in 0..self.nbody {
+                let ms = self.masses[b];
+                if ms <= 0.0 {
+                    continue;
+                }
+                let r_lab = Vector3::new(resid[3 * b], resid[3 * b + 1], resid[3 * b + 2]);
+                let r_b = self.lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b]).imag();
+                let p_mat = Matrix3::identity() + self.added_mass_safe[b] / (2.0 * ms);
+                let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b);
+                let d_lab = self.body_to_lab(&Quaternion::from_imag(d_b), &q_half[b]).imag();
+                for c in 0..3 {
+                    v_half[3 * b + c] -= d_lab[c];
+                }
+            }
+        }
+        self.set_freeze(false);
+
+        // Commit stage B: evaluate at the converged v_half to push φ(v_half).
+        let p_half = &p_n + &v_half * self.half_step;
+        let _ = self.f.system(0.0, &(p_half, v_half.clone()));
+        let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
+        let (_a_final, torque_half) = self.force_get();
+
+        // Implicit-midpoint update: v_{n+1} = 2 v_half - v_n, x uses v_half.
+        let v_new = 2.0 * &v_half - &v_n;
+        let p_new = &p_n + &v_half * self.step_size;
+        let x_new = (p_new, v_new);
+        let o_new = self.ang_full_step(&torque_half, &(q_half, o_half));
+
+        let _ = self.f.system(0.0, &x_new);
+        let _ = self.g.system(0.0, &o_new);
+        let o_lab_new = self.orientation_to_marker_point();
+
+        self.x = x_new;
+        self.o = o_new;
+        self.o_lab = o_lab_new;
     }
 
     /// Single-step semi-implicit (Robin) added-mass stabilisation of the
