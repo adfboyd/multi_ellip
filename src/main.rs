@@ -177,8 +177,12 @@ fn main() {
 
     println!("Solver initialised");
 
-    let nelm_end = 8_usize * 4_usize.pow(ndiv as u32) * 2_usize * nbody;
-    println!("Total number of elements = {:?}.", nelm_end);
+    // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
+    // quadratic (6-node) triangles, with 2*nelm + 2 nodes (matches ellip_gridder).
+    let elems_per_body = 8_usize * 4_usize.pow(ndiv as u32);
+    let nelm_end = elems_per_body * nbody;
+    let npts_total = (2 * elems_per_body + 2) * nbody;
+    println!("Total number of triangular elements = {:?}, nodes = {:?}.", nelm_end, npts_total);
 
     let path_base_str = output_file_path;
     println!("Saving to {:?}", path_base_str);
@@ -211,16 +215,40 @@ fn main() {
     let res = stepper.integrate_with_writer(&mut buf);
 
     match res {
-        Ok(_) => {
+        Ok(stats) => {
             println!("Solver finished successfully - good job!");
             if let Err(e) = buf.flush() {
                 println!("Could not write to file. Error: {:?}", e);
                 return;
             }
-            println!("Results saved successfully.")
+            println!("Results saved successfully.");
+
+            println!();
+            println!("================== Run summary ==================");
+            println!("  Bodies:            {}", nbody);
+            println!("  Triangles / nodes: {} / {}", nelm_end, npts_total);
+            println!("  Timesteps:         {}  (dt = {})", stats.accepted_steps, dt);
+            println!("  Simulated time:    0 -> {}", t_end);
+            println!("  First-step setup:  {:.3} s", stepper.run_first_step_secs);
+            println!("  Mean time/step:    {:.4} s  (excl. first step)", stepper.run_steady_per_step);
+            println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
+            println!("================================================");
         }
         Err(e) => println!("An error occurred {:?}", e),
     };
+}
+
+/// Format a duration in seconds as a compact "Hh Mm Ss" string.
+fn fmt_hms(secs: f64) -> String {
+    let total = secs as u64;
+    let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
+    if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{:.2}s", secs)
+    }
 }
 
 fn parse_assignment(input: &str) -> IResult<&str, (&str, f64)> {
