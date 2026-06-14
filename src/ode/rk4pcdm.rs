@@ -181,7 +181,7 @@ where
                 steady_start = Instant::now();
                 self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
                 println!("First step completed in {:.3} s.", self.run_first_step_secs);
-                println!("Progress timing starts now.");
+                // println!("Progress timing starts now.");
                 println!();
             }
             let t_new = self.t + self.step_size;
@@ -242,7 +242,7 @@ where
                 steady_start = Instant::now();
                 self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
                 println!("First step completed in {:.3} s.", self.run_first_step_secs);
-                println!("Progress timing starts now.");
+                // println!("Progress timing starts now.");
                 println!();
             }
             let t_new = self.t + self.step_size;

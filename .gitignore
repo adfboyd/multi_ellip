@@ -39,6 +39,11 @@ input_close*.txt
 
 # Misc scratch
 lamb_formulation.html
+__pycache__/
+*.pyc
+
+# Generated study run directories
+studies/**/runs/
 
 # stabilisation scratch inputs
 be_*.txt
