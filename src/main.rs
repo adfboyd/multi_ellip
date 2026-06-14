@@ -182,7 +182,6 @@ fn main() {
     sys.strong_couple = get("strong_couple", 0.0) > 0.5;
     let strong_couple = sys.strong_couple;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
-    let impulse_transport = sys.impulse_transport;
     let phidot_blend = sys.phidot_blend;
 
     // Initial integrator state, stacked over bodies.
@@ -319,7 +318,6 @@ fn main() {
         "  CPU cores:         {} available, {} Rayon worker thread(s)",
         available_cores, rayon_threads
     );
-    println!("  Impulse transport: {}", fmt_enabled(impulse_transport));
     println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
     println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
     if added_mass_stab {
@@ -331,6 +329,7 @@ fn main() {
         println!("  Added-mass stab:   disabled");
     }
     println!("  Phi-dot blend:     {}", fmt_phidot_blend(phidot_blend));
+    print_solver_guidance();
     println!("================================================");
     println!("Solver starting - good luck!");
     println!();
@@ -393,6 +392,18 @@ fn fmt_phidot_blend(value: f64) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn print_solver_guidance() {
+    println!();
+    println!("  Solver guidance:");
+    println!("    - Strong coupling: use for stiff close-coupled runs; slower but more implicit.");
+    println!(
+        "    - Impulse scheme: use when impulse/momentum conservation or KE drift is the focus. Recommended."
+    );
+    println!(
+        "    - Added-mass stab: use for higher mesh counts (ndiv > 3) to preserve stability - deprecated."
+    );
 }
 
 fn available_parallelism() -> usize {

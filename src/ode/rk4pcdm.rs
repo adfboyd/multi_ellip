@@ -179,6 +179,10 @@ where
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
+                self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
+                println!("First step completed in {:.3} s.", self.run_first_step_secs);
+                println!("Progress timing starts now.");
+                println!();
             }
             let t_new = self.t + self.step_size;
 
@@ -236,6 +240,10 @@ where
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
+                self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
+                println!("First step completed in {:.3} s.", self.run_first_step_secs);
+                println!("Progress timing starts now.");
+                println!();
             }
             let t_new = self.t + self.step_size;
 
@@ -269,7 +277,9 @@ where
 
         // Record timing for the end-of-run summary.
         self.run_wall_secs = start_t.elapsed().as_secs_f64();
-        self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
+        if self.run_first_step_secs == 0.0 {
+            self.run_first_step_secs = steady_start.duration_since(start_t).as_secs_f64();
+        }
         let steady_steps = num_steps.saturating_sub(1).max(1) as f64;
         self.run_steady_per_step = steady_start.elapsed().as_secs_f64() / steady_steps;
 
@@ -288,10 +298,13 @@ where
         // need (and are corrupted by) the explicit scheme's repeated provisional
         // first step. Skip it.
         if self.strong_couple || self.impulse_scheme {
+            println!("Preparing first step: implicit scheme, no bootstrap passes required.");
+            println!("First step may take longer than later steps.");
+            println!();
             return;
         }
         println!(
-            "Preparing first step: {} bootstrap pass(es).",
+            "Preparing first step: {} bootstrap pass(es); this may take longer than later steps.",
             BOOTSTRAP_PASSES
         );
         let x0 = self.x.clone();
@@ -305,8 +318,6 @@ where
             let o_push = self.o.clone();
             let _ = self.g.system(0.0, &o_push);
         }
-        println!("Progress timing starts after bootstrap.");
-        println!();
     }
 
     /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the
@@ -325,10 +336,7 @@ where
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
         // KE is the correct value to write for the row sampled at time t_n.
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
-        if self.initial_total_ke.is_none() {
-            let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
-            self.initial_total_ke = Some(ke_solid.total + self.fluid_ke_step_start);
-        }
+        self.capture_initial_total_ke();
 
         // Optional semi-implicit added-mass stabilisation (single-step Robin):
         // a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), with
@@ -409,6 +417,7 @@ where
     fn advance_one_step_impulse(&mut self) {
         let (l_lin_n, l_ang_n) = self.impulse_get();
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        self.capture_initial_total_ke();
 
         let (p_n, v_n) = self.x.clone();
         let mut v_new = v_n.clone();
@@ -497,6 +506,7 @@ where
         // Stage A at z_n (commits φ(v_n) to the history).
         let (a_n, torque_n) = self.force_get();
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        self.capture_initial_total_ke();
 
         let (q_half, o_half) = self.ang_half_step(&torque_n);
 
@@ -696,6 +706,13 @@ where
                 format!("{:+.2}%", drift_pct)
             }
             _ => "n/a".to_string(),
+        }
+    }
+
+    fn capture_initial_total_ke(&mut self) {
+        if self.initial_total_ke.is_none() {
+            let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
+            self.initial_total_ke = Some(ke_solid.total + self.fluid_ke_step_start);
         }
     }
 
