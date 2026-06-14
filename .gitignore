@@ -49,3 +49,11 @@ stab*.txt
 blend_*.txt
 stabsweep_*.txt
 _*.txt
+
+# coupled-force verification scratch (omega-fix validation)
+clean*.txt
+t0probe*.txt
+coup*.txt
+puretrans.txt
+purerot_tr.txt
+chk_*.py
