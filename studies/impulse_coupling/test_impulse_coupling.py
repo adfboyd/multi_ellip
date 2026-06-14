@@ -128,6 +128,14 @@ def drift(data: np.ndarray) -> np.ndarray:
     return 100.0 * (ke - ke[0]) / ke[0]
 
 
+def invariant_span(data: np.ndarray, prefix: str) -> float:
+    cols = tuple(f"{prefix}_{axis}_1" for axis in ("x", "y", "z"))
+    if not all(col in data.dtype.names for col in cols):
+        return float("nan")
+    values = np.column_stack([data[col] for col in cols])
+    return float(np.max(np.linalg.norm(values - values[0], axis=1)))
+
+
 def summarize() -> list[dict[str, object]]:
     rows = []
     for case in CASES:
@@ -145,6 +153,8 @@ def summarize() -> list[dict[str, object]]:
                 "drift_max_abs_pct": np.max(np.abs(d)),
                 "solid_range": data["ke_solid"].max() - data["ke_solid"].min(),
                 "fluid_range": data["ke_fluid"].max() - data["ke_fluid"].min(),
+                "pcon_span": invariant_span(data, "pcon"),
+                "hcon_span": invariant_span(data, "hcon"),
             }
         )
     return rows
@@ -157,11 +167,12 @@ def write_summary(rows: list[dict[str, object]]) -> None:
         writer.writeheader()
         writer.writerows(rows)
     print(f"Saved {out.relative_to(ROOT)}")
-    print("case                    end drift %  max |drift| %")
+    print("case                    end drift %  max |drift| %      P span      H span")
     for row in rows:
         print(
             f"{row['case']:<24} {row['drift_end_pct']:>12.5f}"
             f" {row['drift_max_abs_pct']:>14.5f}"
+            f" {row['pcon_span']:>11.4e} {row['hcon_span']:>11.4e}"
         )
 
 
@@ -194,7 +205,13 @@ def plot(rows: list[dict[str, object]]) -> None:
     for case in CASES:
         data = load(case)
         ax[1, 1].plot(data["time"], data["ke_total"], lw=1.2, label=case["name"])
-    ax[1, 1].set(title="Total KE", xlabel="t", ylabel="KE")
+    if all(col in load(CASES[-1]).dtype.names for col in ("pcon_x_1", "pcon_y_1", "pcon_z_1", "hcon_x_1", "hcon_y_1", "hcon_z_1")):
+        data = load(CASES[-1])
+        p_values = np.column_stack([data["pcon_x_1"], data["pcon_y_1"], data["pcon_z_1"]])
+        h_values = np.column_stack([data["hcon_x_1"], data["hcon_y_1"], data["hcon_z_1"]])
+        ax[1, 1].plot(data["time"], np.linalg.norm(p_values - p_values[0], axis=1), lw=1.2, ls=":", label="both |P-P0|")
+        ax[1, 1].plot(data["time"], np.linalg.norm(h_values - h_values[0], axis=1), lw=1.2, ls=":", label="both |H-H0|")
+    ax[1, 1].set(title="Total KE and combined invariant errors", xlabel="t", ylabel="KE / abs error")
     ax[1, 1].legend(fontsize=7)
     ax[1, 1].grid(alpha=0.3)
 

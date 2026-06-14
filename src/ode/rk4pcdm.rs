@@ -54,6 +54,9 @@ where
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
+    /// Fluid impulse captured at the start of the current step in impulse mode.
+    fluid_impulse_lin_step_start: Option<DVector<f64>>,
+    fluid_impulse_ang_step_start: Option<DVector<f64>>,
     /// Prototype B: strong (implicit-midpoint) FSI coupling for the linear DOF.
     strong_couple: bool,
     /// Approach A: implicit impulse-difference scheme. Force/torque are formed
@@ -144,6 +147,8 @@ where
             run_first_step_secs: 0.0,
             run_steady_per_step: 0.0,
             fluid_ke_step_start: 0.0,
+            fluid_impulse_lin_step_start: None,
+            fluid_impulse_ang_step_start: None,
             strong_couple,
             impulse_scheme,
             sim,
@@ -270,7 +275,13 @@ where
         // has not yet been computed, so run one extra BEM solve to obtain it (the
         // side effects — φ history push, fluid KE update — are harmless).
         if let Some((tp, xp, op, olp)) = pending.take() {
-            let _ = self.force_get();
+            if self.impulse_scheme {
+                let (l_lin, l_ang) = self.impulse_get();
+                self.fluid_impulse_lin_step_start = Some(l_lin);
+                self.fluid_impulse_ang_step_start = Some(l_ang);
+            } else {
+                let _ = self.force_get();
+            }
             let kef = self.fluid_kinetic_energy();
             self.write_row(writer, tp, &xp, &op, &olp, kef)?;
         }
@@ -417,6 +428,8 @@ where
     fn advance_one_step_impulse(&mut self) {
         let (l_lin_n, l_ang_n) = self.impulse_get();
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
+        self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
 
         let (p_n, v_n) = self.x.clone();
@@ -435,7 +448,7 @@ where
             // Position uses the midpoint velocity; sync the end state.
             let v_mid = 0.5 * (&v_n + &v_new);
             let p_new = &p_n + &v_mid * self.step_size;
-            let _ = self.f.system(0.0, &(p_new, v_new.clone()));
+            let _ = self.f.system(0.0, &(p_new.clone(), v_new.clone()));
             let _ = self.g.system(0.0, &o_new);
 
             let (l_lin_np1, l_ang_np1) = self.impulse_get();
@@ -448,11 +461,30 @@ where
             let mut new_torque = DVector::zeros(3 * self.nbody);
             for b in 0..self.nbody {
                 let ms = self.masses[b];
+                let v_old = Vector3::new(v_n[3 * b], v_n[3 * b + 1], v_n[3 * b + 2]);
+                let v_end = Vector3::new(v_new[3 * b], v_new[3 * b + 1], v_new[3 * b + 2]);
+                let l_old = Vector3::new(l_lin_n[3 * b], l_lin_n[3 * b + 1], l_lin_n[3 * b + 2]);
+                let l_end =
+                    Vector3::new(l_lin_np1[3 * b], l_lin_np1[3 * b + 1], l_lin_np1[3 * b + 2]);
+                let lambda_old =
+                    Vector3::new(l_ang_n[3 * b], l_ang_n[3 * b + 1], l_ang_n[3 * b + 2]);
+                let lambda_end =
+                    Vector3::new(l_ang_np1[3 * b], l_ang_np1[3 * b + 1], l_ang_np1[3 * b + 2]);
+
                 for c in 0..3 {
                     r_lin[3 * b + c] = ms * (v_new[3 * b + c] - v_n[3 * b + c])
                         - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
-                    new_torque[3 * b + c] =
-                        (l_ang_np1[3 * b + c] - l_ang_n[3 * b + c]) / self.step_size;
+                }
+
+                let torque_vec = if self.nbody == 1 {
+                    let v_mid = 0.5 * (v_old + v_end);
+                    let p_total_mid = 0.5 * (ms * v_old - l_old + ms * v_end - l_end);
+                    (lambda_end - lambda_old) / self.step_size - v_mid.cross(&p_total_mid)
+                } else {
+                    (lambda_end - lambda_old) / self.step_size
+                };
+                for c in 0..3 {
+                    new_torque[3 * b + c] = torque_vec[c];
                 }
             }
             let dtorque = (&new_torque - &torque).norm();
@@ -718,7 +750,7 @@ where
 
     fn write_header<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         // Global columns first (energy-conservation monitoring), then a fixed
-        // 20-column block per body.
+        // block per body.
         write!(
             writer,
             "time,ke_total,ke_fluid,ke_solid,ke_lin_solid,ke_rot_solid"
@@ -726,7 +758,7 @@ where
         for b in 1..=self.nbody {
             write!(
                 writer,
-                ",px_{b},py_{b},pz_{b},vx_{b},vy_{b},vz_{b},q1_{b},q2_{b},q3_{b},q0_{b},w1_{b},w2_{b},w3_{b},w0_{b},ofix1_{b},ofix2_{b},ofix3_{b},ke_lin_{b},ke_rot_{b},ke_{b}",
+                ",px_{b},py_{b},pz_{b},vx_{b},vy_{b},vz_{b},q1_{b},q2_{b},q3_{b},q0_{b},w1_{b},w2_{b},w3_{b},w0_{b},ofix1_{b},ofix2_{b},ofix3_{b},ke_lin_{b},ke_rot_{b},ke_{b},lfluid_x_{b},lfluid_y_{b},lfluid_z_{b},lambdafluid_x_{b},lambdafluid_y_{b},lambdafluid_z_{b},pcon_x_{b},pcon_y_{b},pcon_z_{b},hcon_x_{b},hcon_y_{b},hcon_z_{b}",
                 b = b
             )?;
         }
@@ -744,6 +776,7 @@ where
     ) -> std::io::Result<()> {
         let ke = self.solid_kinetic_energy(x, o);
         let ke_total = ke.total + ke_fluid;
+        let impulse_diagnostics = self.impulse_diagnostics(x, o);
 
         write!(
             writer,
@@ -776,8 +809,59 @@ where
             // per-body energies
             let (ke_lin, ke_rot, ke_b) = ke.per_body[b];
             write!(writer, ", {}, {}, {}", ke_lin, ke_rot, ke_b)?;
+            let (l_fluid, lambda_fluid, p_con, h_con) = impulse_diagnostics
+                .as_ref()
+                .map(|d| d[b])
+                .unwrap_or_else(|| {
+                    (
+                        Vector3::repeat(f64::NAN),
+                        Vector3::repeat(f64::NAN),
+                        Vector3::repeat(f64::NAN),
+                        Vector3::repeat(f64::NAN),
+                    )
+                });
+            for val in l_fluid.iter() {
+                write!(writer, ", {}", val)?;
+            }
+            for val in lambda_fluid.iter() {
+                write!(writer, ", {}", val)?;
+            }
+            for val in p_con.iter() {
+                write!(writer, ", {}", val)?;
+            }
+            for val in h_con.iter() {
+                write!(writer, ", {}", val)?;
+            }
         }
         writeln!(writer)
+    }
+
+    fn impulse_diagnostics(
+        &self,
+        x: &LinearState,
+        o: &AngularState,
+    ) -> Option<Vec<(Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>)>> {
+        let l_lin = self.fluid_impulse_lin_step_start.as_ref()?;
+        let l_ang = self.fluid_impulse_ang_step_start.as_ref()?;
+        let (pos, vel) = x;
+        let (q, omega_lab) = o;
+
+        let mut out = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            let x_b = Vector3::new(pos[3 * b], pos[3 * b + 1], pos[3 * b + 2]);
+            let v_b = Vector3::new(vel[3 * b], vel[3 * b + 1], vel[3 * b + 2]);
+            let l_fluid = Vector3::new(l_lin[3 * b], l_lin[3 * b + 1], l_lin[3 * b + 2]);
+            let lambda_fluid = Vector3::new(l_ang[3 * b], l_ang[3 * b + 1], l_ang[3 * b + 2]);
+            let omega_body = self.lab_to_body(&omega_lab[b], &q[b]).imag();
+            let h_body = self.inertias[b] * omega_body;
+            let h_solid = self
+                .body_to_lab(&Quaternion::from_imag(h_body), &q[b])
+                .imag();
+            let p_con = self.masses[b] * v_b - l_fluid;
+            let h_con = x_b.cross(&p_con) + h_solid - lambda_fluid;
+            out.push((l_fluid, lambda_fluid, p_con, h_con));
+        }
+        Some(out)
     }
 
     fn solid_kinetic_energy(&self, x: &LinearState, o: &AngularState) -> SolidEnergy {
