@@ -9,12 +9,19 @@ use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
 
 /// Max Newton iterations for the strong-coupling implicit-midpoint velocity solve.
 const STRONG_MAXITER: usize = 30;
+use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
+use crate::ode::pcdm::accel_get;
+use crate::system::system::BOOTSTRAP_PASSES;
+use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
+use std::io::Write;
+use std::time::{Duration, Instant};
 
 pub struct Rk4PCDM<F, G, I>
-    where
-        F: System2<LinearState>,
-        G: System2<AngularState>,
-        I: System4<LinearState>,
+where
+    F: System2<LinearState>,
+    G: System2<AngularState>,
+    I: System4<LinearState>,
 {
     f: F,
     g: G,
@@ -63,6 +70,7 @@ pub struct Rk4PCDM<F, G, I>
     /// Shared simulation handle, used to toggle `freeze_phi_history` /
     /// `impulse_mode` around trial force evaluations.
     sim: Arc<Mutex<Simulation>>,
+    initial_total_ke: Option<f64>,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -75,10 +83,10 @@ struct SolidEnergy {
 }
 
 impl<F, G, I> Rk4PCDM<F, G, I>
-    where
-        F: System2<LinearState>,
-        G: System2<AngularState>,
-        I: System4<LinearState>,
+where
+    F: System2<LinearState>,
+    G: System2<AngularState>,
+    I: System4<LinearState>,
 {
     //Function for creating new solver
     #[allow(clippy::too_many_arguments)]
@@ -146,17 +154,17 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             strong_couple,
             impulse_scheme,
             sim,
+            initial_total_ke: None,
         }
     }
 
     pub fn integrate(&mut self) -> Result<Stats, IntegrationError> {
         self.t_out.push(self.t);
         self.x_out.push(self.x.clone());
-        println!("Initial positions and velocities = {:?}", &self.x);
         self.o_out.push(self.o.clone());
-        println!("Initial orientations and angular velocities = {:?}", &self.o);
         self.o_lab = self.orientation_to_marker_point();
         self.o_lab_out.push(self.o_lab.clone());
+        self.print_initial_state();
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
@@ -194,14 +202,16 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         Ok(self.stats)
     }
 
-    pub fn integrate_with_writer<W: Write>(&mut self, writer: &mut W) -> Result<Stats, IntegrationError> {
+    pub fn integrate_with_writer<W: Write>(
+        &mut self,
+        writer: &mut W,
+    ) -> Result<Stats, IntegrationError> {
         self.t_out.push(self.t);
         self.x_out.push(self.x.clone());
-        println!("Initial positions and velocities = {:?}", &self.x);
         self.o_out.push(self.o.clone());
-        println!("Initial orientations and angular velocities = {:?}", &self.o);
         self.o_lab = self.orientation_to_marker_point();
         self.o_lab_out.push(self.o_lab.clone());
+        self.print_initial_state();
 
         self.write_header(writer)?;
         let x0 = self.x.clone();
@@ -287,6 +297,10 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         if self.strong_couple || self.impulse_scheme {
             return;
         }
+        println!(
+            "Preparing first step: {} bootstrap pass(es).",
+            BOOTSTRAP_PASSES
+        );
         let x0 = self.x.clone();
         let o0 = self.o.clone();
         for _ in 0..BOOTSTRAP_PASSES {
@@ -298,6 +312,8 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             let o_push = self.o.clone();
             let _ = self.g.system(0.0, &o_push);
         }
+        println!("Progress timing starts after bootstrap.");
+        println!();
     }
 
     /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the
@@ -316,6 +332,10 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
         // KE is the correct value to write for the row sampled at time t_n.
         self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        if self.initial_total_ke.is_none() {
+            let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
+            self.initial_total_ke = Some(ke_solid.total + self.fluid_ke_step_start);
+        }
 
         // Optional semi-implicit added-mass stabilisation (single-step Robin):
         // a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), with
@@ -563,20 +583,23 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             );
 
             // Rotate lab -> body using the body orientation quaternion.
-            let a_expl_b = self.lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i]).imag();
-            let a_prev_b = self.lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i]).imag();
+            let a_expl_b = self
+                .lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i])
+                .imag();
+            let a_prev_b = self
+                .lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i])
+                .imag();
 
             let ms_i = Matrix3::identity() * ms;
             let m_a = self.added_mass_safe[i];
             let lhs = ms_i + m_a;
             let rhs = ms_i * a_expl_b + m_a * a_prev_b;
-            let a_stab_b = lhs
-                .try_inverse()
-                .map(|inv| inv * rhs)
-                .unwrap_or(a_expl_b);
+            let a_stab_b = lhs.try_inverse().map(|inv| inv * rhs).unwrap_or(a_expl_b);
 
             // Rotate body -> lab.
-            let a_stab_lab = self.body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i]).imag();
+            let a_stab_lab = self
+                .body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i])
+                .imag();
             for c in 0..3 {
                 out[3 * i + c] = a_stab_lab[c];
             }
@@ -584,37 +607,103 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         out
     }
 
-    fn print_progress(&self, i: usize, num_steps: usize, steady_elapsed: Duration, elapsed_dt: Duration) {
+    fn print_progress(
+        &self,
+        i: usize,
+        num_steps: usize,
+        steady_elapsed: Duration,
+        elapsed_dt: Duration,
+    ) {
         let completion_percentage = 100.0 * (i as f64) / (num_steps as f64);
         let dt_sec = (elapsed_dt.as_millis() as f64) * 0.001;
+        let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
+        let ke_fluid = self.fluid_kinetic_energy();
+        let ke_total = ke_solid.total + ke_fluid;
+        let ke_drift = self.format_ke_drift(ke_total);
 
         // Average over steady-state steps only: `steady_elapsed` excludes the
         // first (build-heavy) step, and `i - 1` steady steps have completed.
-        if i < 2 {
-            println!("Time = {:.7}. Timestep {:?}/{:?}. Estimating time remaining... - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, completion_percentage, dt_sec);
-            return;
-        }
-        let ratio = ((num_steps - i) as f64) / ((i - 1) as f64);
-        let remain_est = self.multiply_duration(steady_elapsed, ratio);
-        if remain_est.as_secs() >= 3600 {
-            let hrs = remain_est.as_secs() / 3600;
-            let mins = (remain_est.as_secs() - hrs * 3600) / 60;
-            let secs = remain_est.as_secs() - hrs * 3600 - mins * 60;
-            println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}hrs {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, hrs, mins, secs, completion_percentage, dt_sec);
-        } else if remain_est.as_secs() >= 60 {
-            let mins = remain_est.as_secs() / 60;
-            let secs = remain_est.as_secs() - mins * 60;
-            println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}min {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, mins, secs, completion_percentage, dt_sec);
+        let eta = if i < 2 {
+            "calculating".to_string()
         } else {
-            let secs = remain_est.as_secs();
-            println!("Time = {:.7}. Timestep {:?}/{:?}. Estimated time remaining = {:?}sec - {:.3}% complete. Time for this timestep = {:.3}s.", self.t, i, num_steps, secs, completion_percentage, dt_sec);
+            let ratio = ((num_steps - i) as f64) / ((i - 1) as f64);
+            self.format_duration(self.multiply_duration(steady_elapsed, ratio))
+        };
+
+        println!(
+            "Step {:>5}/{:<5} {:>5.1}% | t {:.3} | ETA {} | step {:.2}s | KE {:.4} | drift {} | fluid {:.4} | solid {:.4}",
+            i,
+            num_steps,
+            completion_percentage,
+            self.t,
+            eta,
+            dt_sec,
+            ke_total,
+            ke_drift,
+            ke_fluid,
+            ke_solid.total
+        );
+    }
+
+    fn print_initial_state(&self) {
+        let (pos, vel) = &self.x;
+        let (q, omega) = &self.o;
+
+        println!("Initial state:");
+        for b in 0..self.nbody {
+            let p = Vector3::new(pos[3 * b], pos[3 * b + 1], pos[3 * b + 2]);
+            let v = Vector3::new(vel[3 * b], vel[3 * b + 1], vel[3 * b + 2]);
+            let w = omega[b].imag();
+            println!("  Body {:>2}", b + 1);
+            println!("    position:         {}", self.format_vec3(&p));
+            println!("    velocity:         {}", self.format_vec3(&v));
+            println!("    angular velocity: {}", self.format_vec3(&w));
+            println!("    orientation:      {}", self.format_quat(&q[b]));
+        }
+        println!();
+    }
+
+    fn format_vec3(&self, v: &Vector3<f64>) -> String {
+        format!("({:.6}, {:.6}, {:.6})", v[0], v[1], v[2])
+    }
+
+    fn format_quat(&self, q: &Quaternion<f64>) -> String {
+        format!("(w={:.6}, i={:.6}, j={:.6}, k={:.6})", q.w, q.i, q.j, q.k)
+    }
+
+    fn format_duration(&self, duration: Duration) -> String {
+        let secs = duration.as_secs();
+        if secs >= 3600 {
+            let hrs = secs / 3600;
+            let mins = (secs - hrs * 3600) / 60;
+            let secs = secs - hrs * 3600 - mins * 60;
+            format!("{}h {}m {}s", hrs, mins, secs)
+        } else if secs >= 60 {
+            let mins = secs / 60;
+            let secs = secs - mins * 60;
+            format!("{}m {}s", mins, secs)
+        } else {
+            format!("{}s", secs)
+        }
+    }
+
+    fn format_ke_drift(&self, ke_total: f64) -> String {
+        match self.initial_total_ke {
+            Some(initial_ke) if initial_ke.abs() > f64::EPSILON => {
+                let drift_pct = 100.0 * (ke_total - initial_ke) / initial_ke;
+                format!("{:+.2}%", drift_pct)
+            }
+            _ => "n/a".to_string(),
         }
     }
 
     fn write_header<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         // Global columns first (energy-conservation monitoring), then a fixed
         // 20-column block per body.
-        write!(writer, "time,ke_total,ke_fluid,ke_solid,ke_lin_solid,ke_rot_solid")?;
+        write!(
+            writer,
+            "time,ke_total,ke_fluid,ke_solid,ke_lin_solid,ke_rot_solid"
+        )?;
         for b in 1..=self.nbody {
             write!(
                 writer,
@@ -684,7 +773,11 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             let v = Vector3::new(vel[3 * i], vel[3 * i + 1], vel[3 * i + 2]);
             let mass = self.masses[i];
 
-            let ke_lin = if mass > 0.0 { 0.5 * mass * v.dot(&v) } else { 0.0 };
+            let ke_lin = if mass > 0.0 {
+                0.5 * mass * v.dot(&v)
+            } else {
+                0.0
+            };
 
             let omega_b = self.lab_to_body(&omega_lab[i], &q[i]).imag();
             let ke_rot = if mass > 0.0 {
@@ -801,7 +894,8 @@ impl<F, G, I> Rk4PCDM<F, G, I>
     }
 
     fn multiply_duration(&self, duration: Duration, factor: f64) -> Duration {
-        let seconds = duration.as_secs() as f64 + f64::from(duration.subsec_nanos()) / 1_000_000_000.0;
+        let seconds =
+            duration.as_secs() as f64 + f64::from(duration.subsec_nanos()) / 1_000_000_000.0;
         let result_seconds = seconds * factor;
         let whole_seconds = result_seconds as u64;
         let fractional_seconds = ((result_seconds - whole_seconds as f64) * 1_000_000_000.0) as u32;
@@ -813,7 +907,8 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let (q, _) = &self.o;
         let mut out = DVector::zeros(3 * self.nbody);
         for i in 0..self.nbody {
-            let marker = self.body_to_lab(&Quaternion::from_imag(Vector3::new(1.0, 0.0, 0.0)), &q[i]);
+            let marker =
+                self.body_to_lab(&Quaternion::from_imag(Vector3::new(1.0, 0.0, 0.0)), &q[i]);
             let v = marker.vector();
             out[3 * i] = v[0];
             out[3 * i + 1] = v[1];
@@ -839,12 +934,22 @@ impl<F, G, I> Rk4PCDM<F, G, I>
     }
 
     //Steps forward the rotational velocity omega_n according to a given angular acceleration/torque.
-    fn omega_stepper(&self, omega_n: &Quaternion<f64>, ang_accel: &Quaternion<f64>, dt: f64) -> Quaternion<f64> {
+    fn omega_stepper(
+        &self,
+        omega_n: &Quaternion<f64>,
+        ang_accel: &Quaternion<f64>,
+        dt: f64,
+    ) -> Quaternion<f64> {
         omega_n + ang_accel * dt
     }
 
     //Steps forward the orientation of a body given initial orientation q1 and rotational velocity omega.
-    fn orientation_stepper(&self, q1: &Quaternion<f64>, omega: &Quaternion<f64>, dt: f64) -> Quaternion<f64> {
+    fn orientation_stepper(
+        &self,
+        q1: &Quaternion<f64>,
+        omega: &Quaternion<f64>,
+        dt: f64,
+    ) -> Quaternion<f64> {
         let mag = omega.norm();
         let real_part = (mag * dt * 0.5).cos();
         let imag_scalar = if mag > 0.0000001 {
