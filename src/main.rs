@@ -139,9 +139,14 @@ fn main() {
     println!("Building simulation");
     let mut sys = Simulation::new(fluid, bodies, ndiv as u32);
     sys.step_dt = dt;
-    sys.impulse_transport = get("impulse_transport", 0.0) > 0.5;
+    // Lamb impulse-transport term (ω × L). Required for the correct force/torque
+    // on a rotating body: F = dL/dt = ρ∮(∂φ/∂t)n̂dA + ω×L. Default ON; set
+    // `impulse_transport=0` to drop it (reproduces the old, incomplete force).
+    sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
     if sys.impulse_transport {
-        println!("Impulse transport terms (omega x L) ENABLED");
+        println!("Impulse transport terms (omega x L) ENABLED (default)");
+    } else {
+        println!("Impulse transport terms DISABLED (force drops omega x L - incomplete for rotation)");
     }
     sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
     if sys.added_mass_stab {

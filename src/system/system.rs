@@ -42,10 +42,14 @@ pub struct Simulation {
     /// as the previous provisional pass over [t0, t0+dt/2] and seeds φ̇ from
     /// their forward difference, then clears the history for the next pass.
     pub bootstrap_redos: usize,
-    /// Opt-in (input key `impulse_transport`): add the rotating-frame impulse
-    /// transport terms ω×L_lin (force) and ω×L_ang (torque) that the exact
-    /// Lamb-impulse rate dL/dt carries for a rotating body, which the
-    /// per-element ∂φ/∂t force omits. Off by default (validated path).
+    /// Input key `impulse_transport` (default ON): add the rotating-frame
+    /// impulse transport terms ω×L_lin (force) and ω×L_ang (torque) that the
+    /// exact Lamb-impulse rate dL/dt carries for a rotating body, which the
+    /// per-element ∂φ/∂t force omits. Validated against the exact Kirchhoff
+    /// reference: with these terms (and the corrected angular_velocity()) the
+    /// coupled force converges to the exact value with mesh refinement
+    /// (0.84× at ndiv=3, 0.92× at ndiv=4); without them it is ~1.9× too large.
+    /// Set `impulse_transport=0` to reproduce the old incomplete force.
     pub impulse_transport: bool,
     /// Opt-in (input key `added_mass_stab`): enable the semi-implicit
     /// added-mass-partitioned (Robin) velocity update in the integrator, which
@@ -85,7 +89,7 @@ impl Simulation {
             inertia_tensors,
             phi_history: std::collections::VecDeque::new(),
             bootstrap_redos: BOOTSTRAP_PASSES,
-            impulse_transport: false,
+            impulse_transport: true,
             added_mass_stab: false,
             phidot_blend: 0.0,
             step_dt: 0.01,

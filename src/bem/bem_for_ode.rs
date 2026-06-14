@@ -445,7 +445,12 @@ impl crate::ode::System2<AngularState> for AngularUpdate {
             sys_ref.bodies[i].orientation = q[i];
             let inertia = sys_ref.bodies[i].inertia;
             let o_vec = omega[i].vector();
-            let ang_mom_vec = inertia.try_inverse().unwrap() * o_vec;
+            // angular_momentum field holds L = I·ω (angular_velocity() divides it
+            // back by I). The integrator state `omega` is the lab angular velocity,
+            // so momentum = inertia * omega (matches angular_momentum_from_vel).
+            // (Was inertia⁻¹*omega — a double-inverse that made the BC and the
+            // ω×L transport see ω/I² instead of ω.)
+            let ang_mom_vec = inertia * o_vec;
             sys_ref.bodies[i].angular_momentum = Quaternion::from_imag(ang_mom_vec);
         }
 
