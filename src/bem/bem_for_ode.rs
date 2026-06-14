@@ -354,8 +354,21 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 .map(|k| {
                     let body = elm_body[k];
                     let (l_lin, l_ang) = lamb_impulse_element(
-                        k, mint, &positions[body], rho_f, &f, &p, &n, &vna,
-                        &alpha, &beta, &gamma, &xiq, &etq, &wq);
+                        k,
+                        mint,
+                        &positions[body],
+                        rho_f,
+                        &f,
+                        &p,
+                        &n,
+                        &vna,
+                        &alpha,
+                        &beta,
+                        &gamma,
+                        &xiq,
+                        &etq,
+                        &wq,
+                    );
                     (body, l_lin, l_ang)
                 })
                 .collect();
