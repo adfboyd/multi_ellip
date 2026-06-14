@@ -1,21 +1,14 @@
+use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
+use crate::ode::pcdm::accel_get;
+use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
 use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
-use crate::ode::pcdm::accel_get;
-use crate::bem::bem_for_ode::{AngularState, LinearState};
-use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
 
 /// Max Newton iterations for the strong-coupling implicit-midpoint velocity solve.
 const STRONG_MAXITER: usize = 30;
-use crate::bem::bem_for_ode::{AngularState, LinearState};
-use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
-use crate::ode::pcdm::accel_get;
-use crate::system::system::BOOTSTRAP_PASSES;
-use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
-use std::io::Write;
-use std::time::{Duration, Instant};
 
 pub struct Rk4PCDM<F, G, I>
 where
@@ -447,9 +440,10 @@ where
             for b in 0..self.nbody {
                 let ms = self.masses[b];
                 for c in 0..3 {
-                    r_lin[3 * b + c] =
-                        ms * (v_new[3 * b + c] - v_n[3 * b + c]) - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
-                    new_torque[3 * b + c] = (l_ang_np1[3 * b + c] - l_ang_n[3 * b + c]) / self.step_size;
+                    r_lin[3 * b + c] = ms * (v_new[3 * b + c] - v_n[3 * b + c])
+                        - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
+                    new_torque[3 * b + c] =
+                        (l_ang_np1[3 * b + c] - l_ang_n[3 * b + c]) / self.step_size;
                 }
             }
             let dtorque = (&new_torque - &torque).norm();
@@ -465,10 +459,14 @@ where
                     continue;
                 }
                 let r_lab = Vector3::new(r_lin[3 * b], r_lin[3 * b + 1], r_lin[3 * b + 2]);
-                let r_b = self.lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b]).imag();
+                let r_b = self
+                    .lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b])
+                    .imag();
                 let p_mat = Matrix3::identity() * ms + self.added_mass_safe[b];
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b / ms);
-                let d_lab = self.body_to_lab(&Quaternion::from_imag(d_b), &q_end[b]).imag();
+                let d_lab = self
+                    .body_to_lab(&Quaternion::from_imag(d_b), &q_end[b])
+                    .imag();
                 for c in 0..3 {
                     v_new[3 * b + c] -= d_lab[c];
                 }
@@ -522,10 +520,14 @@ where
                     continue;
                 }
                 let r_lab = Vector3::new(resid[3 * b], resid[3 * b + 1], resid[3 * b + 2]);
-                let r_b = self.lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b]).imag();
+                let r_b = self
+                    .lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b])
+                    .imag();
                 let p_mat = Matrix3::identity() + self.added_mass_safe[b] / (2.0 * ms);
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b);
-                let d_lab = self.body_to_lab(&Quaternion::from_imag(d_b), &q_half[b]).imag();
+                let d_lab = self
+                    .body_to_lab(&Quaternion::from_imag(d_b), &q_half[b])
+                    .imag();
                 for c in 0..3 {
                     v_half[3 * b + c] -= d_lab[c];
                 }

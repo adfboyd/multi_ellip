@@ -179,19 +179,9 @@ fn main() {
     sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
     sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
     sys.phidot_blend = get("phidot_blend", 0.0);
-    if sys.phidot_blend > 0.0 {
-        println!("BDF2->BDF1 phi_dot blend eps = {}", sys.phidot_blend);
-    }
     sys.strong_couple = get("strong_couple", 0.0) > 0.5;
-    if sys.strong_couple {
-        println!("Strong (implicit-midpoint) FSI coupling ENABLED (prototype B)");
-    }
     let strong_couple = sys.strong_couple;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
-    if impulse_scheme {
-        println!("Implicit impulse-difference scheme ENABLED (approach A)");
-    }
-    println!("Simulation Built");
     let impulse_transport = sys.impulse_transport;
     let phidot_blend = sys.phidot_blend;
 
@@ -330,6 +320,8 @@ fn main() {
         available_cores, rayon_threads
     );
     println!("  Impulse transport: {}", fmt_enabled(impulse_transport));
+    println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
+    println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
     if added_mass_stab {
         println!(
             "  Added-mass stab:   enabled  (safety factor = {})",
