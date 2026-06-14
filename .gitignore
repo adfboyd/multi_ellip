@@ -57,3 +57,6 @@ coup*.txt
 puretrans.txt
 purerot_tr.txt
 chk_*.py
+
+# energy-drift diagnostic scratch
+ed_*.txt
