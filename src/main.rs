@@ -156,6 +156,15 @@ fn main() {
     if sys.phidot_blend > 0.0 {
         println!("BDF2->BDF1 phi_dot blend eps = {}", sys.phidot_blend);
     }
+    sys.strong_couple = get("strong_couple", 0.0) > 0.5;
+    if sys.strong_couple {
+        println!("Strong (implicit-midpoint) FSI coupling ENABLED (prototype B)");
+    }
+    let strong_couple = sys.strong_couple;
+    let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
+    if impulse_scheme {
+        println!("Implicit impulse-difference scheme ENABLED (approach A)");
+    }
     println!("Simulation Built");
 
     // Initial integrator state, stacked over bodies.
@@ -217,6 +226,9 @@ fn main() {
         dt,
         tprint,   // samp_rate: .dat row every tprint steps
         logevery, // print_rate: console progress every logevery steps
+        strong_couple,
+        impulse_scheme,
+        sys_mutex.clone(),
     );
 
     println!("Solver initialised");

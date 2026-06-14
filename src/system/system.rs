@@ -63,6 +63,22 @@ pub struct Simulation {
     /// fine-mesh explicit added-mass instability. 0 = pure BDF2 (default).
     pub phidot_blend: f64,
     pub step_dt: f64,
+    /// Prototype B (input key `strong_couple`): strong (implicit-midpoint)
+    /// fluid-structure coupling. The integrator iterates the linear velocity to
+    /// consistency with the re-solved BEM force each step, making the added-mass
+    /// reaction implicit (cures the explicit added-mass oscillation/instability
+    /// without dropping order). When set, the integrator freezes the φ history
+    /// during the trial evaluations (see `freeze_phi_history`).
+    pub strong_couple: bool,
+    /// Set by the integrator during strong-coupling trial force evaluations so
+    /// ForceCalculate computes φ̇ from the committed history WITHOUT pushing the
+    /// trial φ (preserves the 2-push-per-step BDF2 pattern).
+    pub freeze_phi_history: bool,
+    /// Approach A (input key `impulse_scheme`): when set, ForceCalculate returns
+    /// the lab-frame fluid impulse (L_lin, L_ang) per body instead of the ∂φ/∂t
+    /// force, and does not touch the φ history. The integrator differences the
+    /// impulse to build an energy-consistent F = -dL/dt.
+    pub impulse_mode: bool,
 }
 
 
@@ -93,6 +109,9 @@ impl Simulation {
             added_mass_stab: false,
             phidot_blend: 0.0,
             step_dt: 0.01,
+            strong_couple: false,
+            freeze_phi_history: false,
+            impulse_mode: false,
         }
     }
 

@@ -310,6 +310,33 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             eoff += ne;
         }
 
+        // Approach A: state-function impulse mode. Return the lab-frame fluid
+        // impulse L_lin = ρ∮φn̂dA and L_ang = ρ∮φ(r×n̂)dA per body (packed into
+        // the (linear, angular) output vectors), with NO ∂φ/∂t force and NO
+        // history push. The integrator differences these between step endpoints
+        // to form F = -dL/dt, an energy-consistent (state-function) force.
+        if sys_ref.impulse_mode {
+            let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
+                .into_par_iter()
+                .map(|k| {
+                    let body = elm_body[k];
+                    let (l_lin, l_ang) = lamb_impulse_element(
+                        k, mint, &positions[body], rho_f, &f, &p, &n, &vna,
+                        &alpha, &beta, &gamma, &xiq, &etq, &wq);
+                    (body, l_lin, l_ang)
+                })
+                .collect();
+            let mut l_lin_out = DVector::zeros(3 * nbody);
+            let mut l_ang_out = DVector::zeros(3 * nbody);
+            for (body, ll, la) in contributions {
+                for c in 0..3 {
+                    l_lin_out[3 * body + c] += ll[c];
+                    l_ang_out[3 * body + c] += la[c];
+                }
+            }
+            return (l_lin_out, l_ang_out);
+        }
+
         // Same-stage BDF2 ∂φ/∂t stencil. The history holds φ from previous force
         // evaluations (most recent last). Same-stage spacing is dt (two calls per
         // step), so φ_{c−2} = phi_history[n−2] is one timestep back and
@@ -398,9 +425,14 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             sys_ref.phi_history.clear();
             sys_ref.bootstrap_redos -= 1;
         }
-        sys_ref.phi_history.push_back(f.clone());
-        while sys_ref.phi_history.len() > 4 {
-            sys_ref.phi_history.pop_front();
+        // Strong-coupling trial evaluations must not pollute the committed
+        // φ history (they re-solve at provisional velocities); the integrator
+        // freezes pushing during iteration and commits the converged φ itself.
+        if !sys_ref.freeze_phi_history {
+            sys_ref.phi_history.push_back(f.clone());
+            while sys_ref.phi_history.len() > 4 {
+                sys_ref.phi_history.pop_front();
+            }
         }
         #[cfg(feature = "timing")]
         println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());

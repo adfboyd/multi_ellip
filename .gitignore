@@ -60,3 +60,9 @@ chk_*.py
 
 # energy-drift diagnostic scratch
 ed_*.txt
+
+# implicit-coupling prototype scratch
+sc_*.txt
+a_*.txt
+tim_*.txt
+expl_*.txt
