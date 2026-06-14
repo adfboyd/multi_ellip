@@ -12,6 +12,16 @@ use crate::system::fluid::Fluid;
 // use crate::system::hamiltonian::*;
 // use crate::system::state::State;
 
+/// Number of provisional first-step passes used to bootstrap the ∂φ/∂t
+/// history at t = 0. The dphi force needs temporal φ history that doesn't
+/// exist at startup (the initial acceleration and φ̇ are mutually dependent
+/// through the added mass), so the integrator runs the first step this many
+/// times, rewinding the state after each pass; every pass refines the initial
+/// φ̇ estimate by a geometric (added-mass contraction) factor. The integrator
+/// loop count and the `bootstrap_redos` bookkeeping in ForceCalculate must
+/// both use this constant.
+pub const BOOTSTRAP_PASSES: usize = 10;
+
 #[derive(Clone)]
 pub struct Simulation {
     pub fluid: Fluid,
@@ -23,8 +33,35 @@ pub struct Simulation {
     pub mass_tensors: Vec<na::Matrix3<f64>>,
     /// Per-body solid inertia tensors (index i <-> bodies[i]).
     pub inertia_tensors: Vec<na::Matrix3<f64>>,
-    pub phi_prev: na::DVector<f64>,
-    pub phi_committed: na::DVector<f64>,
+    /// Surface-potential history for the same-stage BDF2 ∂φ/∂t stencil.
+    /// Each force evaluation pushes its solved φ; entries are previous calls,
+    /// most recent last. Bounded to the last 4 calls.
+    pub phi_history: std::collections::VecDeque<na::DVector<f64>>,
+    /// Remaining first-step bootstrap passes (see [`BOOTSTRAP_PASSES`]). While
+    /// positive, a force call that sees exactly two history entries treats them
+    /// as the previous provisional pass over [t0, t0+dt/2] and seeds φ̇ from
+    /// their forward difference, then clears the history for the next pass.
+    pub bootstrap_redos: usize,
+    /// Input key `impulse_transport` (default ON): add the rotating-frame
+    /// impulse transport terms ω×L_lin (force) and ω×L_ang (torque) that the
+    /// exact Lamb-impulse rate dL/dt carries for a rotating body, which the
+    /// per-element ∂φ/∂t force omits. Validated against the exact Kirchhoff
+    /// reference: with these terms (and the corrected angular_velocity()) the
+    /// coupled force converges to the exact value with mesh refinement
+    /// (0.84× at ndiv=3, 0.92× at ndiv=4); without them it is ~1.9× too large.
+    /// Set `impulse_transport=0` to reproduce the old incomplete force.
+    pub impulse_transport: bool,
+    /// Opt-in (input key `added_mass_stab`): enable the semi-implicit
+    /// added-mass-partitioned (Robin) velocity update in the integrator, which
+    /// stabilises the explicit added-mass reaction force at fine meshes
+    /// (ndiv=4). Off by default; when off the integrator path is byte-identical
+    /// to the explicit scheme.
+    pub added_mass_stab: bool,
+    /// Optional blend of the BDF2 ∂φ/∂t stencil toward the 1st-order same-stage
+    /// difference (input key `phidot_blend`, eps in [0,1]): lowers the BDF2
+    /// high-frequency stencil gain (4/dt) toward BDF1's (2/dt) to damp the
+    /// fine-mesh explicit added-mass instability. 0 = pure BDF2 (default).
+    pub phidot_blend: f64,
     pub step_dt: f64,
 }
 
@@ -50,8 +87,11 @@ impl Simulation {
             nbody,
             mass_tensors,
             inertia_tensors,
-            phi_prev: na::DVector::zeros(0),
-            phi_committed: na::DVector::zeros(0),
+            phi_history: std::collections::VecDeque::new(),
+            bootstrap_redos: BOOTSTRAP_PASSES,
+            impulse_transport: true,
+            added_mass_stab: false,
+            phidot_blend: 0.0,
             step_dt: 0.01,
         }
     }
@@ -153,5 +193,22 @@ impl Simulation {
     pub fn added_inertia_calc(&self, i: usize) -> na::Matrix3<f64> {
         let (_, inertia) = self.bodies[i].inertia_tensor(self.fluid.density);
         inertia
+    }
+
+    /// Body-frame (diagonal) added-mass tensor M_a for each body, used by the
+    /// semi-implicit added-mass stabiliser. Constant in the body frame, so
+    /// computed once at setup from the analytic potential-flow shape factors.
+    pub fn added_mass_tensors(&self) -> Vec<na::Matrix3<f64>> {
+        use crate::system::hamiltonian::{calc_shape_factor, mf_calc};
+        use std::f64::consts::PI;
+        self.bodies
+            .iter()
+            .map(|b| {
+                let m_s = na::Matrix3::from_diagonal(&b.shape);
+                let v_s = 4.0 / 3.0 * PI * b.shape.iter().fold(1.0, |acc, x| acc * x);
+                let sf = calc_shape_factor(1e4, m_s).unwrap();
+                mf_calc(sf.alpha, sf.beta, sf.gamma, v_s, self.fluid.density)
+            })
+            .collect()
     }
 }

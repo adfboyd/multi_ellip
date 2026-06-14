@@ -17,10 +17,10 @@ shz1=0.6
 req1=1.0
 rhos1=1.0
 rhof=1.0
-ndiv=4.0
-tend=25
-dt=0.02
+ndiv=2.0
+tend=2
+dt=0.005
 tprint=1
-logevery=100
 nbody=1
+
 

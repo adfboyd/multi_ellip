@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use nom::{
     IResult,
-    bytes::complete::tag,
-    character::complete::{alphanumeric1, line_ending},
+    bytes::complete::{tag, take_while1},
+    character::complete::line_ending,
     number::complete::double,
     sequence::{separated_pair, terminated},
     combinator::opt,
@@ -44,6 +44,16 @@ fn main() {
         }
     };
 
+    // Keep only "key=value" lines before parsing: the nom many0 parser stops at
+    // the first line it can't parse (blank line, comment, trailing whitespace),
+    // which would silently drop every key after it. Filtering first makes key
+    // order and blank lines irrelevant.
+    let input_data: String = input_data
+        .lines()
+        .filter(|l| l.contains('='))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     // Parse "key=value" assignments into a map.
     let mut values: HashMap<String, f64> = HashMap::new();
     match parse_assignments(&input_data) {
@@ -65,11 +75,15 @@ fn main() {
     let t_end = get("tend", 10.0);
     let dt = get("dt", 0.1);
     let tprint = get("tprint", 1.0) as u32;
+    // Console progress interval (steps). Decoupled from tprint, which controls
+    // how often rows are written to the output .dat file.
+    let logevery = get("logevery", 100.0) as u32;
     let nbody = get("nbody", 2.0) as usize;
 
     println!("Density of fluid = {:?}", rho_f);
     println!("{:?} divisions.", ndiv);
     println!("Running with timestep = {:?}, until t = {:?}", dt, t_end);
+    println!("Writing output every {:?} step(s); console progress every {:?} step(s)", tprint, logevery);
     println!("Running with {:?} body(s)", nbody);
 
     // Build each body from its 1-indexed input variables (cex1, oriw1, shx1, ...).
@@ -125,6 +139,23 @@ fn main() {
     println!("Building simulation");
     let mut sys = Simulation::new(fluid, bodies, ndiv as u32);
     sys.step_dt = dt;
+    // Lamb impulse-transport term (ω × L). Required for the correct force/torque
+    // on a rotating body: F = dL/dt = ρ∮(∂φ/∂t)n̂dA + ω×L. Default ON; set
+    // `impulse_transport=0` to drop it (reproduces the old, incomplete force).
+    sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
+    if sys.impulse_transport {
+        println!("Impulse transport terms (omega x L) ENABLED (default)");
+    } else {
+        println!("Impulse transport terms DISABLED (force drops omega x L - incomplete for rotation)");
+    }
+    sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
+    if sys.added_mass_stab {
+        println!("Semi-implicit added-mass stabilisation ENABLED");
+    }
+    sys.phidot_blend = get("phidot_blend", 0.0);
+    if sys.phidot_blend > 0.0 {
+        println!("BDF2->BDF1 phi_dot blend eps = {}", sys.phidot_blend);
+    }
     println!("Simulation Built");
 
     // Initial integrator state, stacked over bodies.
@@ -148,6 +179,17 @@ fn main() {
 
     let x = (p0, v0);
 
+    // Per-body body-frame added-mass tensors for the optional stabiliser,
+    // pre-scaled by the safety factor (input key added_mass_safety, default 2).
+    // Constant in the body frame; harmless when the flag is off.
+    let added_mass_safety = get("added_mass_safety", 2.0);
+    let added_mass_tensors: Vec<na::Matrix3<f64>> =
+        sys.added_mass_tensors().iter().map(|m| m * added_mass_safety).collect();
+    let added_mass_stab = sys.added_mass_stab;
+    if added_mass_stab {
+        println!("Added-mass safety factor = {}", added_mass_safety);
+    }
+
     let sys_mutex = Arc::new(Mutex::new(sys));
     let sys_for_ke = sys_mutex.clone();
     let fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>> = Some(Box::new(move || {
@@ -168,11 +210,13 @@ fn main() {
         orientations,
         inertias,
         masses,
+        added_mass_tensors,
+        added_mass_stab,
         fluid_ke_getter,
         t_end,
         dt,
-        tprint,
-        tprint,
+        tprint,   // samp_rate: .dat row every tprint steps
+        logevery, // print_rate: console progress every logevery steps
     );
 
     println!("Solver initialised");
@@ -252,7 +296,11 @@ fn fmt_hms(secs: f64) -> String {
 }
 
 fn parse_assignment(input: &str) -> IResult<&str, (&str, f64)> {
-    separated_pair(alphanumeric1, tag("="), double)(input)
+    // Keys are alphanumeric plus underscore (e.g. impulse_transport); plain
+    // alphanumeric1 silently rejected underscore keys and, via many0, dropped
+    // every key after the first such line.
+    let key = take_while1(|c: char| c.is_alphanumeric() || c == '_');
+    separated_pair(key, tag("="), double)(input)
 }
 
 fn parse_assignments(input: &str) -> IResult<&str, Vec<(&str, f64)>> {

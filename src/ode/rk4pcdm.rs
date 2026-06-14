@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::system::system::BOOTSTRAP_PASSES;
 
 pub struct Rk4PCDM<F, G, I>
     where
@@ -21,6 +22,14 @@ pub struct Rk4PCDM<F, G, I>
     nbody: usize,
     inertias: Vec<Matrix3<f64>>,
     masses: Vec<f64>,
+    /// Per-body body-frame (diagonal) added-mass tensors, scaled by the safety
+    /// factor: M_a_safe = SAFETY * M_a. Used by the semi-implicit stabiliser.
+    added_mass_safe: Vec<Matrix3<f64>>,
+    /// Enable the semi-implicit added-mass-partitioned (Robin) velocity update.
+    added_mass_stab: bool,
+    /// Previous accepted linear acceleration per body (lab frame), the `a_prev`
+    /// of the single-step Robin form. Zero on the first step.
+    lin_accel_prev: DVector<f64>,
     fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
     t_begin: f64,
     t_end: f64,
@@ -38,6 +47,9 @@ pub struct Rk4PCDM<F, G, I>
     pub run_wall_secs: f64,
     pub run_first_step_secs: f64,
     pub run_steady_per_step: f64,
+    /// Fluid KE captured at the start of the current step (stage-A force call,
+    /// evaluated at exactly z_n), used to write the row sampled at time t_n.
+    fluid_ke_step_start: f64,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -66,6 +78,8 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         orientations: Vec<(Quaternion<f64>, Quaternion<f64>)>, // (orientation, angular velocity) per body
         inertias: Vec<Matrix3<f64>>,
         masses: Vec<f64>,
+        added_mass_tensors: Vec<Matrix3<f64>>,
+        added_mass_stab: bool,
         fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
         t_end: f64,
         step_size: f64,
@@ -75,6 +89,12 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
         let omega: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.1).collect();
+
+        // added_mass_tensors are already scaled by the safety factor in main
+        // (input key added_mass_safety). M_a only needs to be >= the true
+        // effective added mass for stability of the Robin update and does not
+        // change the fixed point (a_stab = a_expl).
+        let added_mass_safe: Vec<Matrix3<f64>> = added_mass_tensors;
 
         Rk4PCDM {
             f,
@@ -87,6 +107,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             nbody,
             inertias,
             masses,
+            added_mass_safe,
+            added_mass_stab,
+            lin_accel_prev: DVector::zeros(3 * nbody),
             fluid_ke_getter,
             t_begin,
             t_end,
@@ -103,6 +126,7 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             run_wall_secs: 0.0,
             run_first_step_secs: 0.0,
             run_steady_per_step: 0.0,
+            fluid_ke_step_start: 0.0,
         }
     }
 
@@ -129,6 +153,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             };
             start_dt = Instant::now();
 
+            if i == 0 {
+                self.bootstrap_first_step();
+            }
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
@@ -161,7 +188,11 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         let x0 = self.x.clone();
         let o0 = self.o.clone();
         let olab0 = self.o_lab.clone();
-        self.write_row(writer, self.t, &x0, &o0, &olab0)?;
+        // Defer writing each sampled row until the next step has run, so its
+        // fluid KE can be taken from that step's stage-A solve (evaluated at the
+        // row's own state) rather than the dt/2-stale half-step value.
+        let mut pending: Option<(f64, LinearState, AngularState, DVector<f64>)> =
+            Some((self.t, x0, o0, olab0));
 
         let num_steps = ((self.t_end - self.t_begin) / self.step_size).ceil() as usize;
         let samp_rate = self.samp_rate as usize;
@@ -177,25 +208,41 @@ impl<F, G, I> Rk4PCDM<F, G, I>
             };
             start_dt = Instant::now();
 
+            if i == 0 {
+                self.bootstrap_first_step();
+            }
             self.advance_one_step();
             if i == 0 {
                 steady_start = Instant::now();
             }
             let t_new = self.t + self.step_size;
 
+            // Flush the pending row now: its state is the start state of the step
+            // just run, so `fluid_ke_step_start` (captured in stage A) is the
+            // fluid KE at exactly that row's state.
+            if let Some((tp, xp, op, olp)) = pending.take() {
+                self.write_row(writer, tp, &xp, &op, &olp, self.fluid_ke_step_start)?;
+            }
+
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
                 self.x_out.push(self.x.clone());
                 self.o_out.push(self.o.clone());
                 self.o_lab_out.push(self.o_lab.clone());
-                let x_new = self.x.clone();
-                let o_new = self.o.clone();
-                let olab_new = self.o_lab.clone();
-                self.write_row(writer, t_new, &x_new, &o_new, &olab_new)?;
+                pending = Some((t_new, self.x.clone(), self.o.clone(), self.o_lab.clone()));
             }
 
             self.t = t_new;
             self.stats.accepted_steps += 1;
+        }
+
+        // Flush the final pending row. Its state is the end state, whose fluid KE
+        // has not yet been computed, so run one extra BEM solve to obtain it (the
+        // side effects — φ history push, fluid KE update — are harmless).
+        if let Some((tp, xp, op, olp)) = pending.take() {
+            let _ = self.force_get();
+            let kef = self.fluid_kinetic_energy();
+            self.write_row(writer, tp, &xp, &op, &olp, kef)?;
         }
 
         // Record timing for the end-of-run summary.
@@ -207,23 +254,64 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         Ok(self.stats)
     }
 
+    /// Bootstrap the ∂φ/∂t history at t = 0. The dphi force needs temporal φ
+    /// history that doesn't exist at startup (initial acceleration and φ̇ are
+    /// mutually dependent through the added mass), so run the first step
+    /// provisionally [`BOOTSTRAP_PASSES`] times, rewinding the state after each
+    /// pass. Each pass refines the seed φ̇ by a geometric (added-mass
+    /// contraction) factor; the bookkeeping on the force side lives in
+    /// `ForceCalculate` via `Simulation::bootstrap_redos`.
+    fn bootstrap_first_step(&mut self) {
+        let x0 = self.x.clone();
+        let o0 = self.o.clone();
+        for _ in 0..BOOTSTRAP_PASSES {
+            self.advance_one_step();
+            // Rewind to the initial state and push it back into the system.
+            self.x = x0.clone();
+            self.o = o0.clone();
+            let _ = self.f.system(0.0, &self.x);
+            let o_push = self.o.clone();
+            let _ = self.g.system(0.0, &o_push);
+        }
+    }
+
     /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the
     /// full state `(self.x, self.o, self.o_lab)` by one timestep.
     fn advance_one_step(&mut self) {
         // Forces at the start of the step.
-        let (linear_accel, angular_force) = self.force_get();
+        let (linear_accel_expl, angular_force) = self.force_get();
+        // Stage A is evaluated at exactly the step-start state z_n, so its fluid
+        // KE is the correct value to write for the row sampled at time t_n.
+        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+
+        // Optional semi-implicit added-mass stabilisation (single-step Robin):
+        // a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), with
+        // a_prev the accepted acceleration from the previous step. Answer-
+        // preserving (fixed point a_stab = a_prev = a_expl) and unconditionally
+        // stable for M_a_safe >= effective added mass. Applied to both stages.
+        let linear_accel = if self.added_mass_stab {
+            self.stabilise_lin_accel(&linear_accel_expl)
+        } else {
+            linear_accel_expl.clone()
+        };
 
         // Half-step prediction.
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
         let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-        let _ = self.f.system(0.0, &(p_half, v_half));
+        let _ = self.f.system(0.0, &(p_half, v_half.clone()));
         let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
 
         // Forces at the half step.
-        let (linear_force_half, angular_force_half) = self.force_get();
+        let (linear_force_half_expl, angular_force_half) = self.force_get();
 
-        let x_new = self.lin_full_step(&linear_force_half);
+        let linear_force_half = if self.added_mass_stab {
+            self.stabilise_lin_accel(&linear_force_half_expl)
+        } else {
+            linear_force_half_expl
+        };
+
+        let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
         let _ = self.f.system(0.0, &x_new);
@@ -234,6 +322,63 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         self.x = x_new;
         self.o = o_new;
         self.o_lab = o_lab_new;
+
+        // Carry the stage-A explicit acceleration as a_prev for the next step's
+        // Robin update. At steady state a_prev -> a_expl, so the stabiliser is
+        // answer-preserving.
+        if self.added_mass_stab {
+            self.lin_accel_prev = linear_accel_expl;
+        }
+    }
+
+    /// Single-step semi-implicit (Robin) added-mass stabilisation of the
+    /// lab-frame linear acceleration. Per body: rotate a_expl and a_prev into
+    /// the body frame (where M_a is diagonal/constant), solve
+    /// a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), and
+    /// rotate back to the lab frame.
+    fn stabilise_lin_accel(&self, accel_expl: &DVector<f64>) -> DVector<f64> {
+        let (q, _) = &self.o;
+        let mut out = DVector::zeros(3 * self.nbody);
+        for i in 0..self.nbody {
+            let ms = self.masses[i];
+            // Bodies with zero mass (fixed) are left untouched.
+            if ms <= 0.0 {
+                for c in 0..3 {
+                    out[3 * i + c] = accel_expl[3 * i + c];
+                }
+                continue;
+            }
+            let a_expl_lab = Vector3::new(
+                accel_expl[3 * i],
+                accel_expl[3 * i + 1],
+                accel_expl[3 * i + 2],
+            );
+            let a_prev_lab = Vector3::new(
+                self.lin_accel_prev[3 * i],
+                self.lin_accel_prev[3 * i + 1],
+                self.lin_accel_prev[3 * i + 2],
+            );
+
+            // Rotate lab -> body using the body orientation quaternion.
+            let a_expl_b = self.lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i]).imag();
+            let a_prev_b = self.lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i]).imag();
+
+            let ms_i = Matrix3::identity() * ms;
+            let m_a = self.added_mass_safe[i];
+            let lhs = ms_i + m_a;
+            let rhs = ms_i * a_expl_b + m_a * a_prev_b;
+            let a_stab_b = lhs
+                .try_inverse()
+                .map(|inv| inv * rhs)
+                .unwrap_or(a_expl_b);
+
+            // Rotate body -> lab.
+            let a_stab_lab = self.body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i]).imag();
+            for c in 0..3 {
+                out[3 * i + c] = a_stab_lab[c];
+            }
+        }
+        out
     }
 
     fn print_progress(&self, i: usize, num_steps: usize, steady_elapsed: Duration, elapsed_dt: Duration) {
@@ -284,9 +429,9 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         x: &LinearState,
         o: &AngularState,
         o_lab: &DVector<f64>,
+        ke_fluid: f64,
     ) -> std::io::Result<()> {
         let ke = self.solid_kinetic_energy(x, o);
-        let ke_fluid = self.fluid_kinetic_energy();
         let ke_total = ke.total + ke_fluid;
 
         write!(
@@ -376,9 +521,11 @@ impl<F, G, I> Rk4PCDM<F, G, I>
         (p_new, v_new)
     }
 
-    fn lin_full_step(&mut self, lin_force: &DVector<f64>) -> LinearState {
+    fn lin_full_step(&mut self, lin_force: &DVector<f64>, v_half: &DVector<f64>) -> LinearState {
         let (p, v) = self.x.clone();
-        let p_new = &p + &v * self.step_size;
+        // Position uses the midpoint velocity v_{n+1/2} (previously v_n — explicit
+        // Euler for position, the source of a small O(dt) global position error).
+        let p_new = &p + v_half * self.step_size;
         let v_new = &v + lin_force * self.step_size;
         (p_new, v_new)
     }

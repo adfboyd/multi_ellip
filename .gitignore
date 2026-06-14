@@ -8,6 +8,7 @@
 
 # Simulation output data
 *.dat
+*.csv
 out_*/
 output*/
 outputinc/
@@ -38,3 +39,24 @@ input_close*.txt
 
 # Misc scratch
 lamb_formulation.html
+
+# stabilisation scratch inputs
+be_*.txt
+bo_*.txt
+s3_*.txt
+s4_*.txt
+stab*.txt
+blend_*.txt
+stabsweep_*.txt
+_*.txt
+
+# coupled-force verification scratch (omega-fix validation)
+clean*.txt
+t0probe*.txt
+coup*.txt
+puretrans.txt
+purerot_tr.txt
+chk_*.py
+
+# energy-drift diagnostic scratch
+ed_*.txt
