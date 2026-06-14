@@ -1,30 +1,33 @@
-use std::{fs, fs::File, io::BufWriter, io::Write, path::Path};
-use std::sync::{Arc, Mutex};
+use chrono::{DateTime, Local};
 use nalgebra as na;
 use nalgebra::{DVector, Quaternion, Vector3};
+use std::sync::{Arc, Mutex};
+use std::{fs, fs::File, io::BufWriter, io::Write, path::Path};
 
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::collections::HashMap;
+use std::thread;
 
 use nom::{
-    IResult,
     bytes::complete::{tag, take_while1},
     character::complete::line_ending,
-    number::complete::double,
-    sequence::{separated_pair, terminated},
     combinator::opt,
     multi::many0,
+    number::complete::double,
+    sequence::{separated_pair, terminated},
+    IResult,
 };
 
-use multi_ellip::ellipsoids::body::Body;
-use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::bem::bem_for_ode;
+use multi_ellip::ellipsoids::body::Body;
 use multi_ellip::ode::rk4pcdm;
 use multi_ellip::system::fluid::Fluid;
+use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::system::system::Simulation;
 use multi_ellip::utils::SimName;
 
 fn main() {
+    let started_at: DateTime<Local> = Local::now();
     let args: Vec<String> = env::args().collect();
 
     // Expect at least one argument: the input file path.
@@ -32,7 +35,6 @@ fn main() {
         panic!("Usage: program <path_to_input_file> [output_dir]");
     }
     let input_file_path = &args[1];
-    println!("Reading input from {:?}", input_file_path);
     let blank_fp = ".".to_string();
     let output_file_path = if args.len() > 2 { &args[2] } else { &blank_fp };
 
@@ -56,9 +58,14 @@ fn main() {
 
     // Parse "key=value" assignments into a map.
     let mut values: HashMap<String, f64> = HashMap::new();
+    let mut seen_keys: HashSet<String> = HashSet::new();
+    let mut duplicate_keys: Vec<String> = Vec::new();
     match parse_assignments(&input_data) {
         Ok((_, assignments)) => {
             for (variable, value) in assignments {
+                if !seen_keys.insert(variable.to_string()) {
+                    duplicate_keys.push(variable.to_string());
+                }
                 values.insert(variable.to_string(), value);
             }
         }
@@ -74,17 +81,48 @@ fn main() {
     let ndiv = get("ndiv", 2.0) as usize;
     let t_end = get("tend", 10.0);
     let dt = get("dt", 0.1);
-    let tprint = get("tprint", 1.0) as u32;
+    let tprint_raw = get("tprint", 1.0);
     // Console progress interval (steps). Decoupled from tprint, which controls
     // how often rows are written to the output .dat file.
-    let logevery = get("logevery", 100.0) as u32;
+    let logevery_raw = get("logevery", 100.0);
     let nbody = get("nbody", 2.0) as usize;
+    let mut input_warnings: Vec<String> = Vec::new();
 
-    println!("Density of fluid = {:?}", rho_f);
-    println!("{:?} divisions.", ndiv);
-    println!("Running with timestep = {:?}, until t = {:?}", dt, t_end);
-    println!("Writing output every {:?} step(s); console progress every {:?} step(s)", tprint, logevery);
-    println!("Running with {:?} body(s)", nbody);
+    if dt <= 0.0 {
+        println!("Invalid input: dt must be greater than 0.");
+        return;
+    }
+    if t_end <= 0.0 {
+        println!("Invalid input: tend must be greater than 0.");
+        return;
+    }
+    if nbody == 0 {
+        println!("Invalid input: nbody must be at least 1.");
+        return;
+    }
+    if tprint_raw < 1.0 {
+        input_warnings.push(format!(
+            "tprint={} is below 1; using 1 step instead.",
+            tprint_raw
+        ));
+    }
+    if logevery_raw < 1.0 {
+        input_warnings.push(format!(
+            "logevery={} is below 1; using 1 step instead.",
+            logevery_raw
+        ));
+    }
+    if !duplicate_keys.is_empty() {
+        duplicate_keys.sort();
+        duplicate_keys.dedup();
+        input_warnings.push(format!(
+            "duplicate input key(s): {}. The last value for each key was used.",
+            duplicate_keys.join(", ")
+        ));
+    }
+
+    let tprint = tprint_raw.max(1.0) as u32;
+    let logevery = logevery_raw.max(1.0) as u32;
 
     // Build each body from its 1-indexed input variables (cex1, oriw1, shx1, ...).
     let read_body = |i: usize| -> Body {
@@ -99,8 +137,10 @@ fn main() {
         )
         .normalize();
         let lin_velocity = Vector3::new(g("lvx", 0.0), g("lvy", 0.0), g("lvz", 0.0));
-        let ang_velocity =
-            Quaternion::from_parts(0.0, Vector3::new(g("avx", 0.0), g("avy", 0.0), g("avz", 0.0)));
+        let ang_velocity = Quaternion::from_parts(
+            0.0,
+            Vector3::new(g("avx", 0.0), g("avy", 0.0), g("avz", 0.0)),
+        );
 
         // Normalise the input shape so its equivalent radius equals `req`.
         let (shx, shy, shz) = (g("shx", 1.0), g("shy", 1.0), g("shz", 1.0));
@@ -109,11 +149,6 @@ fn main() {
         let sf = req / req_temp;
         let shape = Vector3::new(shx * sf, shy * sf, shz * sf);
         let rho_s = g("rhos", 1.0);
-
-        println!(
-            "Body {}: position {:?}, shape {:?}, req {:?}, rho_s {:?}",
-            i, position, shape, req, rho_s
-        );
 
         let mut body = Body {
             density: rho_s,
@@ -136,27 +171,16 @@ fn main() {
         kinetic_energy: 0.0,
     };
 
-    println!("Building simulation");
     let mut sys = Simulation::new(fluid, bodies, ndiv as u32);
     sys.step_dt = dt;
     // Lamb impulse-transport term (ω × L). Required for the correct force/torque
     // on a rotating body: F = dL/dt = ρ∮(∂φ/∂t)n̂dA + ω×L. Default ON; set
     // `impulse_transport=0` to drop it (reproduces the old, incomplete force).
     sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
-    if sys.impulse_transport {
-        println!("Impulse transport terms (omega x L) ENABLED (default)");
-    } else {
-        println!("Impulse transport terms DISABLED (force drops omega x L - incomplete for rotation)");
-    }
     sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
-    if sys.added_mass_stab {
-        println!("Semi-implicit added-mass stabilisation ENABLED");
-    }
     sys.phidot_blend = get("phidot_blend", 0.0);
-    if sys.phidot_blend > 0.0 {
-        println!("BDF2->BDF1 phi_dot blend eps = {}", sys.phidot_blend);
-    }
-    println!("Simulation Built");
+    let impulse_transport = sys.impulse_transport;
+    let phidot_blend = sys.phidot_blend;
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -183,12 +207,12 @@ fn main() {
     // pre-scaled by the safety factor (input key added_mass_safety, default 2).
     // Constant in the body frame; harmless when the flag is off.
     let added_mass_safety = get("added_mass_safety", 2.0);
-    let added_mass_tensors: Vec<na::Matrix3<f64>> =
-        sys.added_mass_tensors().iter().map(|m| m * added_mass_safety).collect();
+    let added_mass_tensors: Vec<na::Matrix3<f64>> = sys
+        .added_mass_tensors()
+        .iter()
+        .map(|m| m * added_mass_safety)
+        .collect();
     let added_mass_stab = sys.added_mass_stab;
-    if added_mass_stab {
-        println!("Added-mass safety factor = {}", added_mass_safety);
-    }
 
     let sys_mutex = Arc::new(Mutex::new(sys));
     let sys_for_ke = sys_mutex.clone();
@@ -197,8 +221,12 @@ fn main() {
         sys_ref.fluid.kinetic_energy
     }));
 
-    let linear_system = bem_for_ode::LinearUpdate { system: sys_mutex.clone() };
-    let angular_system = bem_for_ode::AngularUpdate { system: sys_mutex.clone() };
+    let linear_system = bem_for_ode::LinearUpdate {
+        system: sys_mutex.clone(),
+    };
+    let angular_system = bem_for_ode::AngularUpdate {
+        system: sys_mutex.clone(),
+    };
     let forcing_system = bem_for_ode::ForceCalculate::new(sys_mutex.clone());
 
     let mut stepper = rk4pcdm::Rk4PCDM::new(
@@ -219,17 +247,13 @@ fn main() {
         logevery, // print_rate: console progress every logevery steps
     );
 
-    println!("Solver initialised");
-
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
     // quadratic (6-node) triangles, with 2*nelm + 2 nodes (matches ellip_gridder).
     let elems_per_body = 8_usize * 4_usize.pow(ndiv as u32);
     let nelm_end = elems_per_body * nbody;
     let npts_total = (2 * elems_per_body + 2) * nbody;
-    println!("Total number of triangular elements = {:?}, nodes = {:?}.", nelm_end, npts_total);
 
     let path_base_str = output_file_path;
-    println!("Saving to {:?}", path_base_str);
 
     if std::fs::create_dir_all(path_base_str.clone()).is_err() {
         panic!("Could not create output directories\n");
@@ -254,12 +278,60 @@ fn main() {
     let output_path = path.to_path_buf();
 
     let mut buf = BufWriter::new(file1);
-    println!("Writing results to {:?}", output_path);
+
+    let estimated_steps = ((t_end - 0.0) / dt).ceil() as usize;
+    let output_rows = estimated_output_rows(estimated_steps, tprint as usize);
+    let available_cores = available_parallelism();
+    let rayon_threads = rayon::current_num_threads();
+    println!();
+    if !input_warnings.is_empty() {
+        println!("Input warnings:");
+        for warning in &input_warnings {
+            println!("  - {}", warning);
+        }
+        println!();
+    }
+    println!("================ Simulation setup ================");
+    println!("  Run label:         {}", path_base.display());
+    println!("  Started:           {}", fmt_timestamp(started_at));
+    println!("  Input file:        {}", input_file_path);
+    println!("  Output file:       {}", output_path.display());
+    println!("  Bodies:            {}", nbody);
+    println!("  Fluid density:     {}", rho_f);
+    println!(
+        "  Mesh:              ndiv {} -> {} triangles / {} nodes",
+        ndiv, nelm_end, npts_total
+    );
+    println!(
+        "  Simulated time:    0 -> {}  (dt = {}, ~{} steps)",
+        t_end, dt, estimated_steps
+    );
+    println!("  Output cadence:    every {} step(s)", tprint);
+    println!("  Output rows:       ~{}", output_rows);
+    println!("  Progress cadence:  every {} step(s)", logevery);
+    println!(
+        "  CPU cores:         {} available, {} Rayon worker thread(s)",
+        available_cores, rayon_threads
+    );
+    println!("  Impulse transport: {}", fmt_enabled(impulse_transport));
+    if added_mass_stab {
+        println!(
+            "  Added-mass stab:   enabled  (safety factor = {})",
+            added_mass_safety
+        );
+    } else {
+        println!("  Added-mass stab:   disabled");
+    }
+    println!("  Phi-dot blend:     {}", fmt_phidot_blend(phidot_blend));
+    println!("================================================");
+    println!("Solver starting - good luck!");
+    println!();
 
     let res = stepper.integrate_with_writer(&mut buf);
 
     match res {
         Ok(stats) => {
+            let finished_at: DateTime<Local> = Local::now();
             println!("Solver finished successfully - good job!");
             if let Err(e) = buf.flush() {
                 println!("Could not write to file. Error: {:?}", e);
@@ -271,15 +343,62 @@ fn main() {
             println!("================== Run summary ==================");
             println!("  Bodies:            {}", nbody);
             println!("  Triangles / nodes: {} / {}", nelm_end, npts_total);
-            println!("  Timesteps:         {}  (dt = {})", stats.accepted_steps, dt);
+            println!(
+                "  Timesteps:         {}  (dt = {})",
+                stats.accepted_steps, dt
+            );
             println!("  Simulated time:    0 -> {}", t_end);
             println!("  First-step setup:  {:.3} s", stepper.run_first_step_secs);
-            println!("  Mean time/step:    {:.4} s  (excl. first step)", stepper.run_steady_per_step);
+            println!(
+                "  Mean time/step:    {:.4} s  (excl. first step)",
+                stepper.run_steady_per_step
+            );
             println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
+            println!(
+                "  CPU cores:         {} available, {} Rayon worker thread(s)",
+                available_cores, rayon_threads
+            );
+            println!("  Started:           {}", fmt_timestamp(started_at));
+            println!("  Finished:          {}", fmt_timestamp(finished_at));
+            println!("  Output file:       {}", output_path.display());
             println!("================================================");
         }
         Err(e) => println!("An error occurred {:?}", e),
     };
+}
+
+fn estimated_output_rows(num_steps: usize, samp_rate: usize) -> usize {
+    if num_steps == 0 {
+        1
+    } else {
+        2 + (num_steps - 1) / samp_rate
+    }
+}
+
+fn fmt_timestamp(timestamp: DateTime<Local>) -> String {
+    timestamp.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn fmt_phidot_blend(value: f64) -> String {
+    if value.abs() <= f64::EPSILON {
+        "0 (off)".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn available_parallelism() -> usize {
+    thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
+fn fmt_enabled(enabled: bool) -> &'static str {
+    if enabled {
+        "enabled"
+    } else {
+        "disabled"
+    }
 }
 
 /// Format a duration in seconds as a compact "Hh Mm Ss" string.

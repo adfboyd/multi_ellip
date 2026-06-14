@@ -32,7 +32,7 @@ impl Body {
         (1.0 / self.mass()) * self.linear_momentum
     }
 
-    pub fn linear_momentum_from_vel(&self, v :Vector3<f64>) -> Vector3<f64> {
+    pub fn linear_momentum_from_vel(&self, v: Vector3<f64>) -> Vector3<f64> {
         self.mass() * v
     }
 
@@ -42,19 +42,19 @@ impl Body {
         Quaternion::from_imag(vec)
     }
 
-    pub fn angular_momentum_from_vel(&self, q :Quaternion<f64>) -> Quaternion<f64> {
+    pub fn angular_momentum_from_vel(&self, q: Quaternion<f64>) -> Quaternion<f64> {
         let omega = q.imag();
         let ang_mom_vec = self.inertia * omega;
         Quaternion::from_imag(ang_mom_vec)
     }
 
-    pub fn set_linear_velocity(&mut self, v :Vector3<f64>) {
+    pub fn set_linear_velocity(&mut self, v: Vector3<f64>) {
         let linear_momentum = self.linear_momentum_from_vel(v);
 
         self.linear_momentum = linear_momentum;
     }
 
-    pub fn set_angular_velocity(&mut self, q :Quaternion<f64>) {
+    pub fn set_angular_velocity(&mut self, q: Quaternion<f64>) {
         let angular_momentum = self.angular_momentum_from_vel(q);
         self.angular_momentum = angular_momentum;
     }
@@ -76,10 +76,7 @@ impl Body {
     }
 
     pub fn update_q(&mut self, q: State) {
-        let State {
-            v: p_new,
-            q: o_new
-        } = q;
+        let State { v: p_new, q: o_new } = q;
         self.position = p_new;
         self.orientation = o_new;
     }
@@ -117,7 +114,6 @@ impl Body {
         abs_ang_vel / (2.0 * PI)
     }
 
-
     // pub(crate) fn kinetic_energy(&self) -> f64 {
     //     let lin_mom = self.linear_momentum;
     //     let ang_mom = self.angular_momentum.imag();
@@ -139,9 +135,7 @@ impl Body {
         p_scalar * direction.normalize()
     }
 
-    pub fn inertia_tensor(&self, rho_f :f64) -> (Matrix3<f64>, Matrix3<f64>) {
-
-
+    pub fn inertia_tensor(&self, rho_f: f64) -> (Matrix3<f64>, Matrix3<f64>) {
         let m_s = na::Matrix3::from_diagonal(&self.shape);
         let v_s = 4.0 / 3.0 * PI * self.shape.iter().fold(1.0, |acc, x| acc * x);
 
@@ -168,7 +162,6 @@ impl Body {
         let i_s = is_calc(m_s, self.density);
 
         (m_s, i_s)
-
     }
 
     pub fn print_vel(&self) {
@@ -183,17 +176,21 @@ impl Body {
     pub fn print_ang_mom(&self) {
         println!("Angular momentum is {:?}", self.angular_momentum);
     }
-    pub fn print_mass(&self) { println!("Mass is {:?}", self.mass()); }
-    pub fn print_position(&self) { println!("Position is {:?}", self.position); }
-    pub fn print_orientation(&self) { println!("Orientation is {:?}", self.orientation); }
+    pub fn print_mass(&self) {
+        println!("Mass is {:?}", self.mass());
+    }
+    pub fn print_position(&self) {
+        println!("Position is {:?}", self.position);
+    }
+    pub fn print_orientation(&self) {
+        println!("Orientation is {:?}", self.orientation);
+    }
 
     pub fn print_stats(&self) {
-
         self.print_position();
         self.print_orientation();
         self.print_vel();
         self.print_omega();
-
     }
 
     pub fn surface_area_estimate(&self) -> f64 {
@@ -202,22 +199,20 @@ impl Body {
         let p = 1.605;
 
         let numerator = (a * b).powf(p) + (a * c).powf(p) + (b * c).powf(p);
-        let frac = (numerator / 3.0).powf(1.0/p);
+        let frac = (numerator / 3.0).powf(1.0 / p);
 
         4.0 * PI * frac
     }
 
-    pub fn lab_body_convert(&self, v :&Vector3<f64>) -> Vector3<f64>{
-
+    pub fn lab_body_convert(&self, v: &Vector3<f64>) -> Vector3<f64> {
         let v_lin = v - self.position;
         let v_lin_quaternion = Quaternion::from_imag(v_lin);
         let v_body = lab_to_body(&v_lin_quaternion, &self.orientation);
 
         v_body.imag()
-
     }
 
-    pub fn surface_splitter(&self, p0 :&Vector3<f64>) -> (usize, usize) {
+    pub fn surface_splitter(&self, p0: &Vector3<f64>) -> (usize, usize) {
         // Decides for a point p0 (in lab coordinates) on the ellipsoid, which plane in the
         // orientation of the body to split the surface by.
         // Outputs eg (1,0,0) for positive side of x-plane or (0, -1, 0) for negative side of y-plane.
@@ -231,7 +226,6 @@ impl Body {
 
         let scaled_p0 = p0_body.imag();
 
-
         // println!("scaled p0 has real part {:?}, imag part {:?}", p0_body.w, p0_body.imag());
         // println!("scaled p0 = {:?}", scaled_p0);
 
@@ -242,7 +236,7 @@ impl Body {
         // println!("Check = {:?}", check);
 
         let mut max_abs_val = scaled_p0[0];
-        let mut max_abs_ind :usize = 0;
+        let mut max_abs_ind: usize = 0;
         for i in 1..3 {
             if max_abs_val.abs() < scaled_p0[i].abs() {
                 max_abs_val = scaled_p0[i];
@@ -260,5 +254,4 @@ impl Body {
 
         (max_abs_ind, is_positive)
     }
-
 }

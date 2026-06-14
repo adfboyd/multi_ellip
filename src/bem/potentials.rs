@@ -1,24 +1,27 @@
-use std::sync::Mutex;
-use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
-use indicatif::{ParallelProgressIterator, ProgressBar};
-use indicatif::ProgressIterator;
-use rayon::prelude::*;
-#[cfg(feature = "lapack")]
-use nalgebra_lapack::LU;
 use crate::bem::geom::*;
 use crate::bem::integ::*;
-use crate::ellipsoids::body::Body;
 use crate::bem::stacking::*;
-
+use crate::ellipsoids::body::Body;
+use indicatif::ProgressIterator;
+use indicatif::{ParallelProgressIterator, ProgressBar};
+use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3};
+#[cfg(feature = "lapack")]
+use nalgebra_lapack::LU;
+use rayon::prelude::*;
+use std::sync::Mutex;
 
 ///Calculates correct Neumann boundary conditions for a given discretized body with specified linear and rotational velocity.
-pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npts :usize, p :&DMatrix<f64>, vna :&DMatrix<f64>) -> DVector<f64> {
-
-
+pub fn dfdn_single(
+    c: &Vector3<f64>,
+    u: &Vector3<f64>,
+    omega: &Vector3<f64>,
+    npts: usize,
+    p: &DMatrix<f64>,
+    vna: &DMatrix<f64>,
+) -> DVector<f64> {
     let mut dfdn = DVector::zeros(npts);
 
-    for i in 0..npts{
-
+    for i in 0..npts {
         let p_i = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
         let df = u + omega.cross(&(p_i - c));
 
@@ -31,8 +34,7 @@ pub fn dfdn_single(c :&Vector3<f64>, u :&Vector3<f64>, omega :&Vector3<f64>, npt
 }
 
 ///Concatenates two vectors vertically
-pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
-
+pub fn vec_concat(v1: &DVector<f64>, v2: &DVector<f64>) -> DVector<f64> {
     // let npts1 = v1.shape().0;
     // let npts2 = v2.shape().0;
     //
@@ -51,13 +53,20 @@ pub fn vec_concat(v1 :&DVector<f64>, v2 :&DVector<f64>) -> DVector<f64> {
     let v = vstack((v1, v2));
 
     v
-
 }
 
 ///Calculates the correct value of phi on the boundary by solving the BEM.
-pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, orientation :UnitQuaternion<f64>,
-                  velocity :Vector3<f64>, omega :Vector3<f64>, nq :usize, mint :usize) -> DVector<f64> {
-
+pub fn f_finder(
+    ndiv: u32,
+    req: f64,
+    shape: Vector3<f64>,
+    centre: Vector3<f64>,
+    orientation: UnitQuaternion<f64>,
+    velocity: Vector3<f64>,
+    omega: Vector3<f64>,
+    nq: usize,
+    mint: usize,
+) -> DVector<f64> {
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &shape, &centre, &orientation);
 
     let (zz, ww) = gauss_leg(nq);
@@ -65,10 +74,9 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                  &p, &n,
-                                  &alpha, &beta, &gamma,
-                                  &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     //Calculate dfdn
 
@@ -76,13 +84,11 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let mut q = DVector::zeros(npts);
     let mut amat = DMatrix::zeros(npts, npts);
@@ -95,10 +101,10 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint, nq,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq, &zz, &ww);
+        let dlp = ldlp_3d(
+            npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz,
+            &ww,
+        );
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -120,10 +126,9 @@ pub fn f_finder(ndiv :u32, req :f64, shape :Vector3<f64>, centre :Vector3<f64>, 
 }
 
 ///Calculates the correct value of phi on the boundary by solving the BEM (un-parallelised).
-pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
-
+pub fn phi_1body_serial(body: &Body, ndiv: u32, nq: usize, mint: usize) -> DVector<f64> {
     let s = body.shape;
-    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
@@ -133,24 +138,28 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     //Calculate dfdn
 
-    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+    let dfdn = dfdn_single(
+        &body.position,
+        &body.linear_velocity(),
+        &body.angular_velocity().imag(),
+        npts,
+        &p,
+        &vna,
+    );
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let mut q = DVector::zeros(npts);
     let mut amat = DMatrix::zeros(npts, npts);
@@ -161,10 +170,10 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
         // println!("Computing column {} of the influence matrix", j);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint, nq,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq, &zz, &ww);
+        let dlp = ldlp_3d(
+            npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz,
+            &ww,
+        );
 
         for k in 0..npts {
             amat[(k, j)] = dlp[k];
@@ -182,14 +191,12 @@ pub fn phi_1body_serial(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVect
     println!("Linear system solved!");
 
     f
-
 }
 
 ///Calculates the correct phi for a given body used as the boundary, using BEM.
-pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
-
+pub fn f_1body(body: &Body, ndiv: u32, nq: usize, mint: usize) -> DVector<f64> {
     let s = body.shape;
-    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
@@ -199,24 +206,28 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     //Calculate dfdn
 
-    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+    let dfdn = dfdn_single(
+        &body.position,
+        &body.linear_velocity(),
+        &body.angular_velocity().imag(),
+        npts,
+        &p,
+        &vna,
+    );
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let mut amat_final = DMatrix::zeros(npts, npts);
 
@@ -230,10 +241,10 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
 
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint, nq,
-                              &q, &p, &n, &vna,
-                              &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq, &zz, &ww);
+            let dlp = ldlp_3d(
+                npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                &zz, &ww,
+            );
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -248,14 +259,12 @@ pub fn f_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
     println!("Linear system solved!");
 
     f
-
 }
 
 ///Evaluates phi at given point p0 of body.
-pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector3<f64>) -> f64 {
-
+pub fn phi_eval_1body(body: &Body, ndiv: u32, nq: usize, mint: usize, p0: Vector3<f64>) -> f64 {
     let s = body.shape;
-    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0); //equivalent radius
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0 / 3.0); //equivalent radius
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
@@ -265,24 +274,28 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     //Calculate dfdn
 
-    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+    let dfdn = dfdn_single(
+        &body.position,
+        &body.linear_velocity(),
+        &body.angular_velocity().imag(),
+        npts,
+        &p,
+        &vna,
+    );
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let mut amat_final = DMatrix::zeros(npts, npts);
 
@@ -296,10 +309,10 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
 
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint, nq,
-                              &q, &p, &n, &vna,
-                              &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq, &zz, &ww);
+            let dlp = ldlp_3d(
+                npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                &zz, &ww,
+            );
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -313,32 +326,25 @@ pub fn phi_eval_1body(body :&Body, ndiv :u32, nq :usize, mint :usize, p0 :Vector
 
     println!("Linear system solved!");
 
-    let (srf_area,phi_val) = lsdlpp_3d(npts, nelm, mint,
-                                       &f, &dfdn,
-                                       &p, &n, &vna,
-                                       &alpha, &beta, &gamma,
-                                       &xiq, &etq, &wq,
-                                       &p0);
+    let (srf_area, phi_val) = lsdlpp_3d(
+        npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &p0,
+    );
 
-    let (srf_area2, ke) = ke_3d(npts, nelm, mint,
-                                   &f, &dfdn,
-                                   &p, &n, &vna,
-                                   &alpha, &beta, &gamma,
-                                   &xiq, &etq, &wq);
+    let (srf_area2, ke) = ke_3d(
+        npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     println!("srf_area = {:?}", srf_area);
     println!("srf_area2 = {:?}, ke = {:?}", srf_area2, ke);
     phi_val
-
 }
 
 ///Calculates the total KE of the fluid due to the movement of 1 body.
-pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
-
+pub fn ke_1body(body: &Body, ndiv: u32, nq: usize, mint: usize) -> f64 {
     let f = f_1body(&body, ndiv, nq, mint);
 
     let s = body.shape;
-    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0/3.0);
+    let req = 1.0 / (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
 
     let orientation = UnitQuaternion::from_quaternion(body.orientation);
     let (nelm, npts, p, n) = ellip_gridder(ndiv, req, &body.shape, &body.position, &orientation);
@@ -348,33 +354,41 @@ pub fn ke_1body(body :&Body, ndiv :u32, nq :usize, mint :usize) -> f64 {
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
-    let dfdn = dfdn_single(&body.position, &body.linear_velocity(), &body.angular_velocity().imag(), npts, &p, &vna);
+    let dfdn = dfdn_single(
+        &body.position,
+        &body.linear_velocity(),
+        &body.angular_velocity().imag(),
+        npts,
+        &p,
+        &vna,
+    );
 
-
-    let (_sa, ke) = ke_3d(npts, nelm, mint, &f, &dfdn,&p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+    let (_sa, ke) = ke_3d(
+        npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     ke
 }
 
 ///Calculates the correct f for 2 given bodies by solving the BEM.
-pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
-
+pub fn f_2body(body1: &Body, body2: &Body, ndiv: u32, nq: usize, mint: usize) -> DVector<f64> {
     let s1 = body1.shape;
-    let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
+    let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
 
     let orientation1 = UnitQuaternion::from_quaternion(body1.orientation);
-    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
+    let (nelm1, npts1, p1, n1) =
+        ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
 
     let s2 = body2.shape;
-    let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
+    let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
     let orientation2 = UnitQuaternion::from_quaternion(body2.orientation);
-    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
+    let (nelm2, npts2, p2, n2) =
+        ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
 
     let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -385,10 +399,9 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     let mut vna1 = DMatrix::zeros(npts1, 3);
     let mut vna2 = DMatrix::zeros(npts2, 3);
@@ -404,20 +417,32 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
     }
     println!("Geometry arrays created.");
 
-    let dfdn_1 = dfdn_single(&body1.position, &body1.linear_velocity(), &body1.angular_velocity().imag(), npts1, &p1, &vna1);
-    let dfdn_2 = dfdn_single(&body2.position, &body2.linear_velocity(), &body2.angular_velocity().imag(), npts2, &p2, &vna2);
+    let dfdn_1 = dfdn_single(
+        &body1.position,
+        &body1.linear_velocity(),
+        &body1.angular_velocity().imag(),
+        npts1,
+        &p1,
+        &vna1,
+    );
+    let dfdn_2 = dfdn_single(
+        &body2.position,
+        &body2.linear_velocity(),
+        &body2.angular_velocity().imag(),
+        npts2,
+        &p2,
+        &vna2,
+    );
 
     let dfdn = vec_concat(&dfdn_1, &dfdn_2);
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let mut amat_final = DMatrix::zeros(npts, npts);
 
@@ -432,10 +457,10 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
             let mut q = DVector::zeros(npts);
             q[j] = 1.0;
 
-            let dlp = ldlp_3d(npts, nelm, mint, nq,
-                              &q, &p, &n, &vna,
-                              &alpha, &beta, &gamma,
-                              &xiq, &etq, &wq, &zz, &ww);
+            let dlp = ldlp_3d(
+                npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                &zz, &ww,
+            );
 
             col.copy_from_slice(dlp.as_slice());
         });
@@ -453,19 +478,26 @@ pub fn f_2body(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) ->
     f
 }
 
-pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :usize) -> DVector<f64> {
-
+pub fn f_2body_serial(
+    body1: &Body,
+    body2: &Body,
+    ndiv: u32,
+    nq: usize,
+    mint: usize,
+) -> DVector<f64> {
     let s1 = body1.shape;
-    let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0/3.0);
+    let req1 = 1.0 / (s1[0] * s1[1] * s1[2]).powf(1.0 / 3.0);
 
     let orientation1 = UnitQuaternion::from_quaternion(body1.orientation);
-    let (nelm1, npts1,p1, n1) = ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
+    let (nelm1, npts1, p1, n1) =
+        ellip_gridder(ndiv, req1, &body1.shape, &body1.position, &orientation1);
 
     let s2 = body2.shape;
-    let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0/3.0);
+    let req2 = 1.0 / (s2[0] * s2[1] * s2[2]).powf(1.0 / 3.0);
 
     let orientation2 = UnitQuaternion::from_quaternion(body2.orientation);
-    let (nelm2, npts2, p2, n2) = ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
+    let (nelm2, npts2, p2, n2) =
+        ellip_gridder(ndiv, req2, &body2.shape, &body2.position, &orientation2);
 
     let (nelm, npts, p, n) = combiner(nelm1, nelm2, npts1, npts2, &p1, &p2, &n1, &n2);
 
@@ -476,10 +508,9 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
 
     let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-    let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint,
-                                    &p, &n,
-                                    &alpha, &beta, &gamma,
-                                    &xiq, &etq, &wq);
+    let (vna, _vlm, _sa) = elm_geom(
+        npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+    );
 
     let mut vna1 = DMatrix::zeros(npts1, 3);
     let mut vna2 = DMatrix::zeros(npts2, 3);
@@ -495,20 +526,32 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
     }
     println!("Geometry arrays created.");
 
-    let dfdn_1 = dfdn_single(&body1.position, &body1.linear_velocity(), &body1.angular_velocity().imag(), npts1, &p1, &vna1);
-    let dfdn_2 = dfdn_single(&body2.position, &body2.linear_velocity(), &body2.angular_velocity().imag(), npts2, &p2, &vna2);
+    let dfdn_1 = dfdn_single(
+        &body1.position,
+        &body1.linear_velocity(),
+        &body1.angular_velocity().imag(),
+        npts1,
+        &p1,
+        &vna1,
+    );
+    let dfdn_2 = dfdn_single(
+        &body2.position,
+        &body2.linear_velocity(),
+        &body2.angular_velocity().imag(),
+        npts2,
+        &p2,
+        &vna2,
+    );
 
     let dfdn = vec_concat(&dfdn_1, &dfdn_2);
 
     //Calculate RHS of linear equation
 
-    let rhs = lslp_3d(npts, nelm, mint, nq,
-                      &dfdn, &p, &n, &vna,
-                      &alpha, &beta, &gamma,
-                      &xiq, &etq, &wq, &zz, &ww);
+    let rhs = lslp_3d(
+        npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww,
+    );
 
     println!("RHS is calculated");
-
 
     let amat_1 = DMatrix::zeros(npts, npts);
     let amat = Mutex::from(amat_1);
@@ -517,19 +560,18 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
 
     println!("Computing columns of influence matrix");
 
-    js.iter().progress_count(npts as u64).for_each(|&j|  {
+    js.iter().progress_count(npts as u64).for_each(|&j| {
         // println!("Computing column {} of the influence matrix", j);
         let mut q = DVector::zeros(npts);
         q[j] = 1.0;
 
-        let dlp = ldlp_3d(npts, nelm, mint, nq,
-                          &q, &p, &n, &vna,
-                          &alpha, &beta, &gamma,
-                          &xiq, &etq, &wq, &zz, &ww);
+        let dlp = ldlp_3d(
+            npts, nelm, mint, nq, &q, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz,
+            &ww,
+        );
 
         let mut amat = amat.lock().unwrap();
         for k in 0..npts {
-
             amat[(k, j)] = dlp[k];
         }
         q[j] = 0.0;
@@ -549,4 +591,3 @@ pub fn f_2body_serial(body1 :&Body, body2 :&Body, ndiv :u32, nq :usize, mint :us
 
     f
 }
-

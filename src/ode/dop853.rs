@@ -21,8 +21,8 @@ impl DefaultController for Controller {
 
 /// Structure containing the parameters for the numerical integration.
 pub struct Dop853<V, F>
-    where
-        F: System<V>,
+where
+    F: System<V>,
 {
     f: F,
     x: f64,
@@ -49,11 +49,11 @@ pub struct Dop853<V, F>
 }
 
 impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
-    where
-        f64: From<T>,
-        T: Copy + SubsetOf<f64> + Scalar + ClosedAdd + ClosedMul + ClosedSub + Zero,
-        F: System<OVector<T, D>>,
-        DefaultAllocator: Allocator<T, D>,
+where
+    f64: From<T>,
+    T: Copy + SubsetOf<f64> + Scalar + ClosedAdd + ClosedMul + ClosedSub + Zero,
+    F: System<OVector<T, D>>,
+    DefaultAllocator: Allocator<T, D>,
 {
     /// Default initializer for the structure.
     ///
@@ -300,8 +300,8 @@ impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
                 for (j, k_value) in k.iter().enumerate().take(s) {
                     y_next += k_value
                         * (self.h * self.coeffs.a::<f64>(s + 1, j + 1))
-                        .to_subset()
-                        .unwrap();
+                            .to_subset()
+                            .unwrap();
                 }
                 self.f.system(
                     self.x + (self.h * self.coeffs.c::<f64>(s + 1)),
@@ -405,14 +405,14 @@ impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
                     // Next three function evaluations
                     let mut y_next = &self.y
                         + (&k[0] * self.coeffs.a(14, 1)
-                        + &k[6] * self.coeffs.a(14, 7)
-                        + &k[7] * self.coeffs.a(14, 8)
-                        + &k[8] * self.coeffs.a(14, 9)
-                        + &k[9] * self.coeffs.a(14, 10)
-                        + &k[1] * self.coeffs.a(14, 11)
-                        + &k[2] * self.coeffs.a(14, 12)
-                        + &k[3] * self.coeffs.a(14, 13))
-                        * h;
+                            + &k[6] * self.coeffs.a(14, 7)
+                            + &k[7] * self.coeffs.a(14, 8)
+                            + &k[8] * self.coeffs.a(14, 9)
+                            + &k[9] * self.coeffs.a(14, 10)
+                            + &k[1] * self.coeffs.a(14, 11)
+                            + &k[2] * self.coeffs.a(14, 12)
+                            + &k[3] * self.coeffs.a(14, 13))
+                            * h;
                     self.f.system(
                         self.x + self.h * self.coeffs.c::<f64>(14),
                         &y_next,
@@ -421,14 +421,14 @@ impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
 
                     y_next = &self.y
                         + (&k[0] * self.coeffs.a(15, 1)
-                        + &k[5] * self.coeffs.a(15, 6)
-                        + &k[6] * self.coeffs.a(15, 7)
-                        + &k[7] * self.coeffs.a(15, 8)
-                        + &k[1] * self.coeffs.a(15, 11)
-                        + &k[2] * self.coeffs.a(15, 12)
-                        + &k[3] * self.coeffs.a(15, 13)
-                        + &k[9] * self.coeffs.a(15, 14))
-                        * h;
+                            + &k[5] * self.coeffs.a(15, 6)
+                            + &k[6] * self.coeffs.a(15, 7)
+                            + &k[7] * self.coeffs.a(15, 8)
+                            + &k[1] * self.coeffs.a(15, 11)
+                            + &k[2] * self.coeffs.a(15, 12)
+                            + &k[3] * self.coeffs.a(15, 13)
+                            + &k[9] * self.coeffs.a(15, 14))
+                            * h;
                     self.f.system(
                         self.x + self.h * self.coeffs.c::<f64>(15),
                         &y_next,
@@ -437,14 +437,14 @@ impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
 
                     y_next = &self.y
                         + (&k[0] * self.coeffs.a(16, 1)
-                        + &k[5] * self.coeffs.a(16, 6)
-                        + &k[6] * self.coeffs.a(16, 7)
-                        + &k[7] * self.coeffs.a(16, 8)
-                        + &k[8] * self.coeffs.a(16, 9)
-                        + &k[3] * self.coeffs.a(16, 13)
-                        + &k[9] * self.coeffs.a(16, 14)
-                        + &k[1] * self.coeffs.a(16, 15))
-                        * h;
+                            + &k[5] * self.coeffs.a(16, 6)
+                            + &k[6] * self.coeffs.a(16, 7)
+                            + &k[7] * self.coeffs.a(16, 8)
+                            + &k[8] * self.coeffs.a(16, 9)
+                            + &k[3] * self.coeffs.a(16, 13)
+                            + &k[9] * self.coeffs.a(16, 14)
+                            + &k[1] * self.coeffs.a(16, 15))
+                            * h;
                     self.f.system(
                         self.x + self.h * self.coeffs.c::<f64>(16),
                         &y_next,
@@ -517,18 +517,18 @@ impl<T, D: Dim, F> Dop853<OVector<T, D>, F>
                         self.y_out.push(
                             &self.rcont[0]
                                 + (&self.rcont[1]
-                                + (&self.rcont[2]
-                                + (&self.rcont[3]
-                                + (&self.rcont[4]
-                                + (&self.rcont[5]
-                                + (&self.rcont[6]
-                                + &self.rcont[7] * theta)
-                                * theta1)
-                                * theta)
-                                * theta1)
-                                * theta)
-                                * theta1)
-                                * theta,
+                                    + (&self.rcont[2]
+                                        + (&self.rcont[3]
+                                            + (&self.rcont[4]
+                                                + (&self.rcont[5]
+                                                    + (&self.rcont[6]
+                                                        + &self.rcont[7] * theta)
+                                                        * theta1)
+                                                    * theta)
+                                                * theta1)
+                                            * theta)
+                                        * theta1)
+                                    * theta,
                         );
                         self.xd += self.dx;
                     }

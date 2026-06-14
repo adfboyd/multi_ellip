@@ -77,8 +77,8 @@ pub trait Block {
 /// Separate from Block because it's useful to specify the bound on the storage independently of
 /// the other bounds.
 pub trait BlockPopulate<S>: Block
-    where
-        S: RawStorageMut<Self::T, Self::Rows, Self::Cols>,
+where
+    S: RawStorageMut<Self::T, Self::Rows, Self::Cols>,
 {
     /// Populate a matrix from this block's data.
     fn populate(self, m: &mut Matrix<Self::T, Self::Rows, Self::Cols, S>);
@@ -94,7 +94,7 @@ impl<'a, T: Scalar, R: Dim, C: Dim, S: RawStorage<T, R, C>> Block for &'a Matrix
     }
 }
 impl<'a, T: Scalar, R: Dim, C: Dim, S: RawStorage<T, R, C>, S2: RawStorageMut<T, R, C>>
-BlockPopulate<S2> for &'a Matrix<T, R, C, S>
+    BlockPopulate<S2> for &'a Matrix<T, R, C, S>
 {
     #[inline(always)]
     fn populate(self, m: &mut Matrix<T, Self::Rows, Self::Cols, S2>) {
@@ -104,10 +104,10 @@ BlockPopulate<S2> for &'a Matrix<T, R, C, S>
 
 #[inline]
 fn build<B: Copy, T: Scalar + Zero, R: Dim, C: Dim, S>(x: B) -> Matrix<T, R, C, S>
-    where
-        S: RawStorageMut<T, R, C>,
-        DefaultAllocator: Allocator<T, R, C, Buffer = S>,
-        B: Block<T = T, Rows = R, Cols = C> + BlockPopulate<S>,
+where
+    S: RawStorageMut<T, R, C>,
+    DefaultAllocator: Allocator<T, R, C, Buffer = S>,
+    B: Block<T = T, Rows = R, Cols = C> + BlockPopulate<S>,
 {
     let (r, c) = x.shape();
     let mut out = Matrix::zeros_generic(r, c);
@@ -139,9 +139,9 @@ mod vstack_impl {
         }
     }
     impl<B: Block, R1: Dim + DimAdd<B::Rows>, C1: Dim> Visitor<B> for VStackShape<B::T, R1, C1>
-        where
-            DimSum<R1, B::Rows>: DimSub<R1> + DimSub<B::Rows>,
-            ShapeConstraint: SameNumberOfColumns<C1, B::Cols>
+    where
+        DimSum<R1, B::Rows>: DimSub<R1> + DimSub<B::Rows>,
+        ShapeConstraint: SameNumberOfColumns<C1, B::Cols>
             + SameNumberOfRows<DimDiff<DimSum<R1, B::Rows>, R1>, B::Rows>
             + SameNumberOfRows<DimDiff<DimSum<R1, B::Rows>, B::Rows>, R1>,
     {
@@ -165,8 +165,8 @@ mod vstack_impl {
     pub struct VStackLazy<X>(pub X);
 
     impl<T: Scalar, R: Dim, C: Dim, X> Block for VStackLazy<X>
-        where
-            X: Copy + VisitTuple<VStackShapeInit, Output = VStackShape<T, R, C>>,
+    where
+        X: Copy + VisitTuple<VStackShapeInit, Output = VStackShape<T, R, C>>,
     {
         type T = T;
         type Rows = R;
@@ -177,8 +177,8 @@ mod vstack_impl {
         }
     }
     impl<T: Scalar, R: Dim, C: Dim, S: RawStorageMut<T, R, C>, X> BlockPopulate<S> for VStackLazy<X>
-        where
-            X: Copy
+    where
+        X: Copy
             + VisitTuple<VStackShapeInit, Output = VStackShape<T, R, C>>
             + for<'a> VisitTuple<VStack<'a, T, R, C, S, Const<0>>, Output = VStack<'a, T, R, C, S, R>>,
     {
@@ -197,27 +197,27 @@ mod vstack_impl {
     }
 
     impl<
-        'a,
-        B: Copy
-        + Block
-        + for<'b> BlockPopulate<
-            ViewStorageMut<
-                'b,
-                <B as Block>::T,
-                <B as Block>::Rows,
-                <B as Block>::Cols,
-                <S1 as RawStorage<<B as Block>::T, R1, C1>>::RStride,
-                <S1 as RawStorage<<B as Block>::T, R1, C1>>::CStride,
-            >,
-        >,
-        R1: Dim + DimAdd<B::Rows>,
-        C1: Dim,
-        S1: RawStorageMut<B::T, R1, C1>,
-        R3: Dim + DimAdd<B::Rows>,
-    > Visitor<B> for VStack<'a, B::T, R1, C1, S1, R3>
-        where
-            B::T: Scalar,
-            ShapeConstraint: SameNumberOfColumns<C1, B::Cols>,
+            'a,
+            B: Copy
+                + Block
+                + for<'b> BlockPopulate<
+                    ViewStorageMut<
+                        'b,
+                        <B as Block>::T,
+                        <B as Block>::Rows,
+                        <B as Block>::Cols,
+                        <S1 as RawStorage<<B as Block>::T, R1, C1>>::RStride,
+                        <S1 as RawStorage<<B as Block>::T, R1, C1>>::CStride,
+                    >,
+                >,
+            R1: Dim + DimAdd<B::Rows>,
+            C1: Dim,
+            S1: RawStorageMut<B::T, R1, C1>,
+            R3: Dim + DimAdd<B::Rows>,
+        > Visitor<B> for VStack<'a, B::T, R1, C1, S1, R3>
+    where
+        B::T: Scalar,
+        ShapeConstraint: SameNumberOfColumns<C1, B::Cols>,
     {
         type Output = VStack<'a, B::T, R1, C1, S1, DimSum<R3, B::Rows>>;
         fn visit(self, x: B) -> Self::Output {
@@ -235,9 +235,9 @@ mod vstack_impl {
     pub fn vstack<T: Scalar + Zero, R: Dim, C: Dim, X: Copy>(
         x: X,
     ) -> Matrix<T, R, C, <DefaultAllocator as Allocator<T, R, C>>::Buffer>
-        where
-            DefaultAllocator: Allocator<T, R, C>,
-            VStackLazy<X>: Block<T = T, Rows = R, Cols = C>
+    where
+        DefaultAllocator: Allocator<T, R, C>,
+        VStackLazy<X>: Block<T = T, Rows = R, Cols = C>
             + BlockPopulate<<DefaultAllocator as Allocator<T, R, C>>::Buffer>,
     {
         build(VStackLazy(x))
@@ -269,9 +269,9 @@ mod hstack_impl {
         }
     }
     impl<B: Block, R1: Dim, C1: Dim + DimAdd<B::Cols>> Visitor<B> for HStackShape<B::T, R1, C1>
-        where
-            DimSum<C1, B::Cols>: DimSub<C1> + DimSub<B::Cols>,
-            ShapeConstraint: SameNumberOfRows<R1, B::Rows>
+    where
+        DimSum<C1, B::Cols>: DimSub<C1> + DimSub<B::Cols>,
+        ShapeConstraint: SameNumberOfRows<R1, B::Rows>
             + SameNumberOfColumns<DimDiff<DimSum<C1, B::Cols>, C1>, B::Cols>
             + SameNumberOfColumns<DimDiff<DimSum<C1, B::Cols>, B::Cols>, C1>,
     {
@@ -295,8 +295,8 @@ mod hstack_impl {
     pub struct HStackLazy<X>(pub X);
 
     impl<T: Scalar, R: Dim, C: Dim, X> Block for HStackLazy<X>
-        where
-            X: Copy + VisitTuple<HStackShapeInit, Output = HStackShape<T, R, C>>,
+    where
+        X: Copy + VisitTuple<HStackShapeInit, Output = HStackShape<T, R, C>>,
     {
         type T = T;
         type Rows = R;
@@ -307,8 +307,8 @@ mod hstack_impl {
         }
     }
     impl<T: Scalar, R: Dim, C: Dim, S: RawStorageMut<T, R, C>, X> BlockPopulate<S> for HStackLazy<X>
-        where
-            X: Copy
+    where
+        X: Copy
             + VisitTuple<HStackShapeInit, Output = HStackShape<T, R, C>>
             + for<'a> VisitTuple<HStack<'a, T, R, C, S, Const<0>>, Output = HStack<'a, T, R, C, S, C>>,
     {
@@ -327,27 +327,27 @@ mod hstack_impl {
     }
 
     impl<
-        'a,
-        B: Copy
-        + Block
-        + for<'b> BlockPopulate<
-            ViewStorageMut<
-                'b,
-                <B as Block>::T,
-                <B as Block>::Rows,
-                <B as Block>::Cols,
-                <S1 as RawStorage<<B as Block>::T, R1, C1>>::RStride,
-                <S1 as RawStorage<<B as Block>::T, R1, C1>>::CStride,
-            >,
-        >,
-        R1: Dim,
-        C1: Dim,
-        S1: RawStorageMut<B::T, R1, C1>,
-        C3: Dim + DimAdd<B::Cols>,
-    > Visitor<B> for HStack<'a, B::T, R1, C1, S1, C3>
-        where
-            B::T: Scalar,
-            ShapeConstraint: SameNumberOfRows<R1, B::Rows>,
+            'a,
+            B: Copy
+                + Block
+                + for<'b> BlockPopulate<
+                    ViewStorageMut<
+                        'b,
+                        <B as Block>::T,
+                        <B as Block>::Rows,
+                        <B as Block>::Cols,
+                        <S1 as RawStorage<<B as Block>::T, R1, C1>>::RStride,
+                        <S1 as RawStorage<<B as Block>::T, R1, C1>>::CStride,
+                    >,
+                >,
+            R1: Dim,
+            C1: Dim,
+            S1: RawStorageMut<B::T, R1, C1>,
+            C3: Dim + DimAdd<B::Cols>,
+        > Visitor<B> for HStack<'a, B::T, R1, C1, S1, C3>
+    where
+        B::T: Scalar,
+        ShapeConstraint: SameNumberOfRows<R1, B::Rows>,
     {
         type Output = HStack<'a, B::T, R1, C1, S1, DimSum<C3, B::Cols>>;
         fn visit(self, x: B) -> Self::Output {
@@ -365,9 +365,9 @@ mod hstack_impl {
     pub fn hstack<T: Scalar + Zero, R: Dim, C: Dim, X: Copy>(
         x: X,
     ) -> Matrix<T, R, C, <DefaultAllocator as Allocator<T, R, C>>::Buffer>
-        where
-            DefaultAllocator: Allocator<T, R, C>,
-            HStackLazy<X>: Block<T = T, Rows = R, Cols = C>
+    where
+        DefaultAllocator: Allocator<T, R, C>,
+        HStackLazy<X>: Block<T = T, Rows = R, Cols = C>
             + BlockPopulate<<DefaultAllocator as Allocator<T, R, C>>::Buffer>,
     {
         build(HStackLazy(x))

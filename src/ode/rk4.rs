@@ -8,8 +8,8 @@ use crate::ode::dop_shared::{IntegrationError, Stats, System};
 
 /// Structure containing the parameters for the numerical integration.
 pub struct Rk4<V, F>
-    where
-        F: System<V>,
+where
+    F: System<V>,
 {
     f: F,
     x: f64,
@@ -23,12 +23,12 @@ pub struct Rk4<V, F>
 }
 
 impl<T, D: Dim, F> Rk4<OVector<T, D>, F>
-    where
-        f64: From<T>,
-        T: Copy + SubsetOf<f64> + Scalar + ClosedAdd + ClosedMul + ClosedSub + ClosedNeg + Zero,
-        F: System<OVector<T, D>>,
-        OVector<T, D>: std::ops::Mul<f64, Output=OVector<T, D>>,
-        DefaultAllocator: Allocator<T, D>,
+where
+    f64: From<T>,
+    T: Copy + SubsetOf<f64> + Scalar + ClosedAdd + ClosedMul + ClosedSub + ClosedNeg + Zero,
+    F: System<OVector<T, D>>,
+    OVector<T, D>: std::ops::Mul<f64, Output = OVector<T, D>>,
+    DefaultAllocator: Allocator<T, D>,
 {
     /// Default initializer for the structure
     ///
@@ -101,7 +101,7 @@ impl<T, D: Dim, F> Rk4<OVector<T, D>, F>
         let x_new = self.x + self.step_size;
         let y_new = &self.y
             + (k[0].clone() + k[1].clone() * 2.0 + k[2].clone() * 2.0 + k[3].clone())
-            * (self.step_size / 6.0);
+                * (self.step_size / 6.0);
         (x_new, y_new)
     }
 
@@ -118,7 +118,7 @@ impl<T, D: Dim, F> Rk4<OVector<T, D>, F>
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::{allocator::Allocator, DefaultAllocator, Dim, DVector, OVector, Vector1};
+    use nalgebra::{allocator::Allocator, DVector, DefaultAllocator, Dim, OVector, Vector1};
 
     use crate::ode::rk4::Rk4;
     use crate::ode::System;
@@ -126,8 +126,8 @@ mod tests {
     struct Test1 {}
 
     impl<D: Dim> System<OVector<f64, D>> for Test1
-        where
-            DefaultAllocator: Allocator<f64, D>,
+    where
+        DefaultAllocator: Allocator<f64, D>,
     {
         fn system(&self, x: f64, y: &OVector<f64, D>, dy: &mut OVector<f64, D>) {
             dy[0] = (x - y[0]) / 2.;
@@ -137,8 +137,8 @@ mod tests {
     struct Test2 {}
 
     impl<D: Dim> System<OVector<f64, D>> for Test2
-        where
-            DefaultAllocator: Allocator<f64, D>,
+    where
+        DefaultAllocator: Allocator<f64, D>,
     {
         fn system(&self, x: f64, y: &OVector<f64, D>, dy: &mut OVector<f64, D>) {
             dy[0] = -2. * x - y[0];
@@ -148,8 +148,8 @@ mod tests {
     struct Test3 {}
 
     impl<D: Dim> System<OVector<f64, D>> for Test3
-        where
-            DefaultAllocator: Allocator<f64, D>,
+    where
+        DefaultAllocator: Allocator<f64, D>,
     {
         fn system(&self, x: f64, y: &OVector<f64, D>, dy: &mut OVector<f64, D>) {
             dy[0] = (5. * x * x - y[0]) / (x + y[0]).exp();

@@ -1,15 +1,15 @@
+use crate::bem::geom::*;
+use crate::bem::gmres::gmres;
+use crate::bem::integ::*;
+use crate::bem::potentials::dfdn_single;
+use crate::system::system::Simulation;
+use nalgebra::{DMatrix, DVector, Dyn, Quaternion, UnitQuaternion, Vector3};
+#[cfg(feature = "lapack")]
+use nalgebra_lapack::LU;
+use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "timing")]
 use std::time::Instant;
-use nalgebra::{DMatrix, DVector, Dyn, Quaternion, UnitQuaternion, Vector3};
-use rayon::prelude::*;
-#[cfg(feature = "lapack")]
-use nalgebra_lapack::LU;
-use crate::bem::geom::*;
-use crate::bem::integ::*;
-use crate::bem::gmres::gmres;
-use crate::bem::potentials::dfdn_single;
-use crate::system::system::Simulation;
 
 /// Type of the cached LU factorisation, matching whichever backend is active.
 #[cfg(feature = "lapack")]
@@ -104,19 +104,16 @@ fn grid_all_bodies(
         // body's ellipsoid exactly in ellip_gridder.
         let req = (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
         let orient = UnitQuaternion::from_quaternion(b.orientation);
-        let (nelm_i, npts_i, p_i, n_i) =
-            ellip_gridder(ndiv, req, &b.shape, &b.position, &orient);
+        let (nelm_i, npts_i, p_i, n_i) = ellip_gridder(ndiv, req, &b.shape, &b.position, &orient);
         nelms.push(nelm_i);
         nptss.push(npts_i);
         ps.push(p_i);
         ns.push(n_i);
     }
 
-    let (mut nelm, mut npts, mut p, mut n) =
-        (nelms[0], nptss[0], ps[0].clone(), ns[0].clone());
+    let (mut nelm, mut npts, mut p, mut n) = (nelms[0], nptss[0], ps[0].clone(), ns[0].clone());
     for i in 1..sys.nbody {
-        let (ne, np, pp, nn) =
-            combiner(nelm, nelms[i], npts, nptss[i], &p, &ps[i], &n, &ns[i]);
+        let (ne, np, pp, nn) = combiner(nelm, nelms[i], npts, nptss[i], &p, &ps[i], &n, &ns[i]);
         nelm = ne;
         npts = np;
         p = pp;
@@ -162,7 +159,9 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
 
         let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
 
-        let (vna, _vlm, _sa) = elm_geom(npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+        let (vna, _vlm, _sa) = elm_geom(
+            npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+        );
         #[cfg(feature = "timing")]
         println!("Force geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
@@ -188,7 +187,10 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             off += nptss[i];
         }
 
-        let rhs = lslp_3d(npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+        let rhs = lslp_3d(
+            npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz,
+            &ww,
+        );
         #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
@@ -204,9 +206,15 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             if cache_guard.is_none() {
                 #[cfg(feature = "timing")]
                 let t_mat = Instant::now();
-                let amat_final = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+                let amat_final = ldlp_3d_assemble(
+                    npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                    &zz, &ww,
+                );
                 #[cfg(feature = "timing")]
-                println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
+                println!(
+                    "Force influence matrix: {:.3}s",
+                    t_mat.elapsed().as_secs_f64()
+                );
                 *cache_guard = Some(SolveCache::Direct(factor(amat_final)));
             }
             match cache_guard.as_ref().unwrap() {
@@ -223,28 +231,46 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
                 // First evaluation: assemble the full matrix, split out the
                 // dense self-blocks (+ LU), then zero their positions so the
                 // remainder is exactly the interaction matrix.
-                let mut amat_full = ldlp_3d_assemble(npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz, &ww);
+                let mut amat_full = ldlp_3d_assemble(
+                    npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                    &zz, &ww,
+                );
                 let mut self_dense = Vec::with_capacity(nbody);
                 let mut self_lu = Vec::with_capacity(nbody);
                 let mut off = 0;
                 for b in 0..nbody {
                     let np = nptss[b];
-                    let sub = amat_full.view_range(off..off + np, off..off + np).into_owned();
+                    let sub = amat_full
+                        .view_range(off..off + np, off..off + np)
+                        .into_owned();
                     self_lu.push(factor(sub.clone()));
                     self_dense.push(sub);
-                    amat_full.view_range_mut(off..off + np, off..off + np).fill(0.0);
+                    amat_full
+                        .view_range_mut(off..off + np, off..off + np)
+                        .fill(0.0);
                     off += np;
                 }
-                *cache_guard = Some(SolveCache::BlockDiag { self_dense, self_lu });
+                *cache_guard = Some(SolveCache::BlockDiag {
+                    self_dense,
+                    self_lu,
+                });
                 amat_full
             } else {
-                ldlp_3d_assemble_interactions(npts, nelm, mint, &nptss, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq)
+                ldlp_3d_assemble_interactions(
+                    npts, nelm, mint, &nptss, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                )
             };
             #[cfg(feature = "timing")]
-            println!("Force influence matrix: {:.3}s", t_mat.elapsed().as_secs_f64());
+            println!(
+                "Force influence matrix: {:.3}s",
+                t_mat.elapsed().as_secs_f64()
+            );
 
             let (self_dense, self_lu) = match cache_guard.as_ref().unwrap() {
-                SolveCache::BlockDiag { self_dense, self_lu } => (self_dense, self_lu),
+                SolveCache::BlockDiag {
+                    self_dense,
+                    self_lu,
+                } => (self_dense, self_lu),
                 _ => unreachable!(),
             };
 
@@ -285,13 +311,20 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             let x0 = DVector::zeros(npts);
             let (f, _iters, _res) = gmres(matvec, precond, &rhs, &x0, 1e-11, 200);
             #[cfg(feature = "timing")]
-            println!("Force GMRES: {:.3}s  ({} iters, res {:.1e})", t_solve.elapsed().as_secs_f64(), _iters, _res);
+            println!(
+                "Force GMRES: {:.3}s  ({} iters, res {:.1e})",
+                t_solve.elapsed().as_secs_f64(),
+                _iters,
+                _res
+            );
 
             f
         };
         drop(cache_guard);
 
-        let (_srf_area, ke_integral) = ke_3d(npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+        let (_srf_area, ke_integral) = ke_3d(
+            npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+        );
         sys_ref.fluid.kinetic_energy = 0.5 * sys_ref.fluid.density * ke_integral;
 
         // Pressure (dphi/dt) force and torque per body.
@@ -356,14 +389,50 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
 
         let impulse_transport = sys_ref.impulse_transport;
 
-        let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>, Vector3<f64>, Vector3<f64>)> = (0..nelm)
+        let contributions: Vec<(
+            usize,
+            Vector3<f64>,
+            Vector3<f64>,
+            Vector3<f64>,
+            Vector3<f64>,
+        )> = (0..nelm)
             .into_par_iter()
             .map(|k| {
                 let body = elm_body[k];
-                let (force, torque) =
-                    dphi_dt_force_element(k, mint, &positions[body], rho_f, &f, &phi_dot, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq);
+                let (force, torque) = dphi_dt_force_element(
+                    k,
+                    mint,
+                    &positions[body],
+                    rho_f,
+                    &f,
+                    &phi_dot,
+                    &p,
+                    &n,
+                    &vna,
+                    &alpha,
+                    &beta,
+                    &gamma,
+                    &xiq,
+                    &etq,
+                    &wq,
+                );
                 let (l_lin, l_ang) = if impulse_transport {
-                    lamb_impulse_element(k, mint, &positions[body], rho_f, &f, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq)
+                    lamb_impulse_element(
+                        k,
+                        mint,
+                        &positions[body],
+                        rho_f,
+                        &f,
+                        &p,
+                        &n,
+                        &vna,
+                        &alpha,
+                        &beta,
+                        &gamma,
+                        &xiq,
+                        &etq,
+                        &wq,
+                    )
                 } else {
                     (Vector3::zeros(), Vector3::zeros())
                 };
@@ -403,7 +472,10 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
             sys_ref.phi_history.pop_front();
         }
         #[cfg(feature = "timing")]
-        println!("Pressure integration: {:.3}s", t_press.elapsed().as_secs_f64());
+        println!(
+            "Pressure integration: {:.3}s",
+            t_press.elapsed().as_secs_f64()
+        );
 
         let mut lin_accel = DVector::zeros(3 * nbody);
         let mut ang_accel = DVector::zeros(3 * nbody);

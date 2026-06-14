@@ -3,8 +3,8 @@
 
 // use std::ops::{Deref, DerefMut};
 // use csv;
-use nalgebra as na;
 use crate::ellipsoids::body::Body;
+use nalgebra as na;
 
 // use crate::solver::symplectic;
 // use crate::solver::symplectic::Hamiltonian;
@@ -65,16 +65,8 @@ pub struct Simulation {
     pub step_dt: f64,
 }
 
-
-
-
-
 impl Simulation {
-    pub fn new(
-        fluid: Fluid,
-        bodies: Vec<Body>,
-        ndiv: u32,
-    ) -> Self {
+    pub fn new(fluid: Fluid, bodies: Vec<Body>, ndiv: u32) -> Self {
         let nbody = bodies.len();
 
         let mass_tensors = bodies.iter().map(|b| b.m_i_tensor().0).collect();

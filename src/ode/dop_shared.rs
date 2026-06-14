@@ -10,7 +10,6 @@ pub trait System<V> {
     fn system(&self, x: f64, y: &V, dy: &mut V);
     ///System of ordinary differential equations 2.
 
-
     /// Stop function called at every successful integration step. The integration is stopped when this function returns true.
     fn solout(&mut self, _x: f64, _y: &V, _dy: &V) -> bool {
         false
@@ -32,10 +31,8 @@ pub trait System4<V> {
 }
 
 pub trait SystemM<V> {
-    fn system(&self, x:f64, y:&V) -> V;
+    fn system(&self, x: f64, y: &V) -> V;
 }
-
-
 
 /// Enumeration of the types of the integration outputs.
 #[derive(PartialEq, Eq)]
