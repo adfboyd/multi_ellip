@@ -1,7 +1,9 @@
 use nalgebra as na;
 use nalgebra::U1;
 use nalgebra::{DMatrix, DVector, Dyn, OMatrix, Vector3, Vector6};
+use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::sync::{Mutex, OnceLock};
 
 ///Generates a grid for a given ellipsoid
 // #[feature(destructuring_assignment)]
@@ -39,7 +41,30 @@ pub fn ellip_gridder(
     (nelm, npts, p, n)
 }
 
-pub fn ellip_gridder_no_rotation(ndiv: u32) -> (usize, usize, DMatrix<f64>, DMatrix<usize>) {
+/// Process-global memo for the unit-sphere reference mesh, keyed by `ndiv`. The
+/// subdivision + O(N^2) node dedup below is a pure function of `ndiv` and is
+/// otherwise recomputed on every BEM solve for every body. Cache it once and
+/// hand back clones (callers scale/rotate/translate their copy in place).
+type UnitMesh = (usize, usize, DMatrix<f64>, DMatrix<usize>);
+
+fn unit_mesh_cache() -> &'static Mutex<HashMap<u32, UnitMesh>> {
+    static CACHE: OnceLock<Mutex<HashMap<u32, UnitMesh>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn ellip_gridder_no_rotation(ndiv: u32) -> UnitMesh {
+    if let Some((nelm, npts, p, n)) = unit_mesh_cache().lock().unwrap().get(&ndiv) {
+        return (*nelm, *npts, p.clone(), n.clone());
+    }
+    let mesh = ellip_gridder_no_rotation_uncached(ndiv);
+    unit_mesh_cache()
+        .lock()
+        .unwrap()
+        .insert(ndiv, (mesh.0, mesh.1, mesh.2.clone(), mesh.3.clone()));
+    mesh
+}
+
+fn ellip_gridder_no_rotation_uncached(ndiv: u32) -> UnitMesh {
     let mut nelm: usize = 8;
     let eps = 1e-8;
     let nelm_end = nelm * 4_usize.pow(ndiv);

@@ -58,6 +58,12 @@ pub struct ForceCalculate {
     /// the full LU (Direct). Multi-body: cache the self-block LUs as a GMRES
     /// preconditioner (BlockDiag). Built once on the first force evaluation.
     cache: Mutex<Option<SolveCache>>,
+    /// Most recent multi-body GMRES solution φ, reused as the warm-start initial
+    /// guess for the next solve. Consecutive solves (across fixed-point iterations
+    /// and across steps) have nearly identical φ, so this cuts GMRES iterations
+    /// sharply. Warm-starting only changes the iteration path, not the converged
+    /// solution (still satisfies the same residual tolerance).
+    last_phi: Mutex<Option<DVector<f64>>>,
 }
 
 impl ForceCalculate {
@@ -65,6 +71,7 @@ impl ForceCalculate {
         Self {
             system,
             cache: Mutex::new(None),
+            last_phi: Mutex::new(None),
         }
     }
 }
@@ -308,8 +315,16 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
 
             #[cfg(feature = "timing")]
             let t_solve = Instant::now();
-            let x0 = DVector::zeros(npts);
+            // Warm start from the previous solve's φ when dimensions match.
+            let x0 = {
+                let lp = self.last_phi.lock().unwrap();
+                match lp.as_ref() {
+                    Some(prev) if prev.len() == npts => prev.clone(),
+                    _ => DVector::zeros(npts),
+                }
+            };
             let (f, _iters, _res) = gmres(matvec, precond, &rhs, &x0, 1e-11, 200);
+            *self.last_phi.lock().unwrap() = Some(f.clone());
             #[cfg(feature = "timing")]
             println!(
                 "Force GMRES: {:.3}s  ({} iters, res {:.1e})",
