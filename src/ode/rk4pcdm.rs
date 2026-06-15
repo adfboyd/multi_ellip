@@ -476,13 +476,15 @@ where
                         - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
                 }
 
-                let torque_vec = if self.nbody == 1 {
-                    let v_mid = 0.5 * (v_old + v_end);
-                    let p_total_mid = 0.5 * (ms * v_old - l_old + ms * v_end - l_end);
-                    (lambda_end - lambda_old) / self.step_size - v_mid.cross(&p_total_mid)
-                } else {
-                    (lambda_end - lambda_old) / self.step_size
-                };
+                // Λ_b is taken about body b's translating centre, so the
+                // consistent torque carries the reference-point transport term
+                // −v×p_con. p_con_b = m v − L_lin is conserved per body by the
+                // linear update above, so this holds for any nbody — the same
+                // correction that fixed the single-body case.
+                let v_mid = 0.5 * (v_old + v_end);
+                let p_total_mid = 0.5 * (ms * v_old - l_old + ms * v_end - l_end);
+                let torque_vec =
+                    (lambda_end - lambda_old) / self.step_size - v_mid.cross(&p_total_mid);
                 for c in 0..3 {
                     new_torque[3 * b + c] = torque_vec[c];
                 }
