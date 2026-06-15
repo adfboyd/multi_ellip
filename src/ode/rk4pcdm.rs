@@ -1024,7 +1024,15 @@ where
 
     //Converts a (pure) quaternion p_space from lab space to body space for a body of orientation q.
     fn lab_to_body(&self, p_space: &Quaternion<f64>, q: &Quaternion<f64>) -> Quaternion<f64> {
-        let q_inv = q.try_inverse().unwrap();
+        // Guard a degenerate (near-zero-norm or non-finite) orientation: when a
+        // stiff run blows up the quaternion can collapse, and try_inverse() then
+        // returns None. Fail soft like body_to_lab rather than panicking, so an
+        // unstable run yields NaN output the caller can detect instead of aborting.
+        let q_inv = if q.norm() > 0.00001 {
+            q.try_inverse().unwrap()
+        } else {
+            Quaternion::from_real(0.0)
+        };
         q_inv * (p_space * q)
     }
 
