@@ -2,13 +2,65 @@ use crate::bem::bem_for_ode::{AngularState, LinearState};
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
 use crate::ode::pcdm::accel_get;
 use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
-use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Max Newton iterations for the strong-coupling implicit-midpoint velocity solve.
 const STRONG_MAXITER: usize = 30;
+
+/// History depth for Anderson acceleration of the impulse fixed-point coupling.
+const ANDERSON_DEPTH: usize = 5;
+
+/// One Anderson-accelerated update of a fixed-point iterate.
+///
+/// `w_k` is the current iterate and `f_k` the base-map correction, so the
+/// un-accelerated next iterate would be `w_k + f_k`. Mix up to `m` previous
+/// (iterate, correction) pairs via a small regularised least-squares to
+/// extrapolate toward the fixed point, accelerating a slowly-contracting
+/// coupling. Falls back to the plain update on the first call or a degenerate
+/// system. This only changes the path to the fixed point, not the fixed point
+/// itself (the caller's convergence test is unchanged).
+fn anderson_next(
+    w_hist: &mut Vec<DVector<f64>>,
+    f_hist: &mut Vec<DVector<f64>>,
+    w_k: &DVector<f64>,
+    f_k: &DVector<f64>,
+    m: usize,
+) -> DVector<f64> {
+    w_hist.push(w_k.clone());
+    f_hist.push(f_k.clone());
+    let k = f_hist.len();
+    let plain = w_k + f_k;
+    let next = if k < 2 {
+        plain
+    } else {
+        let mk = m.min(k - 1);
+        let d = f_k.len();
+        let mut df = DMatrix::<f64>::zeros(d, mk);
+        let mut dw = DMatrix::<f64>::zeros(d, mk);
+        for j in 0..mk {
+            let hi = k - 1 - j;
+            let lo = k - 2 - j;
+            df.set_column(j, &(&f_hist[hi] - &f_hist[lo]));
+            dw.set_column(j, &(&w_hist[hi] - &w_hist[lo]));
+        }
+        // argmin_gamma || f_k - df gamma ||  via regularised normal equations.
+        let ata = df.transpose() * &df;
+        let scale = ata.diagonal().max().max(1e-300);
+        let reg = &ata + DMatrix::<f64>::identity(mk, mk) * (1e-12 * scale);
+        match reg.lu().solve(&(df.transpose() * f_k)) {
+            Some(gamma) => &plain - (dw + df) * gamma,
+            None => plain,
+        }
+    };
+    while f_hist.len() > m + 1 {
+        w_hist.remove(0);
+        f_hist.remove(0);
+    }
+    next
+}
 
 pub struct Rk4PCDM<F, G, I>
 where
@@ -437,6 +489,11 @@ where
         let mut torque = DVector::zeros(3 * self.nbody);
         let mut o_new = self.o.clone();
 
+        // Anderson-acceleration history for the coupled (v_new, torque) iterate.
+        let nb3 = 3 * self.nbody;
+        let mut w_hist: Vec<DVector<f64>> = Vec::new();
+        let mut f_hist: Vec<DVector<f64>> = Vec::new();
+
         let tol = 1e-9 * (v_n.norm() + 1.0);
         for _it in 0..STRONG_MAXITER {
             // Angular: integrate from the start state with the current torque
@@ -489,13 +546,10 @@ where
                     new_torque[3 * b + c] = torque_vec[c];
                 }
             }
-            let dtorque = (&new_torque - &torque).norm();
-            torque = new_torque;
-            if r_lin.norm() < tol && dtorque < tol {
-                break;
-            }
-
-            // Preconditioned Newton update: P = m_s I + M_a (body frame).
+            // Base-map corrections. Linear: preconditioned Newton step
+            // g_v = -P^{-1} r_lin with P = m_s I + M_a (body frame). Angular:
+            // the torque functional-iteration step g_t = new_torque - torque.
+            let mut g_v = DVector::zeros(nb3);
             for b in 0..self.nbody {
                 let ms = self.masses[b];
                 if ms <= 0.0 {
@@ -511,8 +565,30 @@ where
                     .body_to_lab(&Quaternion::from_imag(d_b), &q_end[b])
                     .imag();
                 for c in 0..3 {
-                    v_new[3 * b + c] -= d_lab[c];
+                    g_v[3 * b + c] = -d_lab[c];
                 }
+            }
+            let g_t = &new_torque - &torque;
+
+            // Same fixed-point test as before: linear residual and torque change.
+            if r_lin.norm() < tol && g_t.norm() < tol {
+                break;
+            }
+
+            // Anderson-accelerated update of the stacked iterate w = (v_new, torque)
+            // with correction f = (g_v, g_t). Same fixed point, fewer iterations.
+            let mut w_k = DVector::zeros(2 * nb3);
+            let mut f_k = DVector::zeros(2 * nb3);
+            for i in 0..nb3 {
+                w_k[i] = v_new[i];
+                w_k[nb3 + i] = torque[i];
+                f_k[i] = g_v[i];
+                f_k[nb3 + i] = g_t[i];
+            }
+            let w_next = anderson_next(&mut w_hist, &mut f_hist, &w_k, &f_k, ANDERSON_DEPTH);
+            for i in 0..nb3 {
+                v_new[i] = w_next[i];
+                torque[i] = w_next[nb3 + i];
             }
         }
 
