@@ -3,7 +3,7 @@ use crate::math::anderson::anderson_next;
 use crate::math::rotation;
 use crate::ode::dop_shared::{IntegrationError, Stats};
 use crate::system::system::BOOTSTRAP_PASSES;
-use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3};
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -67,6 +67,10 @@ pub struct Rk4PCDM {
     pub run_wall_secs: f64,
     pub run_first_step_secs: f64,
     pub run_steady_per_step: f64,
+    /// Aggregate diagnostics for the experimental energy projection.
+    pub projection_max_corr_rel: f64,
+    pub projection_max_energy_err_rel: f64,
+    pub projection_max_constraint_resid: f64,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -75,6 +79,9 @@ pub struct Rk4PCDM {
     fluid_impulse_ang_step_start: Option<DVector<f64>>,
     /// Selected fluid--structure coupling scheme.
     scheme: CouplingScheme,
+    /// Experimental impulse-mode post-step projection: adjusts generalized
+    /// velocities to restore step-start KE while preserving total impulse.
+    energy_projection: bool,
     initial_total_ke: Option<f64>,
 }
 
@@ -104,6 +111,7 @@ impl Rk4PCDM {
         samp_rate: u32,
         print_rate: u32,
         scheme: CouplingScheme,
+        energy_projection: bool,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -144,10 +152,14 @@ impl Rk4PCDM {
             run_wall_secs: 0.0,
             run_first_step_secs: 0.0,
             run_steady_per_step: 0.0,
+            projection_max_corr_rel: 0.0,
+            projection_max_energy_err_rel: 0.0,
+            projection_max_constraint_resid: 0.0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
             scheme,
+            energy_projection,
             initial_total_ke: None,
         }
     }
@@ -419,8 +431,14 @@ impl Rk4PCDM {
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
+        let ke_step_start = self
+            .solid_kinetic_energy(&self.state.lin, &self.state.ang)
+            .total
+            + self.fluid_ke_step_start;
 
         let (p_n, v_n) = self.state.lin.clone();
+        let conserved_step_start =
+            self.total_conserved_impulse(&p_n, &v_n, &self.state.ang, &l_lin_n, &l_ang_n);
         let mut v_new = v_n.clone();
         let mut torque = DVector::zeros(3 * self.nbody);
         let mut o_new = self.state.ang.clone();
@@ -540,6 +558,210 @@ impl Rk4PCDM {
         self.state.lin = x_new;
         self.state.ang = o_new;
         self.o_lab = o_lab_new;
+
+        if self.energy_projection {
+            self.project_step_energy_preserving_impulse(ke_step_start, &conserved_step_start);
+        }
+    }
+
+    fn project_step_energy_preserving_impulse(&mut self, target_ke: f64, target: &DVector<f64>) {
+        if !target_ke.is_finite() || target_ke <= 0.0 {
+            return;
+        }
+
+        let z_current = self.generalized_velocity_vector();
+        let pre_ke = self.evaluate_total_ke_for_velocity(&z_current);
+        if pre_ke.is_finite() {
+            let energy_err_rel = ((pre_ke - target_ke) / target_ke).abs();
+            self.projection_max_energy_err_rel =
+                self.projection_max_energy_err_rel.max(energy_err_rel);
+        }
+
+        let Some((z_pcon, z_particular, z_null)) =
+            self.project_velocity_to_conserved_impulse(&z_current, target)
+        else {
+            return;
+        };
+        let z_projected = self
+            .project_velocity_to_energy_in_nullspace(target_ke, &z_pcon, &z_particular, &z_null)
+            .unwrap_or(z_pcon);
+        let corr_rel = (&z_projected - &z_current).norm() / z_current.norm().max(1.0);
+        if corr_rel.is_finite() {
+            self.projection_max_corr_rel = self.projection_max_corr_rel.max(corr_rel);
+        }
+        self.set_generalized_velocity_vector(&z_projected);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+
+        let constraint_resid = (&self.evaluate_conserved_impulse(&z_projected) - target).norm();
+        if constraint_resid.is_finite() {
+            self.projection_max_constraint_resid =
+                self.projection_max_constraint_resid.max(constraint_resid);
+        }
+    }
+
+    fn project_velocity_to_conserved_impulse(
+        &mut self,
+        z_current: &DVector<f64>,
+        target: &DVector<f64>,
+    ) -> Option<(DVector<f64>, DVector<f64>, DVector<f64>)> {
+        let (a, c_zero) = self.conserved_impulse_operator();
+        let gram = &a * a.transpose();
+        let gram_inv = gram.try_inverse()?;
+
+        let c_current = self.evaluate_conserved_impulse(z_current);
+        let delta_p = a.transpose() * (&gram_inv * (target - c_current));
+        let z_pcon = z_current + delta_p;
+
+        let z_particular = a.transpose() * (&gram_inv * (target - c_zero));
+        let z_null = &z_pcon - &z_particular;
+        Some((z_pcon, z_particular, z_null))
+    }
+
+    fn project_velocity_to_energy_in_nullspace(
+        &mut self,
+        target_ke: f64,
+        z_pcon: &DVector<f64>,
+        z_particular: &DVector<f64>,
+        z_null: &DVector<f64>,
+    ) -> Option<DVector<f64>> {
+        if z_null.norm() <= 1e-14 {
+            return None;
+        }
+        let e0 = self.evaluate_total_ke_for_velocity(&z_particular);
+        let e1 = self.evaluate_total_ke_for_velocity(&z_pcon);
+        let e_minus = self.evaluate_total_ke_for_velocity(&(z_particular - z_null));
+        let qa = 0.5 * (e1 + e_minus) - e0;
+        let qb = 0.5 * (e1 - e_minus);
+        let qc = e0 - target_ke;
+
+        let alpha = if qa.abs() <= 1e-14 {
+            if qb.abs() <= 1e-14 {
+                return None;
+            }
+            -qc / qb
+        } else {
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc < 0.0 {
+                return None;
+            }
+            let sqrt_disc = disc.sqrt();
+            let r1 = (-qb + sqrt_disc) / (2.0 * qa);
+            let r2 = (-qb - sqrt_disc) / (2.0 * qa);
+            if (r1 - 1.0).abs() <= (r2 - 1.0).abs() {
+                r1
+            } else {
+                r2
+            }
+        };
+
+        if !alpha.is_finite() {
+            return None;
+        }
+
+        Some(z_particular + z_null * alpha)
+    }
+
+    fn generalized_velocity_vector(&self) -> DVector<f64> {
+        let (_, vel) = &self.state.lin;
+        let (_, omega) = &self.state.ang;
+        let mut out = DVector::zeros(6 * self.nbody);
+        for i in 0..3 * self.nbody {
+            out[i] = vel[i];
+        }
+        for b in 0..self.nbody {
+            let w = omega[b].imag();
+            for c in 0..3 {
+                out[3 * self.nbody + 3 * b + c] = w[c];
+            }
+        }
+        out
+    }
+
+    fn set_generalized_velocity_vector(&mut self, z: &DVector<f64>) {
+        let (_, vel) = &mut self.state.lin;
+        for i in 0..3 * self.nbody {
+            vel[i] = z[i];
+        }
+        let (_, omega) = &mut self.state.ang;
+        for b in 0..self.nbody {
+            omega[b] = Quaternion::new(
+                0.0,
+                z[3 * self.nbody + 3 * b],
+                z[3 * self.nbody + 3 * b + 1],
+                z[3 * self.nbody + 3 * b + 2],
+            );
+        }
+    }
+
+    fn evaluate_total_ke_for_velocity(&mut self, z: &DVector<f64>) -> f64 {
+        self.set_generalized_velocity_vector(z);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        self.solid_kinetic_energy(&self.state.lin, &self.state.ang)
+            .total
+            + self.solver.fluid_kinetic_energy()
+    }
+
+    fn evaluate_conserved_impulse(&mut self, z: &DVector<f64>) -> DVector<f64> {
+        self.set_generalized_velocity_vector(z);
+        self.solver.set_state(&self.state);
+        let (l_lin, l_ang) = self.solver.impulse();
+        let (pos, vel) = &self.state.lin;
+        self.total_conserved_impulse(pos, vel, &self.state.ang, &l_lin, &l_ang)
+    }
+
+    fn conserved_impulse_operator(&mut self) -> (DMatrix<f64>, DVector<f64>) {
+        let dof = 6 * self.nbody;
+        let z_save = self.generalized_velocity_vector();
+        let z_zero = DVector::zeros(dof);
+        let c_zero = self.evaluate_conserved_impulse(&z_zero);
+        let mut a = DMatrix::zeros(6, dof);
+        for j in 0..dof {
+            let mut z = DVector::zeros(dof);
+            z[j] = 1.0;
+            let c_eval = self.evaluate_conserved_impulse(&z);
+            for row in 0..6 {
+                a[(row, j)] = c_eval[row] - c_zero[row];
+            }
+        }
+        self.set_generalized_velocity_vector(&z_save);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        (a, c_zero)
+    }
+
+    fn total_conserved_impulse(
+        &self,
+        pos: &DVector<f64>,
+        vel: &DVector<f64>,
+        ang: &AngularState,
+        l_lin: &DVector<f64>,
+        l_ang: &DVector<f64>,
+    ) -> DVector<f64> {
+        let (q, omega_lab) = ang;
+        let mut p_total = Vector3::zeros();
+        let mut h_total = Vector3::zeros();
+        for b in 0..self.nbody {
+            let x_b = Vector3::new(pos[3 * b], pos[3 * b + 1], pos[3 * b + 2]);
+            let v_b = Vector3::new(vel[3 * b], vel[3 * b + 1], vel[3 * b + 2]);
+            let l_b = Vector3::new(l_lin[3 * b], l_lin[3 * b + 1], l_lin[3 * b + 2]);
+            let lambda_b = Vector3::new(l_ang[3 * b], l_ang[3 * b + 1], l_ang[3 * b + 2]);
+            let p_con = self.masses[b] * v_b - l_b;
+            let omega_body = rotation::lab_to_body(&omega_lab[b], &q[b]).imag();
+            let h_body = self.inertias[b] * omega_body;
+            let h_solid = rotation::body_to_lab(&Quaternion::from_imag(h_body), &q[b]).imag();
+            let h_con = x_b.cross(&p_con) + h_solid - lambda_b;
+            p_total += p_con;
+            h_total += h_con;
+        }
+
+        let mut out = DVector::zeros(6);
+        for c in 0..3 {
+            out[c] = p_total[c];
+            out[3 + c] = h_total[c];
+        }
+        out
     }
 
     /// Prototype B: one timestep with strong (implicit-midpoint) coupling of the

@@ -180,6 +180,7 @@ fn main() {
     sys.phidot_blend = get("phidot_blend", 0.0);
     let strong_couple = get("strong_couple", 0.0) > 0.5;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
+    let energy_projection = get("energy_projection", 0.0) > 0.5;
     let phidot_blend = sys.phidot_blend;
 
     // Initial integrator state, stacked over bodies.
@@ -240,6 +241,7 @@ fn main() {
         tprint,   // samp_rate: .dat row every tprint steps
         logevery, // print_rate: console progress every logevery steps
         scheme,
+        energy_projection,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -310,6 +312,7 @@ fn main() {
     );
     println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
     println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
+    println!("  Energy projection: {}", fmt_enabled(energy_projection));
     if added_mass_stab {
         println!(
             "  Added-mass stab:   enabled  (safety factor = {})",
@@ -351,6 +354,20 @@ fn main() {
                 stepper.run_steady_per_step
             );
             println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
+            if energy_projection {
+                println!(
+                    "  Projection max |dz|/|z|:        {:.6e}",
+                    stepper.projection_max_corr_rel
+                );
+                println!(
+                    "  Projection max pre-KE error:    {:.6e}",
+                    stepper.projection_max_energy_err_rel
+                );
+                println!(
+                    "  Projection max impulse residual: {:.6e}",
+                    stepper.projection_max_constraint_resid
+                );
+            }
             println!(
                 "  CPU cores:         {} available, {} Rayon worker thread(s)",
                 available_cores, rayon_threads
