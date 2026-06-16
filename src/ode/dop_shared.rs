@@ -50,6 +50,8 @@ pub enum IntegrationError {
     StepSizeUnderflow { x: f64 },
     #[error("The problem seems to become stiff at x = {x}.")]
     StiffnessDetected { x: f64 },
+    #[error("Non-finite state detected at x = {x}: {reason}.")]
+    NonFiniteState { x: f64, reason: String },
     #[error("I/O error during integration: {0}")]
     Io(#[from] io::Error),
 }

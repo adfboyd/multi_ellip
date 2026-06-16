@@ -377,7 +377,15 @@ fn main() {
             println!("  Output file:       {}", output_path.display());
             println!("================================================");
         }
-        Err(e) => println!("An error occurred {:?}", e),
+        Err(e) => {
+            if let Err(flush_err) = buf.flush() {
+                println!(
+                    "Could not flush partial output file. Error: {:?}",
+                    flush_err
+                );
+            }
+            println!("Solver stopped with error: {e}");
+        }
     };
 }
 

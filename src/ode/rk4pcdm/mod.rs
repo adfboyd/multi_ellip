@@ -198,6 +198,7 @@ impl Rk4PCDM {
                 println!();
             }
             let t_new = self.t + self.step_size;
+            self.ensure_finite_state(t_new)?;
 
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
@@ -267,6 +268,8 @@ impl Rk4PCDM {
                 self.write_row(writer, tp, &xp, &op, &olp, self.fluid_ke_step_start)?;
             }
 
+            self.ensure_finite_state(t_new)?;
+
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
                 self.x_out.push(self.state.lin.clone());
@@ -308,6 +311,61 @@ impl Rk4PCDM {
         self.run_steady_per_step = steady_start.elapsed().as_secs_f64() / steady_steps;
 
         Ok(self.stats)
+    }
+
+    fn ensure_finite_state(&self, t: f64) -> Result<(), IntegrationError> {
+        let (pos, vel) = &self.state.lin;
+        if let Some((idx, value)) = pos.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+            return Err(IntegrationError::NonFiniteState {
+                x: t,
+                reason: format!("position[{idx}] = {value}"),
+            });
+        }
+        if let Some((idx, value)) = vel.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+            return Err(IntegrationError::NonFiniteState {
+                x: t,
+                reason: format!("velocity[{idx}] = {value}"),
+            });
+        }
+
+        let (q, omega) = &self.state.ang;
+        for (idx, qi) in q.iter().enumerate() {
+            for (name, value) in [("w", qi.w), ("i", qi.i), ("j", qi.j), ("k", qi.k)] {
+                if !value.is_finite() {
+                    return Err(IntegrationError::NonFiniteState {
+                        x: t,
+                        reason: format!("orientation[{idx}].{name} = {value}"),
+                    });
+                }
+            }
+        }
+        for (idx, wi) in omega.iter().enumerate() {
+            for (name, value) in [("w", wi.w), ("i", wi.i), ("j", wi.j), ("k", wi.k)] {
+                if !value.is_finite() {
+                    return Err(IntegrationError::NonFiniteState {
+                        x: t,
+                        reason: format!("angular_velocity[{idx}].{name} = {value}"),
+                    });
+                }
+            }
+        }
+
+        let ke_solid = self.solid_kinetic_energy(&self.state.lin, &self.state.ang);
+        if !ke_solid.total.is_finite() {
+            return Err(IntegrationError::NonFiniteState {
+                x: t,
+                reason: format!("solid kinetic energy = {}", ke_solid.total),
+            });
+        }
+        let ke_fluid = self.solver.fluid_kinetic_energy();
+        if !ke_fluid.is_finite() {
+            return Err(IntegrationError::NonFiniteState {
+                x: t,
+                reason: format!("fluid kinetic energy = {ke_fluid}"),
+            });
+        }
+
+        Ok(())
     }
 
     /// Bootstrap the ∂φ/∂t history at t = 0. The dphi force needs temporal φ
