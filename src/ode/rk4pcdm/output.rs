@@ -16,7 +16,7 @@ impl Rk4PCDM {
     ) {
         let completion_percentage = 100.0 * (i as f64) / (num_steps as f64);
         let dt_sec = (elapsed_dt.as_millis() as f64) * 0.001;
-        let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
+        let ke_solid = self.solid_kinetic_energy(&self.state.lin, &self.state.ang);
         let ke_fluid = self.solver.fluid_kinetic_energy();
         let ke_total = ke_solid.total + ke_fluid;
         let ke_drift = self.format_ke_drift(ke_total);
@@ -46,8 +46,8 @@ impl Rk4PCDM {
     }
 
     pub(crate) fn print_initial_state(&self) {
-        let (pos, vel) = &self.x;
-        let (q, omega) = &self.o;
+        let (pos, vel) = &self.state.lin;
+        let (q, omega) = &self.state.ang;
 
         println!("Initial state:");
         for b in 0..self.nbody {
@@ -99,7 +99,7 @@ impl Rk4PCDM {
 
     pub(crate) fn capture_initial_total_ke(&mut self) {
         if self.initial_total_ke.is_none() {
-            let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
+            let ke_solid = self.solid_kinetic_energy(&self.state.lin, &self.state.ang);
             self.initial_total_ke = Some(ke_solid.total + self.fluid_ke_step_start);
         }
     }

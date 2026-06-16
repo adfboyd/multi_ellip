@@ -50,6 +50,14 @@ pub type LinearState = (DVector<f64>, DVector<f64>);
 /// per body (index `i` <-> body `i`).
 pub type AngularState = (Vec<Quaternion<f64>>, Vec<Quaternion<f64>>);
 
+/// Complete rigid-body configuration + velocities for all bodies: the single
+/// state object the integrator owns and hands to the solver.
+#[derive(Clone)]
+pub struct BodyState {
+    pub lin: LinearState,
+    pub ang: AngularState,
+}
+
 /// Owns the BEM coupling: pushes the rigid-body state into the shared
 /// [`Simulation`], solves the boundary-integral problem, and returns the
 /// hydrodynamic loads. Replaces the former `LinearUpdate`/`AngularUpdate`/
@@ -83,9 +91,9 @@ impl BemSolver {
     /// Push the rigid-body linear (positions, velocities) and angular
     /// (orientations, angular velocities) state into the shared simulation so the
     /// next [`solve`](Self::solve) sees the current configuration.
-    pub fn set_state(&self, x: &LinearState, o: &AngularState) {
+    pub fn set_state(&self, state: &BodyState) {
         let mut sys_ref = self.system.lock().unwrap();
-        let (p, v) = x;
+        let (p, v) = &state.lin;
         for i in 0..sys_ref.nbody {
             let pos = Vector3::new(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
             let vel = Vector3::new(v[3 * i], v[3 * i + 1], v[3 * i + 2]);
@@ -93,7 +101,7 @@ impl BemSolver {
             let m = sys_ref.bodies[i].mass();
             sys_ref.bodies[i].linear_momentum = vel * m;
         }
-        let (q, omega) = o;
+        let (q, omega) = &state.ang;
         for i in 0..sys_ref.nbody {
             sys_ref.bodies[i].orientation = q[i];
             // angular_momentum field holds L = I·ω (angular_velocity() divides it

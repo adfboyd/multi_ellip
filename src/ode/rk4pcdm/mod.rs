@@ -1,4 +1,4 @@
-use crate::bem::bem_for_ode::{AngularState, BemSolver, LinearState};
+use crate::bem::bem_for_ode::{AngularState, BemSolver, BodyState, LinearState};
 use crate::math::anderson::anderson_next;
 use crate::math::rotation;
 use crate::ode::dop_shared::{IntegrationError, Stats};
@@ -36,9 +36,10 @@ pub struct Rk4PCDM {
     /// BEM fluid coupling: pushes body state, solves, returns impulse/force/KE.
     solver: BemSolver,
     t: f64,
-    x: LinearState,
+    /// The single owned rigid-body state (positions/velocities + orientations/
+    /// angular velocities) handed to the solver each step.
+    state: BodyState,
     o_lab: DVector<f64>,
-    o: AngularState,
     nbody: usize,
     inertias: Vec<Matrix3<f64>>,
     masses: Vec<f64>,
@@ -117,8 +118,10 @@ impl Rk4PCDM {
         Rk4PCDM {
             solver,
             t: t_begin,
-            x,
-            o: (q, omega),
+            state: BodyState {
+                lin: x,
+                ang: (q, omega),
+            },
             o_lab: DVector::zeros(3 * nbody),
             nbody,
             inertias,
@@ -151,8 +154,8 @@ impl Rk4PCDM {
 
     pub fn integrate(&mut self) -> Result<Stats, IntegrationError> {
         self.t_out.push(self.t);
-        self.x_out.push(self.x.clone());
-        self.o_out.push(self.o.clone());
+        self.x_out.push(self.state.lin.clone());
+        self.o_out.push(self.state.ang.clone());
         self.o_lab = self.orientation_to_marker_point();
         self.o_lab_out.push(self.o_lab.clone());
         self.print_initial_state();
@@ -186,8 +189,8 @@ impl Rk4PCDM {
 
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
-                self.x_out.push(self.x.clone());
-                self.o_out.push(self.o.clone());
+                self.x_out.push(self.state.lin.clone());
+                self.o_out.push(self.state.ang.clone());
                 self.o_lab_out.push(self.o_lab.clone());
             }
 
@@ -202,15 +205,15 @@ impl Rk4PCDM {
         writer: &mut W,
     ) -> Result<Stats, IntegrationError> {
         self.t_out.push(self.t);
-        self.x_out.push(self.x.clone());
-        self.o_out.push(self.o.clone());
+        self.x_out.push(self.state.lin.clone());
+        self.o_out.push(self.state.ang.clone());
         self.o_lab = self.orientation_to_marker_point();
         self.o_lab_out.push(self.o_lab.clone());
         self.print_initial_state();
 
         self.write_header(writer)?;
-        let x0 = self.x.clone();
-        let o0 = self.o.clone();
+        let x0 = self.state.lin.clone();
+        let o0 = self.state.ang.clone();
         let olab0 = self.o_lab.clone();
         // Defer writing each sampled row until the next step has run, so its
         // fluid KE can be taken from that step's stage-A solve (evaluated at the
@@ -254,10 +257,10 @@ impl Rk4PCDM {
 
             if i % samp_rate == 0 {
                 self.t_out.push(t_new);
-                self.x_out.push(self.x.clone());
-                self.o_out.push(self.o.clone());
+                self.x_out.push(self.state.lin.clone());
+                self.o_out.push(self.state.ang.clone());
                 self.o_lab_out.push(self.o_lab.clone());
-                pending = Some((t_new, self.x.clone(), self.o.clone(), self.o_lab.clone()));
+                pending = Some((t_new, self.state.lin.clone(), self.state.ang.clone(), self.o_lab.clone()));
             }
 
             self.t = t_new;
@@ -311,20 +314,20 @@ impl Rk4PCDM {
             "Preparing first step: {} bootstrap pass(es); this may take longer than later steps.",
             BOOTSTRAP_PASSES
         );
-        let x0 = self.x.clone();
-        let o0 = self.o.clone();
+        let x0 = self.state.lin.clone();
+        let o0 = self.state.ang.clone();
         for _ in 0..BOOTSTRAP_PASSES {
             self.advance_one_step();
             // Rewind to the initial state and push it back into the system.
-            self.x = x0.clone();
-            self.o = o0.clone();
-            let x_push = self.x.clone();
-            let o_push = self.o.clone();
-            self.solver.set_state(&x_push, &o_push);
+            self.state.lin = x0.clone();
+            self.state.ang = o0.clone();
+            let x_push = self.state.lin.clone();
+            let o_push = self.state.ang.clone();
+            self.solver.set_state(&BodyState { lin: x_push, ang: o_push });
         }
     }
 
-    /// Advance the full state `(self.x, self.o, self.o_lab)` by one timestep with
+    /// Advance the full state `(self.state.lin, self.state.ang, self.o_lab)` by one timestep with
     /// the configured coupling scheme.
     fn advance_one_step(&mut self) {
         match self.scheme {
@@ -359,7 +362,7 @@ impl Rk4PCDM {
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
         let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-        self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
+        self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
 
         // Forces at the half step.
         let (linear_force_half_expl, angular_force_half) = self.solver.force();
@@ -373,12 +376,12 @@ impl Rk4PCDM {
         let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
-        self.solver.set_state(&x_new, &o_new);
+        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
 
         let o_lab_new = self.orientation_to_marker_point();
 
-        self.x = x_new;
-        self.o = o_new;
+        self.state.lin = x_new;
+        self.state.ang = o_new;
         self.o_lab = o_lab_new;
 
         // Carry the stage-A explicit acceleration as a_prev for the next step's
@@ -403,10 +406,10 @@ impl Rk4PCDM {
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
 
-        let (p_n, v_n) = self.x.clone();
+        let (p_n, v_n) = self.state.lin.clone();
         let mut v_new = v_n.clone();
         let mut torque = DVector::zeros(3 * self.nbody);
-        let mut o_new = self.o.clone();
+        let mut o_new = self.state.ang.clone();
 
         // Anderson-acceleration history for the coupled (v_new, torque) iterate.
         let nb3 = 3 * self.nbody;
@@ -425,7 +428,7 @@ impl Rk4PCDM {
             // Position uses the midpoint velocity; sync the end state.
             let v_mid = 0.5 * (&v_n + &v_new);
             let p_new = &p_n + &v_mid * self.step_size;
-            self.solver.set_state(&(p_new.clone(), v_new.clone()), &o_new);
+            self.solver.set_state(&BodyState { lin: (p_new.clone(), v_new.clone()), ang: o_new.clone() });
 
             let (l_lin_np1, l_ang_np1) = self.solver.impulse();
 
@@ -513,11 +516,11 @@ impl Rk4PCDM {
         let p_new = &p_n + &v_mid * self.step_size;
         let x_new = (p_new, v_new);
 
-        self.solver.set_state(&x_new, &o_new);
+        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
         let o_lab_new = self.orientation_to_marker_point();
 
-        self.x = x_new;
-        self.o = o_new;
+        self.state.lin = x_new;
+        self.state.ang = o_new;
         self.o_lab = o_lab_new;
     }
 
@@ -536,14 +539,14 @@ impl Rk4PCDM {
 
         let (q_half, o_half) = self.ang_half_step(&torque_n);
 
-        let (p_n, v_n) = self.x.clone();
+        let (p_n, v_n) = self.state.lin.clone();
         let mut v_half = &v_n + &a_n * self.half_step; // explicit initial guess
 
         self.solver.set_freeze(true);
         let tol = 1e-9 * (v_n.norm() + 1.0);
         for _it in 0..STRONG_MAXITER {
             let p_half = &p_n + &v_half * self.half_step;
-            self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
+            self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
             let (a_h, _torque_h) = self.solver.force(); // frozen: no history push
             let resid = &v_half - &v_n - &a_h * self.half_step; // g(v_half)
             if resid.norm() < tol {
@@ -570,7 +573,7 @@ impl Rk4PCDM {
 
         // Commit stage B: evaluate at the converged v_half to push φ(v_half).
         let p_half = &p_n + &v_half * self.half_step;
-        self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
+        self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
         let (_a_final, torque_half) = self.solver.force();
 
         // Implicit-midpoint update: v_{n+1} = 2 v_half - v_n, x uses v_half.
@@ -579,11 +582,11 @@ impl Rk4PCDM {
         let x_new = (p_new, v_new);
         let o_new = self.ang_full_step(&torque_half, &(q_half, o_half));
 
-        self.solver.set_state(&x_new, &o_new);
+        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
         let o_lab_new = self.orientation_to_marker_point();
 
-        self.x = x_new;
-        self.o = o_new;
+        self.state.lin = x_new;
+        self.state.ang = o_new;
         self.o_lab = o_lab_new;
     }
 
@@ -593,7 +596,7 @@ impl Rk4PCDM {
     /// a_stab = (M_s I + M_a_safe)^{-1}(M_s a_expl + M_a_safe a_prev), and
     /// rotate back to the lab frame.
     fn stabilise_lin_accel(&self, accel_expl: &DVector<f64>) -> DVector<f64> {
-        let (q, _) = &self.o;
+        let (q, _) = &self.state.ang;
         let mut out = DVector::zeros(3 * self.nbody);
         for i in 0..self.nbody {
             let ms = self.masses[i];
@@ -638,14 +641,14 @@ impl Rk4PCDM {
     }
 
     fn lin_half_step(&mut self, lin_force: &DVector<f64>) -> LinearState {
-        let (p, v) = self.x.clone();
+        let (p, v) = self.state.lin.clone();
         let p_new = &p + &v * self.half_step;
         let v_new = &v + lin_force * self.half_step;
         (p_new, v_new)
     }
 
     fn lin_full_step(&mut self, lin_force: &DVector<f64>, v_half: &DVector<f64>) -> LinearState {
-        let (p, v) = self.x.clone();
+        let (p, v) = self.state.lin.clone();
         // Position uses the midpoint velocity v_{n+1/2} (previously v_n — explicit
         // Euler for position, the source of a small O(dt) global position error).
         let p_new = &p + v_half * self.step_size;
@@ -654,7 +657,7 @@ impl Rk4PCDM {
     }
 
     fn ang_half_step(&mut self, ang: &DVector<f64>) -> AngularState {
-        let (q, omega_lab) = self.o.clone();
+        let (q, omega_lab) = self.state.ang.clone();
 
         let mut q_new = Vec::with_capacity(self.nbody);
         let mut o_new = Vec::with_capacity(self.nbody);
@@ -686,7 +689,7 @@ impl Rk4PCDM {
     }
 
     fn ang_full_step(&mut self, ang: &DVector<f64>, half_qo: &AngularState) -> AngularState {
-        let (q, omega_lab) = self.o.clone();
+        let (q, omega_lab) = self.state.ang.clone();
         let (q_half, o_half) = half_qo;
 
         let mut q_full_v = Vec::with_capacity(self.nbody);
@@ -728,7 +731,7 @@ impl Rk4PCDM {
     /// error does not grow secularly with the added-mass stiffness the mesh
     /// resolves. `ang` is the lab-frame step-averaged torque per body.
     fn ang_step_implicit_midpoint(&mut self, ang: &DVector<f64>) -> AngularState {
-        let (q, omega_lab) = self.o.clone();
+        let (q, omega_lab) = self.state.ang.clone();
         let mut q_new = Vec::with_capacity(self.nbody);
         let mut o_new = Vec::with_capacity(self.nbody);
 
@@ -782,7 +785,7 @@ impl Rk4PCDM {
 
     /// Body-frame x-axis marker direction in the lab frame, for each body (3*N vector).
     fn orientation_to_marker_point(&self) -> DVector<f64> {
-        let (q, _) = &self.o;
+        let (q, _) = &self.state.ang;
         let mut out = DVector::zeros(3 * self.nbody);
         for i in 0..self.nbody {
             let marker =
