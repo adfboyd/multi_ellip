@@ -1,11 +1,10 @@
-use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::bem::bem_for_ode::{AngularState, BemSolver, LinearState};
 use crate::math::anderson::anderson_next;
 use crate::math::rotation;
-use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
-use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
+use crate::ode::dop_shared::{IntegrationError, Stats};
+use crate::system::system::BOOTSTRAP_PASSES;
 use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod diagnostics;
@@ -20,15 +19,9 @@ const ANDERSON_DEPTH: usize = 5;
 /// Max iterations for the per-body implicit-midpoint angular solve.
 const ANG_MID_MAXITER: usize = 20;
 
-pub struct Rk4PCDM<F, G, I>
-where
-    F: System2<LinearState>,
-    G: System2<AngularState>,
-    I: System4<LinearState>,
-{
-    f: F,
-    g: G,
-    i: I,
+pub struct Rk4PCDM {
+    /// BEM fluid coupling: pushes body state, solves, returns impulse/force/KE.
+    solver: BemSolver,
     t: f64,
     x: LinearState,
     o_lab: DVector<f64>,
@@ -44,7 +37,6 @@ where
     /// Previous accepted linear acceleration per body (lab frame), the `a_prev`
     /// of the single-step Robin form. Zero on the first step.
     lin_accel_prev: DVector<f64>,
-    fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
     t_begin: f64,
     t_end: f64,
     step_size: f64,
@@ -73,9 +65,6 @@ where
     /// from -(L_{n+1}-L_n)/dt using the BEM state-function impulse, so the
     /// scheme conserves momentum/impulse and the energy oscillation vanishes.
     impulse_scheme: bool,
-    /// Shared simulation handle, used to toggle `freeze_phi_history` /
-    /// `impulse_mode` around trial force evaluations.
-    sim: Arc<Mutex<Simulation>>,
     initial_total_ke: Option<f64>,
 }
 
@@ -88,18 +77,11 @@ pub(crate) struct SolidEnergy {
     per_body: Vec<(f64, f64, f64)>,
 }
 
-impl<F, G, I> Rk4PCDM<F, G, I>
-where
-    F: System2<LinearState>,
-    G: System2<AngularState>,
-    I: System4<LinearState>,
-{
+impl Rk4PCDM {
     //Function for creating new solver
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        f: F,
-        g: G,
-        i: I,
+        solver: BemSolver,
         t_begin: f64,
         x: LinearState, // (positions, velocities) stacked over bodies
         orientations: Vec<(Quaternion<f64>, Quaternion<f64>)>, // (orientation, angular velocity) per body
@@ -107,14 +89,12 @@ where
         masses: Vec<f64>,
         added_mass_tensors: Vec<Matrix3<f64>>,
         added_mass_stab: bool,
-        fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
         t_end: f64,
         step_size: f64,
         samp_rate: u32,
         print_rate: u32,
         strong_couple: bool,
         impulse_scheme: bool,
-        sim: Arc<Mutex<Simulation>>,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -127,9 +107,7 @@ where
         let added_mass_safe: Vec<Matrix3<f64>> = added_mass_tensors;
 
         Rk4PCDM {
-            f,
-            g,
-            i,
+            solver,
             t: t_begin,
             x,
             o: (q, omega),
@@ -140,7 +118,6 @@ where
             added_mass_safe,
             added_mass_stab,
             lin_accel_prev: DVector::zeros(3 * nbody),
-            fluid_ke_getter,
             t_begin,
             t_end,
             step_size,
@@ -161,7 +138,6 @@ where
             fluid_impulse_ang_step_start: None,
             strong_couple,
             impulse_scheme,
-            sim,
             initial_total_ke: None,
         }
     }
@@ -286,13 +262,13 @@ where
         // side effects — φ history push, fluid KE update — are harmless).
         if let Some((tp, xp, op, olp)) = pending.take() {
             if self.impulse_scheme {
-                let (l_lin, l_ang) = self.impulse_get();
+                let (l_lin, l_ang) = self.solver.impulse();
                 self.fluid_impulse_lin_step_start = Some(l_lin);
                 self.fluid_impulse_ang_step_start = Some(l_ang);
             } else {
-                let _ = self.force_get();
+                let _ = self.solver.force();
             }
-            let kef = self.fluid_kinetic_energy();
+            let kef = self.solver.fluid_kinetic_energy();
             self.write_row(writer, tp, &xp, &op, &olp, kef)?;
         }
 
@@ -335,9 +311,9 @@ where
             // Rewind to the initial state and push it back into the system.
             self.x = x0.clone();
             self.o = o0.clone();
-            let _ = self.f.system(0.0, &self.x);
+            let x_push = self.x.clone();
             let o_push = self.o.clone();
-            let _ = self.g.system(0.0, &o_push);
+            self.solver.set_state(&x_push, &o_push);
         }
     }
 
@@ -353,10 +329,10 @@ where
             return;
         }
         // Forces at the start of the step.
-        let (linear_accel_expl, angular_force) = self.force_get();
+        let (linear_accel_expl, angular_force) = self.solver.force();
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
         // KE is the correct value to write for the row sampled at time t_n.
-        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
         self.capture_initial_total_ke();
 
         // Optional semi-implicit added-mass stabilisation (single-step Robin):
@@ -374,11 +350,10 @@ where
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
         let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-        let _ = self.f.system(0.0, &(p_half, v_half.clone()));
-        let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
+        self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
 
         // Forces at the half step.
-        let (linear_force_half_expl, angular_force_half) = self.force_get();
+        let (linear_force_half_expl, angular_force_half) = self.solver.force();
 
         let linear_force_half = if self.added_mass_stab {
             self.stabilise_lin_accel(&linear_force_half_expl)
@@ -389,8 +364,7 @@ where
         let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
-        let _ = self.f.system(0.0, &x_new);
-        let _ = self.g.system(0.0, &o_new);
+        self.solver.set_state(&x_new, &o_new);
 
         let o_lab_new = self.orientation_to_marker_point();
 
@@ -406,28 +380,6 @@ where
         }
     }
 
-    /// Toggle the shared `freeze_phi_history` flag so strong-coupling trial
-    /// force evaluations don't push provisional φ into the committed history.
-    fn set_freeze(&self, freeze: bool) {
-        if let Ok(mut s) = self.sim.lock() {
-            s.freeze_phi_history = freeze;
-        }
-    }
-
-    /// Solve the BEM at the current synced body state and return the lab-frame
-    /// fluid impulse (L_lin, L_ang) per body, packed as DVectors. State function:
-    /// no ∂φ/∂t, no φ-history side effects.
-    fn impulse_get(&mut self) -> (DVector<f64>, DVector<f64>) {
-        if let Ok(mut s) = self.sim.lock() {
-            s.impulse_mode = true;
-        }
-        let out = self.i.system();
-        if let Ok(mut s) = self.sim.lock() {
-            s.impulse_mode = false;
-        }
-        out
-    }
-
     /// Approach A: one timestep with the implicit impulse-difference scheme.
     /// Force/torque are F = -(L_{n+1}-L_n)/dt, τ = -(Λ_{n+1}-Λ_n)/dt using the
     /// BEM state-function impulse. The linear velocity is solved implicitly so
@@ -436,8 +388,8 @@ where
     /// Coupled end-state fixed point (linear + torque) with the added-mass
     /// preconditioner. No φ-history, no bootstrap.
     fn advance_one_step_impulse(&mut self) {
-        let (l_lin_n, l_ang_n) = self.impulse_get();
-        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        let (l_lin_n, l_ang_n) = self.solver.impulse();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
@@ -464,10 +416,9 @@ where
             // Position uses the midpoint velocity; sync the end state.
             let v_mid = 0.5 * (&v_n + &v_new);
             let p_new = &p_n + &v_mid * self.step_size;
-            let _ = self.f.system(0.0, &(p_new.clone(), v_new.clone()));
-            let _ = self.g.system(0.0, &o_new);
+            self.solver.set_state(&(p_new.clone(), v_new.clone()), &o_new);
 
-            let (l_lin_np1, l_ang_np1) = self.impulse_get();
+            let (l_lin_np1, l_ang_np1) = self.solver.impulse();
 
             // The fluid force/torque on the body is F = +dL/dt (validated sign;
             // L = ρ∮φn̂dA is negative for positive velocity, so the body conserves
@@ -553,8 +504,7 @@ where
         let p_new = &p_n + &v_mid * self.step_size;
         let x_new = (p_new, v_new);
 
-        let _ = self.f.system(0.0, &x_new);
-        let _ = self.g.system(0.0, &o_new);
+        self.solver.set_state(&x_new, &o_new);
         let o_lab_new = self.orientation_to_marker_point();
 
         self.x = x_new;
@@ -571,8 +521,8 @@ where
     /// midpoint (the added-mass instability is translational).
     fn advance_one_step_strong(&mut self) {
         // Stage A at z_n (commits φ(v_n) to the history).
-        let (a_n, torque_n) = self.force_get();
-        self.fluid_ke_step_start = self.fluid_kinetic_energy();
+        let (a_n, torque_n) = self.solver.force();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
         self.capture_initial_total_ke();
 
         let (q_half, o_half) = self.ang_half_step(&torque_n);
@@ -580,13 +530,12 @@ where
         let (p_n, v_n) = self.x.clone();
         let mut v_half = &v_n + &a_n * self.half_step; // explicit initial guess
 
-        self.set_freeze(true);
+        self.solver.set_freeze(true);
         let tol = 1e-9 * (v_n.norm() + 1.0);
         for _it in 0..STRONG_MAXITER {
             let p_half = &p_n + &v_half * self.half_step;
-            let _ = self.f.system(0.0, &(p_half, v_half.clone()));
-            let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
-            let (a_h, _torque_h) = self.force_get(); // frozen: no history push
+            self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
+            let (a_h, _torque_h) = self.solver.force(); // frozen: no history push
             let resid = &v_half - &v_n - &a_h * self.half_step; // g(v_half)
             if resid.norm() < tol {
                 break;
@@ -608,13 +557,12 @@ where
                 }
             }
         }
-        self.set_freeze(false);
+        self.solver.set_freeze(false);
 
         // Commit stage B: evaluate at the converged v_half to push φ(v_half).
         let p_half = &p_n + &v_half * self.half_step;
-        let _ = self.f.system(0.0, &(p_half, v_half.clone()));
-        let _ = self.g.system(0.0, &(q_half.clone(), o_half.clone()));
-        let (_a_final, torque_half) = self.force_get();
+        self.solver.set_state(&(p_half, v_half.clone()), &(q_half.clone(), o_half.clone()));
+        let (_a_final, torque_half) = self.solver.force();
 
         // Implicit-midpoint update: v_{n+1} = 2 v_half - v_n, x uses v_half.
         let v_new = 2.0 * &v_half - &v_n;
@@ -622,8 +570,7 @@ where
         let x_new = (p_new, v_new);
         let o_new = self.ang_full_step(&torque_half, &(q_half, o_half));
 
-        let _ = self.f.system(0.0, &x_new);
-        let _ = self.g.system(0.0, &o_new);
+        self.solver.set_state(&x_new, &o_new);
         let o_lab_new = self.orientation_to_marker_point();
 
         self.x = x_new;
@@ -679,10 +626,6 @@ where
             }
         }
         out
-    }
-
-    fn force_get(&mut self) -> LinearState {
-        self.i.system()
     }
 
     fn lin_half_step(&mut self, lin_force: &DVector<f64>) -> LinearState {

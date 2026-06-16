@@ -50,7 +50,12 @@ pub type LinearState = (DVector<f64>, DVector<f64>);
 /// per body (index `i` <-> body `i`).
 pub type AngularState = (Vec<Quaternion<f64>>, Vec<Quaternion<f64>>);
 
-pub struct ForceCalculate {
+/// Owns the BEM coupling: pushes the rigid-body state into the shared
+/// [`Simulation`], solves the boundary-integral problem, and returns the
+/// hydrodynamic loads. Replaces the former `LinearUpdate`/`AngularUpdate`/
+/// `ForceCalculate` System-trait trio and the flag-toggling that the integrator
+/// used to do directly.
+pub struct BemSolver {
     pub system: Arc<Mutex<Simulation>>,
     /// Cached factorisation(s) of the time-invariant part of the influence
     /// matrix. The double-layer operator is invariant under rigid-body motion,
@@ -66,7 +71,7 @@ pub struct ForceCalculate {
     last_phi: Mutex<Option<DVector<f64>>>,
 }
 
-impl ForceCalculate {
+impl BemSolver {
     pub fn new(system: Arc<Mutex<Simulation>>) -> Self {
         Self {
             system,
@@ -74,14 +79,66 @@ impl ForceCalculate {
             last_phi: Mutex::new(None),
         }
     }
-}
 
-pub struct LinearUpdate {
-    pub system: Arc<Mutex<Simulation>>,
-}
+    /// Push the rigid-body linear (positions, velocities) and angular
+    /// (orientations, angular velocities) state into the shared simulation so the
+    /// next [`solve`](Self::solve) sees the current configuration.
+    pub fn set_state(&self, x: &LinearState, o: &AngularState) {
+        let mut sys_ref = self.system.lock().unwrap();
+        let (p, v) = x;
+        for i in 0..sys_ref.nbody {
+            let pos = Vector3::new(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
+            let vel = Vector3::new(v[3 * i], v[3 * i + 1], v[3 * i + 2]);
+            sys_ref.bodies[i].position = pos;
+            let m = sys_ref.bodies[i].mass();
+            sys_ref.bodies[i].linear_momentum = vel * m;
+        }
+        let (q, omega) = o;
+        for i in 0..sys_ref.nbody {
+            sys_ref.bodies[i].orientation = q[i];
+            // angular_momentum field holds L = I·ω (angular_velocity() divides it
+            // back by I). The integrator state `omega` is the lab angular velocity,
+            // so momentum = inertia * omega (matches angular_momentum_from_vel).
+            let inertia = sys_ref.bodies[i].inertia;
+            let o_vec = omega[i].vector();
+            let ang_mom_vec = inertia * o_vec;
+            sys_ref.bodies[i].angular_momentum = Quaternion::from_imag(ang_mom_vec);
+        }
+    }
 
-pub struct AngularUpdate {
-    pub system: Arc<Mutex<Simulation>>,
+    /// Solve in impulse mode and return the per-body lab-frame fluid impulse
+    /// (L_lin, L_ang). State function: no ∂φ/∂t, no φ-history side effects.
+    pub fn impulse(&self) -> (DVector<f64>, DVector<f64>) {
+        if let Ok(mut s) = self.system.lock() {
+            s.impulse_mode = true;
+        }
+        let out = self.solve();
+        if let Ok(mut s) = self.system.lock() {
+            s.impulse_mode = false;
+        }
+        out
+    }
+
+    /// Solve in pressure mode and return per-body (linear acceleration, torque).
+    pub fn force(&self) -> LinearState {
+        self.solve()
+    }
+
+    /// Toggle the shared `freeze_phi_history` flag so strong-coupling trial
+    /// evaluations don't push provisional φ into the committed history.
+    pub fn set_freeze(&self, freeze: bool) {
+        if let Ok(mut s) = self.system.lock() {
+            s.freeze_phi_history = freeze;
+        }
+    }
+
+    /// Fluid kinetic energy recorded by the most recent solve.
+    pub fn fluid_kinetic_energy(&self) -> f64 {
+        self.system
+            .lock()
+            .map(|s| s.fluid.kinetic_energy)
+            .unwrap_or(0.0)
+    }
 }
 
 /// Grid every body and fold the individual meshes into a single combined surface
@@ -148,9 +205,11 @@ fn split_per_body(vna: &DMatrix<f64>, nptss: &[usize]) -> Vec<DMatrix<f64>> {
     out
 }
 
-impl crate::ode::System4<LinearState> for ForceCalculate {
-    /// Returns (linear accelerations, torques) stacked over all bodies as 3*N vectors.
-    fn system(&self) -> LinearState {
+impl BemSolver {
+    /// Solve the boundary-integral problem at the currently-set state. In impulse
+    /// mode returns the per-body fluid impulse; otherwise (linear accel, torque)
+    /// from the unsteady-pressure model.
+    fn solve(&self) -> LinearState {
         let mut sys_ref = self.system.lock().unwrap();
 
         let (nq, mint) = (12_usize, 13_usize);
@@ -551,41 +610,5 @@ impl crate::ode::System4<LinearState> for ForceCalculate {
     }
 }
 
-impl crate::ode::System2<LinearState> for LinearUpdate {
-    fn system(&self, _x: f64, y: &LinearState) -> LinearState {
-        let mut sys_ref = self.system.lock().unwrap();
-
-        let (p, v) = y;
-        for i in 0..sys_ref.nbody {
-            let pos = Vector3::new(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
-            let vel = Vector3::new(v[3 * i], v[3 * i + 1], v[3 * i + 2]);
-            sys_ref.bodies[i].position = pos;
-            let m = sys_ref.bodies[i].mass();
-            sys_ref.bodies[i].linear_momentum = vel * m;
-        }
-
-        y.clone()
-    }
-}
-
-impl crate::ode::System2<AngularState> for AngularUpdate {
-    fn system(&self, _x: f64, y: &AngularState) -> AngularState {
-        let mut sys_ref = self.system.lock().unwrap();
-
-        let (q, omega) = y;
-        for i in 0..sys_ref.nbody {
-            sys_ref.bodies[i].orientation = q[i];
-            let inertia = sys_ref.bodies[i].inertia;
-            let o_vec = omega[i].vector();
-            // angular_momentum field holds L = I·ω (angular_velocity() divides it
-            // back by I). The integrator state `omega` is the lab angular velocity,
-            // so momentum = inertia * omega (matches angular_momentum_from_vel).
-            // (Was inertia⁻¹*omega — a double-inverse that made the BC and the
-            // ω×L transport see ω/I² instead of ω.)
-            let ang_mom_vec = inertia * o_vec;
-            sys_ref.bodies[i].angular_momentum = Quaternion::from_imag(ang_mom_vec);
-        }
-
-        y.clone()
-    }
-}
+// (LinearUpdate / AngularUpdate / ForceCalculate System-trait impls removed;
+// their behaviour now lives in BemSolver::{set_state, impulse, force, solve}.)

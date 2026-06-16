@@ -3,15 +3,9 @@
 use super::{Rk4PCDM, SolidEnergy};
 use crate::bem::bem_for_ode::{AngularState, LinearState};
 use crate::math::rotation;
-use crate::ode::dop_shared::{System2, System4};
 use nalgebra::{Matrix3, Quaternion, Vector3};
 
-impl<F, G, I> Rk4PCDM<F, G, I>
-where
-    F: System2<LinearState>,
-    G: System2<AngularState>,
-    I: System4<LinearState>,
-{
+impl Rk4PCDM {
     pub(crate) fn impulse_diagnostics(
         &self,
         x: &LinearState,
@@ -76,12 +70,4 @@ where
             per_body,
         }
     }
-
-    pub(crate) fn fluid_kinetic_energy(&self) -> f64 {
-        self.fluid_ke_getter
-            .as_ref()
-            .map(|get| get())
-            .unwrap_or(0.0)
-    }
-
 }

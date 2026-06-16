@@ -217,24 +217,10 @@ fn main() {
     let added_mass_stab = sys.added_mass_stab;
 
     let sys_mutex = Arc::new(Mutex::new(sys));
-    let sys_for_ke = sys_mutex.clone();
-    let fluid_ke_getter: Option<Box<dyn Fn() -> f64 + Send + Sync>> = Some(Box::new(move || {
-        let sys_ref = sys_for_ke.lock().unwrap();
-        sys_ref.fluid.kinetic_energy
-    }));
-
-    let linear_system = bem_for_ode::LinearUpdate {
-        system: sys_mutex.clone(),
-    };
-    let angular_system = bem_for_ode::AngularUpdate {
-        system: sys_mutex.clone(),
-    };
-    let forcing_system = bem_for_ode::ForceCalculate::new(sys_mutex.clone());
+    let solver = bem_for_ode::BemSolver::new(sys_mutex.clone());
 
     let mut stepper = rk4pcdm::Rk4PCDM::new(
-        linear_system,
-        angular_system,
-        forcing_system,
+        solver,
         0.0,
         x,
         orientations,
@@ -242,14 +228,12 @@ fn main() {
         masses,
         added_mass_tensors,
         added_mass_stab,
-        fluid_ke_getter,
         t_end,
         dt,
         tprint,   // samp_rate: .dat row every tprint steps
         logevery, // print_rate: console progress every logevery steps
         strong_couple,
         impulse_scheme,
-        sys_mutex.clone(),
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv

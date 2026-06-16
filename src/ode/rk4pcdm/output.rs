@@ -2,17 +2,11 @@
 #![allow(unused_imports)]
 use super::{Rk4PCDM, SolidEnergy};
 use crate::bem::bem_for_ode::{AngularState, LinearState};
-use crate::ode::dop_shared::{System2, System4};
 use nalgebra::{DVector, Quaternion, Vector3};
 use std::io::Write;
 use std::time::Duration;
 
-impl<F, G, I> Rk4PCDM<F, G, I>
-where
-    F: System2<LinearState>,
-    G: System2<AngularState>,
-    I: System4<LinearState>,
-{
+impl Rk4PCDM {
     pub(crate) fn print_progress(
         &self,
         i: usize,
@@ -23,7 +17,7 @@ where
         let completion_percentage = 100.0 * (i as f64) / (num_steps as f64);
         let dt_sec = (elapsed_dt.as_millis() as f64) * 0.001;
         let ke_solid = self.solid_kinetic_energy(&self.x, &self.o);
-        let ke_fluid = self.fluid_kinetic_energy();
+        let ke_fluid = self.solver.fluid_kinetic_energy();
         let ke_total = ke_solid.total + ke_fluid;
         let ke_drift = self.format_ke_drift(ke_total);
 
