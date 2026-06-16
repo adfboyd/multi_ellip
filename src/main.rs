@@ -219,6 +219,16 @@ fn main() {
     let sys_mutex = Arc::new(Mutex::new(sys));
     let solver = bem_for_ode::BemSolver::new(sys_mutex.clone());
 
+    // Impulse takes precedence over strong, then the explicit default (matches the
+    // former boolean precedence).
+    let scheme = if impulse_scheme {
+        rk4pcdm::CouplingScheme::Impulse
+    } else if strong_couple {
+        rk4pcdm::CouplingScheme::Strong
+    } else {
+        rk4pcdm::CouplingScheme::Explicit
+    };
+
     let mut stepper = rk4pcdm::Rk4PCDM::new(
         solver,
         0.0,
@@ -232,8 +242,7 @@ fn main() {
         dt,
         tprint,   // samp_rate: .dat row every tprint steps
         logevery, // print_rate: console progress every logevery steps
-        strong_couple,
-        impulse_scheme,
+        scheme,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv

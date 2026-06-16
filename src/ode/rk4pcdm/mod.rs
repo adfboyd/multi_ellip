@@ -19,6 +19,19 @@ const ANDERSON_DEPTH: usize = 5;
 /// Max iterations for the per-body implicit-midpoint angular solve.
 const ANG_MID_MAXITER: usize = 20;
 
+/// Fluid--structure coupling scheme the integrator advances with. Replaces the
+/// former `strong_couple`/`impulse_scheme` boolean pair and their precedence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CouplingScheme {
+    /// Explicit predictor-corrector with the unsteady-pressure force (and the
+    /// optional added-mass Robin stabiliser).
+    Explicit,
+    /// Strong (implicit-midpoint) coupling of the linear DOF.
+    Strong,
+    /// Implicit impulse-difference scheme (momentum/energy-consistent).
+    Impulse,
+}
+
 pub struct Rk4PCDM {
     /// BEM fluid coupling: pushes body state, solves, returns impulse/force/KE.
     solver: BemSolver,
@@ -59,12 +72,8 @@ pub struct Rk4PCDM {
     /// Fluid impulse captured at the start of the current step in impulse mode.
     fluid_impulse_lin_step_start: Option<DVector<f64>>,
     fluid_impulse_ang_step_start: Option<DVector<f64>>,
-    /// Prototype B: strong (implicit-midpoint) FSI coupling for the linear DOF.
-    strong_couple: bool,
-    /// Approach A: implicit impulse-difference scheme. Force/torque are formed
-    /// from -(L_{n+1}-L_n)/dt using the BEM state-function impulse, so the
-    /// scheme conserves momentum/impulse and the energy oscillation vanishes.
-    impulse_scheme: bool,
+    /// Selected fluid--structure coupling scheme.
+    scheme: CouplingScheme,
     initial_total_ke: Option<f64>,
 }
 
@@ -93,8 +102,7 @@ impl Rk4PCDM {
         step_size: f64,
         samp_rate: u32,
         print_rate: u32,
-        strong_couple: bool,
-        impulse_scheme: bool,
+        scheme: CouplingScheme,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -136,8 +144,7 @@ impl Rk4PCDM {
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
-            strong_couple,
-            impulse_scheme,
+            scheme,
             initial_total_ke: None,
         }
     }
@@ -261,7 +268,7 @@ impl Rk4PCDM {
         // has not yet been computed, so run one extra BEM solve to obtain it (the
         // side effects — φ history push, fluid KE update — are harmless).
         if let Some((tp, xp, op, olp)) = pending.take() {
-            if self.impulse_scheme {
+            if self.scheme == CouplingScheme::Impulse {
                 let (l_lin, l_ang) = self.solver.impulse();
                 self.fluid_impulse_lin_step_start = Some(l_lin);
                 self.fluid_impulse_ang_step_start = Some(l_ang);
@@ -294,7 +301,7 @@ impl Rk4PCDM {
         // The implicit schemes iterate each step to consistency, so they do not
         // need (and are corrupted by) the explicit scheme's repeated provisional
         // first step. Skip it.
-        if self.strong_couple || self.impulse_scheme {
+        if self.scheme != CouplingScheme::Explicit {
             println!("Preparing first step: implicit scheme, no bootstrap passes required.");
             println!("First step may take longer than later steps.");
             println!();
@@ -317,17 +324,19 @@ impl Rk4PCDM {
         }
     }
 
-    /// Predictor-corrector (Verlet-like translation + PCDM rotation) update of the
-    /// full state `(self.x, self.o, self.o_lab)` by one timestep.
+    /// Advance the full state `(self.x, self.o, self.o_lab)` by one timestep with
+    /// the configured coupling scheme.
     fn advance_one_step(&mut self) {
-        if self.impulse_scheme {
-            self.advance_one_step_impulse();
-            return;
+        match self.scheme {
+            CouplingScheme::Impulse => self.advance_one_step_impulse(),
+            CouplingScheme::Strong => self.advance_one_step_strong(),
+            CouplingScheme::Explicit => self.advance_one_step_explicit(),
         }
-        if self.strong_couple {
-            self.advance_one_step_strong();
-            return;
-        }
+    }
+
+    /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
+    /// with the unsteady-pressure force and optional added-mass Robin stabilisation.
+    fn advance_one_step_explicit(&mut self) {
         // Forces at the start of the step.
         let (linear_accel_expl, angular_force) = self.solver.force();
         // Stage A is evaluated at exactly the step-start state z_n, so its fluid
