@@ -1,6 +1,5 @@
 //! Console and CSV reporting for the impulse/PCDM integrator.
-#![allow(unused_imports)]
-use super::{Rk4PCDM, SolidEnergy};
+use super::Rk4PCDM;
 use crate::bem::bem_for_ode::{AngularState, LinearState};
 use nalgebra::{DVector, Quaternion, Vector3};
 use std::io::Write;
@@ -191,5 +190,4 @@ impl Rk4PCDM {
         }
         writeln!(writer)
     }
-
 }

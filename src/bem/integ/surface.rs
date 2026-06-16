@@ -677,4 +677,3 @@ pub fn ke_3d(
 
     (srf_area, f0)
 }
-

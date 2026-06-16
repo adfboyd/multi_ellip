@@ -1,9 +1,8 @@
 //! Energy and impulse diagnostics for the integrator.
-#![allow(unused_imports)]
 use super::{Rk4PCDM, SolidEnergy};
 use crate::bem::bem_for_ode::{AngularState, LinearState};
 use crate::math::rotation;
-use nalgebra::{Matrix3, Quaternion, Vector3};
+use nalgebra::{Quaternion, Vector3};
 
 impl Rk4PCDM {
     pub(crate) fn impulse_diagnostics(
@@ -24,8 +23,7 @@ impl Rk4PCDM {
             let lambda_fluid = Vector3::new(l_ang[3 * b], l_ang[3 * b + 1], l_ang[3 * b + 2]);
             let omega_body = rotation::lab_to_body(&omega_lab[b], &q[b]).imag();
             let h_body = self.inertias[b] * omega_body;
-            let h_solid = rotation::body_to_lab(&Quaternion::from_imag(h_body), &q[b])
-                .imag();
+            let h_solid = rotation::body_to_lab(&Quaternion::from_imag(h_body), &q[b]).imag();
             let p_con = self.masses[b] * v_b - l_fluid;
             let h_con = x_b.cross(&p_con) + h_solid - lambda_fluid;
             out.push((l_fluid, lambda_fluid, p_con, h_con));

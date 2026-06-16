@@ -260,7 +260,12 @@ impl Rk4PCDM {
                 self.x_out.push(self.state.lin.clone());
                 self.o_out.push(self.state.ang.clone());
                 self.o_lab_out.push(self.o_lab.clone());
-                pending = Some((t_new, self.state.lin.clone(), self.state.ang.clone(), self.o_lab.clone()));
+                pending = Some((
+                    t_new,
+                    self.state.lin.clone(),
+                    self.state.ang.clone(),
+                    self.o_lab.clone(),
+                ));
             }
 
             self.t = t_new;
@@ -323,7 +328,10 @@ impl Rk4PCDM {
             self.state.ang = o0.clone();
             let x_push = self.state.lin.clone();
             let o_push = self.state.ang.clone();
-            self.solver.set_state(&BodyState { lin: x_push, ang: o_push });
+            self.solver.set_state(&BodyState {
+                lin: x_push,
+                ang: o_push,
+            });
         }
     }
 
@@ -362,7 +370,10 @@ impl Rk4PCDM {
         let (p_half, v_half) = self.lin_half_step(&linear_accel);
         let (q_half, o_half) = self.ang_half_step(&angular_force);
 
-        self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
+        self.solver.set_state(&BodyState {
+            lin: (p_half, v_half.clone()),
+            ang: (q_half.clone(), o_half.clone()),
+        });
 
         // Forces at the half step.
         let (linear_force_half_expl, angular_force_half) = self.solver.force();
@@ -376,7 +387,10 @@ impl Rk4PCDM {
         let x_new = self.lin_full_step(&linear_force_half, &v_half);
         let o_new = self.ang_full_step(&angular_force_half, &(q_half, o_half));
 
-        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
+        self.solver.set_state(&BodyState {
+            lin: x_new.clone(),
+            ang: o_new.clone(),
+        });
 
         let o_lab_new = self.orientation_to_marker_point();
 
@@ -428,7 +442,10 @@ impl Rk4PCDM {
             // Position uses the midpoint velocity; sync the end state.
             let v_mid = 0.5 * (&v_n + &v_new);
             let p_new = &p_n + &v_mid * self.step_size;
-            self.solver.set_state(&BodyState { lin: (p_new.clone(), v_new.clone()), ang: o_new.clone() });
+            self.solver.set_state(&BodyState {
+                lin: (p_new.clone(), v_new.clone()),
+                ang: o_new.clone(),
+            });
 
             let (l_lin_np1, l_ang_np1) = self.solver.impulse();
 
@@ -478,12 +495,10 @@ impl Rk4PCDM {
                     continue;
                 }
                 let r_lab = Vector3::new(r_lin[3 * b], r_lin[3 * b + 1], r_lin[3 * b + 2]);
-                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b])
-                    .imag();
+                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b]).imag();
                 let p_mat = Matrix3::identity() * ms + self.added_mass_safe[b];
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b / ms);
-                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_end[b])
-                    .imag();
+                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_end[b]).imag();
                 for c in 0..3 {
                     g_v[3 * b + c] = -d_lab[c];
                 }
@@ -516,7 +531,10 @@ impl Rk4PCDM {
         let p_new = &p_n + &v_mid * self.step_size;
         let x_new = (p_new, v_new);
 
-        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
+        self.solver.set_state(&BodyState {
+            lin: x_new.clone(),
+            ang: o_new.clone(),
+        });
         let o_lab_new = self.orientation_to_marker_point();
 
         self.state.lin = x_new;
@@ -546,7 +564,10 @@ impl Rk4PCDM {
         let tol = 1e-9 * (v_n.norm() + 1.0);
         for _it in 0..STRONG_MAXITER {
             let p_half = &p_n + &v_half * self.half_step;
-            self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
+            self.solver.set_state(&BodyState {
+                lin: (p_half, v_half.clone()),
+                ang: (q_half.clone(), o_half.clone()),
+            });
             let (a_h, _torque_h) = self.solver.force(); // frozen: no history push
             let resid = &v_half - &v_n - &a_h * self.half_step; // g(v_half)
             if resid.norm() < tol {
@@ -558,12 +579,10 @@ impl Rk4PCDM {
                     continue;
                 }
                 let r_lab = Vector3::new(resid[3 * b], resid[3 * b + 1], resid[3 * b + 2]);
-                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b])
-                    .imag();
+                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b]).imag();
                 let p_mat = Matrix3::identity() + self.added_mass_safe[b] / (2.0 * ms);
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b);
-                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_half[b])
-                    .imag();
+                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_half[b]).imag();
                 for c in 0..3 {
                     v_half[3 * b + c] -= d_lab[c];
                 }
@@ -573,7 +592,10 @@ impl Rk4PCDM {
 
         // Commit stage B: evaluate at the converged v_half to push φ(v_half).
         let p_half = &p_n + &v_half * self.half_step;
-        self.solver.set_state(&BodyState { lin: (p_half, v_half.clone()), ang: (q_half.clone(), o_half.clone()) });
+        self.solver.set_state(&BodyState {
+            lin: (p_half, v_half.clone()),
+            ang: (q_half.clone(), o_half.clone()),
+        });
         let (_a_final, torque_half) = self.solver.force();
 
         // Implicit-midpoint update: v_{n+1} = 2 v_half - v_n, x uses v_half.
@@ -582,7 +604,10 @@ impl Rk4PCDM {
         let x_new = (p_new, v_new);
         let o_new = self.ang_full_step(&torque_half, &(q_half, o_half));
 
-        self.solver.set_state(&BodyState { lin: x_new.clone(), ang: o_new.clone() });
+        self.solver.set_state(&BodyState {
+            lin: x_new.clone(),
+            ang: o_new.clone(),
+        });
         let o_lab_new = self.orientation_to_marker_point();
 
         self.state.lin = x_new;
@@ -619,10 +644,8 @@ impl Rk4PCDM {
             );
 
             // Rotate lab -> body using the body orientation quaternion.
-            let a_expl_b = rotation::lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i])
-                .imag();
-            let a_prev_b = rotation::lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i])
-                .imag();
+            let a_expl_b = rotation::lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i]).imag();
+            let a_prev_b = rotation::lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i]).imag();
 
             let ms_i = Matrix3::identity() * ms;
             let m_a = self.added_mass_safe[i];
@@ -631,8 +654,7 @@ impl Rk4PCDM {
             let a_stab_b = lhs.try_inverse().map(|inv| inv * rhs).unwrap_or(a_expl_b);
 
             // Rotate body -> lab.
-            let a_stab_lab = rotation::body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i])
-                .imag();
+            let a_stab_lab = rotation::body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i]).imag();
             for c in 0..3 {
                 out[3 * i + c] = a_stab_lab[c];
             }
@@ -750,7 +772,8 @@ impl Rk4PCDM {
                 let q_mid = self.orientation_stepper(&qi, &omega_mid_lab, self.half_step);
                 let n_mid_b = rotation::lab_to_body(&n_lab, &q_mid);
                 let accel_mid_b =
-                    rotation::accel_get(&Quaternion::from_imag(omega_mid_b), &inertia, &n_mid_b).imag();
+                    rotation::accel_get(&Quaternion::from_imag(omega_mid_b), &inertia, &n_mid_b)
+                        .imag();
                 let omega_mid_new = omega_n_b + 0.5 * self.step_size * accel_mid_b;
                 let delta = (omega_mid_new - omega_mid_b).norm();
                 omega_mid_b = omega_mid_new;
@@ -764,7 +787,8 @@ impl Rk4PCDM {
             let omega_mid_lab = rotation::body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
             let q_full = self.orientation_stepper(&qi, &omega_mid_lab, self.step_size);
             let omega_full_b = 2.0 * omega_mid_b - omega_n_b;
-            let omega_full_lab = rotation::body_to_lab(&Quaternion::from_imag(omega_full_b), &q_full);
+            let omega_full_lab =
+                rotation::body_to_lab(&Quaternion::from_imag(omega_full_b), &q_full);
 
             q_new.push(q_full);
             o_new.push(omega_full_lab);

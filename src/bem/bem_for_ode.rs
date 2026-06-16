@@ -7,7 +7,6 @@ use nalgebra::{DMatrix, DVector, Dyn, Quaternion, UnitQuaternion, Vector3};
 #[cfg(feature = "lapack")]
 use nalgebra_lapack::LU;
 use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "timing")]
 use std::time::Instant;
 
@@ -58,41 +57,49 @@ pub struct BodyState {
     pub ang: AngularState,
 }
 
-/// Owns the BEM coupling: pushes the rigid-body state into the shared
+/// Boundary-element solve mode: either return hydrodynamic pressure loads or
+/// state-function Lamb impulses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SolveMode {
+    Force,
+    Impulse,
+}
+
+/// Owns the BEM coupling: pushes the rigid-body state into its
 /// [`Simulation`], solves the boundary-integral problem, and returns the
 /// hydrodynamic loads. Replaces the former `LinearUpdate`/`AngularUpdate`/
 /// `ForceCalculate` System-trait trio and the flag-toggling that the integrator
 /// used to do directly.
 pub struct BemSolver {
-    pub system: Arc<Mutex<Simulation>>,
+    system: Simulation,
     /// Cached factorisation(s) of the time-invariant part of the influence
     /// matrix. The double-layer operator is invariant under rigid-body motion,
     /// so each body's self-block is constant for all time. Single body: cache
     /// the full LU (Direct). Multi-body: cache the self-block LUs as a GMRES
     /// preconditioner (BlockDiag). Built once on the first force evaluation.
-    cache: Mutex<Option<SolveCache>>,
+    cache: Option<SolveCache>,
     /// Most recent multi-body GMRES solution φ, reused as the warm-start initial
     /// guess for the next solve. Consecutive solves (across fixed-point iterations
     /// and across steps) have nearly identical φ, so this cuts GMRES iterations
     /// sharply. Warm-starting only changes the iteration path, not the converged
     /// solution (still satisfies the same residual tolerance).
-    last_phi: Mutex<Option<DVector<f64>>>,
+    last_phi: Option<DVector<f64>>,
 }
 
 impl BemSolver {
-    pub fn new(system: Arc<Mutex<Simulation>>) -> Self {
+    pub fn new(system: Simulation) -> Self {
         Self {
             system,
-            cache: Mutex::new(None),
-            last_phi: Mutex::new(None),
+            cache: None,
+            last_phi: None,
         }
     }
 
     /// Push the rigid-body linear (positions, velocities) and angular
     /// (orientations, angular velocities) state into the shared simulation so the
     /// next [`solve`](Self::solve) sees the current configuration.
-    pub fn set_state(&self, state: &BodyState) {
-        let mut sys_ref = self.system.lock().unwrap();
+    pub fn set_state(&mut self, state: &BodyState) {
+        let sys_ref = &mut self.system;
         let (p, v) = &state.lin;
         for i in 0..sys_ref.nbody {
             let pos = Vector3::new(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
@@ -116,36 +123,24 @@ impl BemSolver {
 
     /// Solve in impulse mode and return the per-body lab-frame fluid impulse
     /// (L_lin, L_ang). State function: no ∂φ/∂t, no φ-history side effects.
-    pub fn impulse(&self) -> (DVector<f64>, DVector<f64>) {
-        if let Ok(mut s) = self.system.lock() {
-            s.impulse_mode = true;
-        }
-        let out = self.solve();
-        if let Ok(mut s) = self.system.lock() {
-            s.impulse_mode = false;
-        }
-        out
+    pub fn impulse(&mut self) -> (DVector<f64>, DVector<f64>) {
+        self.solve(SolveMode::Impulse)
     }
 
     /// Solve in pressure mode and return per-body (linear acceleration, torque).
-    pub fn force(&self) -> LinearState {
-        self.solve()
+    pub fn force(&mut self) -> LinearState {
+        self.solve(SolveMode::Force)
     }
 
-    /// Toggle the shared `freeze_phi_history` flag so strong-coupling trial
+    /// Toggle `freeze_phi_history` so strong-coupling trial
     /// evaluations don't push provisional φ into the committed history.
-    pub fn set_freeze(&self, freeze: bool) {
-        if let Ok(mut s) = self.system.lock() {
-            s.freeze_phi_history = freeze;
-        }
+    pub fn set_freeze(&mut self, freeze: bool) {
+        self.system.freeze_phi_history = freeze;
     }
 
     /// Fluid kinetic energy recorded by the most recent solve.
     pub fn fluid_kinetic_energy(&self) -> f64 {
-        self.system
-            .lock()
-            .map(|s| s.fluid.kinetic_energy)
-            .unwrap_or(0.0)
+        self.system.fluid.kinetic_energy
     }
 }
 
@@ -217,8 +212,8 @@ impl BemSolver {
     /// Solve the boundary-integral problem at the currently-set state. In impulse
     /// mode returns the per-body fluid impulse; otherwise (linear accel, torque)
     /// from the unsteady-pressure model.
-    fn solve(&self) -> LinearState {
-        let mut sys_ref = self.system.lock().unwrap();
+    fn solve(&mut self, mode: SolveMode) -> LinearState {
+        let sys_ref = &mut self.system;
 
         let (nq, mint) = (12_usize, 13_usize);
         let nbody = sys_ref.nbody;
@@ -274,7 +269,7 @@ impl BemSolver {
         // cache the self-block LUs once as a block-diagonal preconditioner and
         // solve with GMRES, rebuilding only the (smooth) interaction blocks
         // implicitly via the freshly assembled matrix-vector product.
-        let mut cache_guard = self.cache.lock().unwrap();
+        let cache_guard = &mut self.cache;
 
         let f = if nbody == 1 {
             if cache_guard.is_none() {
@@ -384,14 +379,13 @@ impl BemSolver {
             let t_solve = Instant::now();
             // Warm start from the previous solve's φ when dimensions match.
             let x0 = {
-                let lp = self.last_phi.lock().unwrap();
-                match lp.as_ref() {
+                match self.last_phi.as_ref() {
                     Some(prev) if prev.len() == npts => prev.clone(),
                     _ => DVector::zeros(npts),
                 }
             };
             let (f, _iters, _res) = gmres(matvec, precond, &rhs, &x0, 1e-11, 200);
-            *self.last_phi.lock().unwrap() = Some(f.clone());
+            self.last_phi = Some(f.clone());
             #[cfg(feature = "timing")]
             println!(
                 "Force GMRES: {:.3}s  ({} iters, res {:.1e})",
@@ -402,7 +396,6 @@ impl BemSolver {
 
             f
         };
-        drop(cache_guard);
 
         let (_srf_area, ke_integral) = ke_3d(
             npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
@@ -430,7 +423,7 @@ impl BemSolver {
         // the (linear, angular) output vectors), with NO ∂φ/∂t force and NO
         // history push. The integrator differences these between step endpoints
         // to form F = -dL/dt, an energy-consistent (state-function) force.
-        if sys_ref.impulse_mode {
+        if mode == SolveMode::Impulse {
             let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
                 .into_par_iter()
                 .map(|k| {
@@ -490,10 +483,10 @@ impl BemSolver {
             // it to (4-2eps)/dt to damp the explicit added-mass instability that
             // appears at fine meshes (ndiv=4). eps=0 is pure BDF2 (default).
             let eps = sys_ref.phidot_blend;
-            let bdf2 = (3.0 * &f - 4.0 * &hist[n_hist - 2] + &hist[n_hist - 4]) / (2.0 * step_dt);
+            let bdf2 = (&f * 3.0 - &hist[n_hist - 2] * 4.0 + &hist[n_hist - 4]) / (2.0 * step_dt);
             if eps > 0.0 {
                 let bdf1 = (&f - &hist[n_hist - 2]) / step_dt;
-                (1.0 - eps) * bdf2 + eps * bdf1
+                bdf2 * (1.0 - eps) + bdf1 * eps
             } else {
                 bdf2
             }

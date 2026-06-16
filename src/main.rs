@@ -1,7 +1,6 @@
 use chrono::{DateTime, Local};
 use nalgebra as na;
 use nalgebra::{DVector, Quaternion, Vector3};
-use std::sync::{Arc, Mutex};
 use std::{fs, fs::File, io::BufWriter, io::Write, path::Path};
 
 use std::collections::{HashMap, HashSet};
@@ -179,8 +178,7 @@ fn main() {
     sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
     sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
     sys.phidot_blend = get("phidot_blend", 0.0);
-    sys.strong_couple = get("strong_couple", 0.0) > 0.5;
-    let strong_couple = sys.strong_couple;
+    let strong_couple = get("strong_couple", 0.0) > 0.5;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
     let phidot_blend = sys.phidot_blend;
 
@@ -216,8 +214,7 @@ fn main() {
         .collect();
     let added_mass_stab = sys.added_mass_stab;
 
-    let sys_mutex = Arc::new(Mutex::new(sys));
-    let solver = bem_for_ode::BemSolver::new(sys_mutex.clone());
+    let solver = bem_for_ode::BemSolver::new(sys);
 
     // Impulse takes precedence over strong, then the explicit default (matches the
     // former boolean precedence).
