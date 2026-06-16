@@ -13,6 +13,9 @@ const STRONG_MAXITER: usize = 30;
 /// History depth for Anderson acceleration of the impulse fixed-point coupling.
 const ANDERSON_DEPTH: usize = 5;
 
+/// Max iterations for the per-body implicit-midpoint angular solve.
+const ANG_MID_MAXITER: usize = 20;
+
 /// One Anderson-accelerated update of a fixed-point iterate.
 ///
 /// `w_k` is the current iterate and `f_k` the base-map correction, so the
@@ -496,10 +499,11 @@ where
 
         let tol = 1e-9 * (v_n.norm() + 1.0);
         for _it in 0..STRONG_MAXITER {
-            // Angular: integrate from the start state with the current torque
-            // estimate (same step-averaged torque for both stages).
-            let (q_half, o_half) = self.ang_half_step(&torque);
-            o_new = self.ang_full_step(&torque, &(q_half, o_half));
+            // Angular: implicit-midpoint Lie-group update driven by the current
+            // step-averaged torque. Symplectic-flavoured (energy drift no longer
+            // grows with the added-mass stiffness that the mesh resolves), unlike
+            // the explicit predictor-corrector PCDM used by the other schemes.
+            o_new = self.ang_step_implicit_midpoint(&torque);
             let q_end = o_new.0.clone();
 
             // Position uses the midpoint velocity; sync the end state.
@@ -1072,6 +1076,57 @@ where
         self.stats.num_eval += self.nbody as u32;
 
         (q_full_v, omega_v)
+    }
+
+    /// Implicit-midpoint (symplectic Lie-group) angular update for the impulse
+    /// scheme. Solves the body-frame Euler equation with the gyroscopic term and
+    /// the orientation-dependent torque evaluated at the self-consistent midpoint,
+    /// then reconstructs the orientation by the exponential map of the midpoint
+    /// angular velocity. Unlike the explicit predictor-corrector PCDM, the energy
+    /// error does not grow secularly with the added-mass stiffness the mesh
+    /// resolves. `ang` is the lab-frame step-averaged torque per body.
+    fn ang_step_implicit_midpoint(&mut self, ang: &DVector<f64>) -> AngularState {
+        let (q, omega_lab) = self.o.clone();
+        let mut q_new = Vec::with_capacity(self.nbody);
+        let mut o_new = Vec::with_capacity(self.nbody);
+
+        for i in 0..self.nbody {
+            let qi = q[i];
+            let inertia = self.inertias[i];
+            let n_lab = Quaternion::new(0.0, ang[3 * i], ang[3 * i + 1], ang[3 * i + 2]);
+            let omega_n_b = self.lab_to_body(&omega_lab[i], &qi).imag();
+
+            // Fixed point on the body-frame midpoint angular velocity
+            // omega_mid = omega_n + (dt/2) I^{-1}(N(q_mid) - omega_mid x I omega_mid).
+            let mut omega_mid_b = omega_n_b;
+            for _ in 0..ANG_MID_MAXITER {
+                // Midpoint orientation: rotate q_n by omega_mid over dt/2.
+                let omega_mid_lab = self.body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
+                let q_mid = self.orientation_stepper(&qi, &omega_mid_lab, self.half_step);
+                let n_mid_b = self.lab_to_body(&n_lab, &q_mid);
+                let accel_mid_b =
+                    accel_get(&Quaternion::from_imag(omega_mid_b), &inertia, &n_mid_b).imag();
+                let omega_mid_new = omega_n_b + 0.5 * self.step_size * accel_mid_b;
+                let delta = (omega_mid_new - omega_mid_b).norm();
+                omega_mid_b = omega_mid_new;
+                if delta < 1e-12 * (omega_n_b.norm() + 1.0) {
+                    break;
+                }
+            }
+
+            // Full step from the converged midpoint: orientation rotates by
+            // omega_mid over dt; omega_{n+1} = 2 omega_mid - omega_n.
+            let omega_mid_lab = self.body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
+            let q_full = self.orientation_stepper(&qi, &omega_mid_lab, self.step_size);
+            let omega_full_b = 2.0 * omega_mid_b - omega_n_b;
+            let omega_full_lab = self.body_to_lab(&Quaternion::from_imag(omega_full_b), &q_full);
+
+            q_new.push(q_full);
+            o_new.push(omega_full_lab);
+        }
+
+        self.stats.num_eval += self.nbody as u32;
+        (q_new, o_new)
     }
 
     fn multiply_duration(&self, duration: Duration, factor: f64) -> Duration {
