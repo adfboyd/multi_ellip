@@ -1,8 +1,9 @@
 use crate::bem::bem_for_ode::{AngularState, LinearState};
+use crate::math::anderson::anderson_next;
+use crate::math::rotation;
 use crate::ode::dop_shared::{IntegrationError, Stats, System2, System4};
-use crate::ode::pcdm::accel_get;
 use crate::system::system::{Simulation, BOOTSTRAP_PASSES};
-use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3};
+use nalgebra::{DVector, Matrix3, Quaternion, Vector3};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,55 +16,6 @@ const ANDERSON_DEPTH: usize = 5;
 
 /// Max iterations for the per-body implicit-midpoint angular solve.
 const ANG_MID_MAXITER: usize = 20;
-
-/// One Anderson-accelerated update of a fixed-point iterate.
-///
-/// `w_k` is the current iterate and `f_k` the base-map correction, so the
-/// un-accelerated next iterate would be `w_k + f_k`. Mix up to `m` previous
-/// (iterate, correction) pairs via a small regularised least-squares to
-/// extrapolate toward the fixed point, accelerating a slowly-contracting
-/// coupling. Falls back to the plain update on the first call or a degenerate
-/// system. This only changes the path to the fixed point, not the fixed point
-/// itself (the caller's convergence test is unchanged).
-fn anderson_next(
-    w_hist: &mut Vec<DVector<f64>>,
-    f_hist: &mut Vec<DVector<f64>>,
-    w_k: &DVector<f64>,
-    f_k: &DVector<f64>,
-    m: usize,
-) -> DVector<f64> {
-    w_hist.push(w_k.clone());
-    f_hist.push(f_k.clone());
-    let k = f_hist.len();
-    let plain = w_k + f_k;
-    let next = if k < 2 {
-        plain
-    } else {
-        let mk = m.min(k - 1);
-        let d = f_k.len();
-        let mut df = DMatrix::<f64>::zeros(d, mk);
-        let mut dw = DMatrix::<f64>::zeros(d, mk);
-        for j in 0..mk {
-            let hi = k - 1 - j;
-            let lo = k - 2 - j;
-            df.set_column(j, &(&f_hist[hi] - &f_hist[lo]));
-            dw.set_column(j, &(&w_hist[hi] - &w_hist[lo]));
-        }
-        // argmin_gamma || f_k - df gamma ||  via regularised normal equations.
-        let ata = df.transpose() * &df;
-        let scale = ata.diagonal().max().max(1e-300);
-        let reg = &ata + DMatrix::<f64>::identity(mk, mk) * (1e-12 * scale);
-        match reg.lu().solve(&(df.transpose() * f_k)) {
-            Some(gamma) => &plain - (dw + df) * gamma,
-            None => plain,
-        }
-    };
-    while f_hist.len() > m + 1 {
-        w_hist.remove(0);
-        f_hist.remove(0);
-    }
-    next
-}
 
 pub struct Rk4PCDM<F, G, I>
 where
@@ -560,13 +512,11 @@ where
                     continue;
                 }
                 let r_lab = Vector3::new(r_lin[3 * b], r_lin[3 * b + 1], r_lin[3 * b + 2]);
-                let r_b = self
-                    .lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b])
+                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_end[b])
                     .imag();
                 let p_mat = Matrix3::identity() * ms + self.added_mass_safe[b];
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b / ms);
-                let d_lab = self
-                    .body_to_lab(&Quaternion::from_imag(d_b), &q_end[b])
+                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_end[b])
                     .imag();
                 for c in 0..3 {
                     g_v[3 * b + c] = -d_lab[c];
@@ -644,13 +594,11 @@ where
                     continue;
                 }
                 let r_lab = Vector3::new(resid[3 * b], resid[3 * b + 1], resid[3 * b + 2]);
-                let r_b = self
-                    .lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b])
+                let r_b = rotation::lab_to_body(&Quaternion::from_imag(r_lab), &q_half[b])
                     .imag();
                 let p_mat = Matrix3::identity() + self.added_mass_safe[b] / (2.0 * ms);
                 let d_b = p_mat.try_inverse().map(|inv| inv * r_b).unwrap_or(r_b);
-                let d_lab = self
-                    .body_to_lab(&Quaternion::from_imag(d_b), &q_half[b])
+                let d_lab = rotation::body_to_lab(&Quaternion::from_imag(d_b), &q_half[b])
                     .imag();
                 for c in 0..3 {
                     v_half[3 * b + c] -= d_lab[c];
@@ -709,11 +657,9 @@ where
             );
 
             // Rotate lab -> body using the body orientation quaternion.
-            let a_expl_b = self
-                .lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i])
+            let a_expl_b = rotation::lab_to_body(&Quaternion::from_imag(a_expl_lab), &q[i])
                 .imag();
-            let a_prev_b = self
-                .lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i])
+            let a_prev_b = rotation::lab_to_body(&Quaternion::from_imag(a_prev_lab), &q[i])
                 .imag();
 
             let ms_i = Matrix3::identity() * ms;
@@ -723,8 +669,7 @@ where
             let a_stab_b = lhs.try_inverse().map(|inv| inv * rhs).unwrap_or(a_expl_b);
 
             // Rotate body -> lab.
-            let a_stab_lab = self
-                .body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i])
+            let a_stab_lab = rotation::body_to_lab(&Quaternion::from_imag(a_stab_b), &q[i])
                 .imag();
             for c in 0..3 {
                 out[3 * i + c] = a_stab_lab[c];
@@ -934,10 +879,9 @@ where
             let v_b = Vector3::new(vel[3 * b], vel[3 * b + 1], vel[3 * b + 2]);
             let l_fluid = Vector3::new(l_lin[3 * b], l_lin[3 * b + 1], l_lin[3 * b + 2]);
             let lambda_fluid = Vector3::new(l_ang[3 * b], l_ang[3 * b + 1], l_ang[3 * b + 2]);
-            let omega_body = self.lab_to_body(&omega_lab[b], &q[b]).imag();
+            let omega_body = rotation::lab_to_body(&omega_lab[b], &q[b]).imag();
             let h_body = self.inertias[b] * omega_body;
-            let h_solid = self
-                .body_to_lab(&Quaternion::from_imag(h_body), &q[b])
+            let h_solid = rotation::body_to_lab(&Quaternion::from_imag(h_body), &q[b])
                 .imag();
             let p_con = self.masses[b] * v_b - l_fluid;
             let h_con = x_b.cross(&p_con) + h_solid - lambda_fluid;
@@ -964,7 +908,7 @@ where
                 0.0
             };
 
-            let omega_b = self.lab_to_body(&omega_lab[i], &q[i]).imag();
+            let omega_b = rotation::lab_to_body(&omega_lab[i], &q[i]).imag();
             let ke_rot = if mass > 0.0 {
                 0.5 * omega_b.dot(&(self.inertias[i] * omega_b))
             } else {
@@ -1021,20 +965,20 @@ where
             let qi = q[i];
             let inertia = self.inertias[i];
 
-            let omega_b = self.lab_to_body(&omega_lab[i], &qi);
+            let omega_b = rotation::lab_to_body(&omega_lab[i], &qi);
 
             let torque_lab = Quaternion::new(0.0, ang[3 * i], ang[3 * i + 1], ang[3 * i + 2]);
-            let torque = self.lab_to_body(&torque_lab, &qi);
+            let torque = rotation::lab_to_body(&torque_lab, &qi);
 
-            let ang_accel_b = accel_get(&omega_b, &inertia, &torque);
+            let ang_accel_b = rotation::accel_get(&omega_b, &inertia, &torque);
 
             let omega_n_quarter_b = self.omega_stepper(&omega_b, &ang_accel_b, self.quarter_step);
             let omega_n_half_b = self.omega_stepper(&omega_b, &ang_accel_b, self.half_step);
 
-            let omega_n_quarter = self.body_to_lab(&omega_n_quarter_b, &qi);
+            let omega_n_quarter = rotation::body_to_lab(&omega_n_quarter_b, &qi);
             let qi_half_predict = self.orientation_stepper(&qi, &omega_n_quarter, self.half_step);
 
-            let omega_n_half_lab = self.body_to_lab(&omega_n_half_b, &qi_half_predict);
+            let omega_n_half_lab = rotation::body_to_lab(&omega_n_half_b, &qi_half_predict);
 
             q_new.push(qi_half_predict);
             o_new.push(omega_n_half_lab);
@@ -1055,19 +999,19 @@ where
             let qi_half = q_half[i];
             let inertia = self.inertias[i];
 
-            let omega_b = self.lab_to_body(&omega_lab[i], &qi);
-            let omega_n_half_b = self.lab_to_body(&o_half[i], &qi_half);
+            let omega_b = rotation::lab_to_body(&omega_lab[i], &qi);
+            let omega_n_half_b = rotation::lab_to_body(&o_half[i], &qi_half);
 
             let torque_lab = Quaternion::new(0.0, ang[3 * i], ang[3 * i + 1], ang[3 * i + 2]);
-            let torque = self.lab_to_body(&torque_lab, &qi_half);
+            let torque = rotation::lab_to_body(&torque_lab, &qi_half);
 
-            let ang_accel_half_b = accel_get(&omega_n_half_b, &inertia, &torque);
-            let omega_n_half = self.body_to_lab(&omega_n_half_b, &qi_half);
+            let ang_accel_half_b = rotation::accel_get(&omega_n_half_b, &inertia, &torque);
+            let omega_n_half = rotation::body_to_lab(&omega_n_half_b, &qi_half);
 
             let qi_full = self.orientation_stepper(&qi, &omega_n_half, self.step_size);
 
             let omega_b_full = self.omega_stepper(&omega_b, &ang_accel_half_b, self.step_size);
-            let omega_i = self.body_to_lab(&omega_b_full, &qi_full);
+            let omega_i = rotation::body_to_lab(&omega_b_full, &qi_full);
 
             q_full_v.push(qi_full);
             omega_v.push(omega_i);
@@ -1094,18 +1038,18 @@ where
             let qi = q[i];
             let inertia = self.inertias[i];
             let n_lab = Quaternion::new(0.0, ang[3 * i], ang[3 * i + 1], ang[3 * i + 2]);
-            let omega_n_b = self.lab_to_body(&omega_lab[i], &qi).imag();
+            let omega_n_b = rotation::lab_to_body(&omega_lab[i], &qi).imag();
 
             // Fixed point on the body-frame midpoint angular velocity
             // omega_mid = omega_n + (dt/2) I^{-1}(N(q_mid) - omega_mid x I omega_mid).
             let mut omega_mid_b = omega_n_b;
             for _ in 0..ANG_MID_MAXITER {
                 // Midpoint orientation: rotate q_n by omega_mid over dt/2.
-                let omega_mid_lab = self.body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
+                let omega_mid_lab = rotation::body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
                 let q_mid = self.orientation_stepper(&qi, &omega_mid_lab, self.half_step);
-                let n_mid_b = self.lab_to_body(&n_lab, &q_mid);
+                let n_mid_b = rotation::lab_to_body(&n_lab, &q_mid);
                 let accel_mid_b =
-                    accel_get(&Quaternion::from_imag(omega_mid_b), &inertia, &n_mid_b).imag();
+                    rotation::accel_get(&Quaternion::from_imag(omega_mid_b), &inertia, &n_mid_b).imag();
                 let omega_mid_new = omega_n_b + 0.5 * self.step_size * accel_mid_b;
                 let delta = (omega_mid_new - omega_mid_b).norm();
                 omega_mid_b = omega_mid_new;
@@ -1116,10 +1060,10 @@ where
 
             // Full step from the converged midpoint: orientation rotates by
             // omega_mid over dt; omega_{n+1} = 2 omega_mid - omega_n.
-            let omega_mid_lab = self.body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
+            let omega_mid_lab = rotation::body_to_lab(&Quaternion::from_imag(omega_mid_b), &qi);
             let q_full = self.orientation_stepper(&qi, &omega_mid_lab, self.step_size);
             let omega_full_b = 2.0 * omega_mid_b - omega_n_b;
-            let omega_full_lab = self.body_to_lab(&Quaternion::from_imag(omega_full_b), &q_full);
+            let omega_full_lab = rotation::body_to_lab(&Quaternion::from_imag(omega_full_b), &q_full);
 
             q_new.push(q_full);
             o_new.push(omega_full_lab);
@@ -1144,37 +1088,13 @@ where
         let mut out = DVector::zeros(3 * self.nbody);
         for i in 0..self.nbody {
             let marker =
-                self.body_to_lab(&Quaternion::from_imag(Vector3::new(1.0, 0.0, 0.0)), &q[i]);
+                rotation::body_to_lab(&Quaternion::from_imag(Vector3::new(1.0, 0.0, 0.0)), &q[i]);
             let v = marker.vector();
             out[3 * i] = v[0];
             out[3 * i + 1] = v[1];
             out[3 * i + 2] = v[2];
         }
         out
-    }
-
-    //Converts a (pure) quaternion p_space from lab space to body space for a body of orientation q.
-    fn lab_to_body(&self, p_space: &Quaternion<f64>, q: &Quaternion<f64>) -> Quaternion<f64> {
-        // Guard a degenerate (near-zero-norm or non-finite) orientation: when a
-        // stiff run blows up the quaternion can collapse, and try_inverse() then
-        // returns None. Fail soft like body_to_lab rather than panicking, so an
-        // unstable run yields NaN output the caller can detect instead of aborting.
-        let q_inv = if q.norm() > 0.00001 {
-            q.try_inverse().unwrap()
-        } else {
-            Quaternion::from_real(0.0)
-        };
-        q_inv * (p_space * q)
-    }
-
-    //Converts a (pure) quaternion p_body from body space to lab space for a body of orientation q.
-    fn body_to_lab(&self, p_body: &Quaternion<f64>, q: &Quaternion<f64>) -> Quaternion<f64> {
-        let q_inv = if q.norm() > 0.00001 {
-            q.try_inverse().unwrap()
-        } else {
-            Quaternion::from_real(0.0)
-        };
-        q * (p_body * q_inv)
     }
 
     //Steps forward the rotational velocity omega_n according to a given angular acceleration/torque.

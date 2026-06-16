@@ -5,7 +5,7 @@ use nalgebra::{Matrix3, Quaternion, Vector3};
 use serde::Serialize;
 
 use crate::ellipsoids::state::State;
-use crate::ode::pcdm::lab_to_body;
+use crate::math::rotation::lab_to_body;
 use crate::system::hamiltonian::{calc_shape_factor, if_calc, is_calc, mf_calc};
 
 #[derive(Debug, Copy, Clone, Serialize)]
