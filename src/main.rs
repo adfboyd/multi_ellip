@@ -19,7 +19,7 @@ use nom::{
 
 use multi_ellip::bem::bem_for_ode;
 use multi_ellip::ellipsoids::body::Body;
-use multi_ellip::ode::rk4pcdm;
+use multi_ellip::ode::rk4pcdm::{self, BodyInfo};
 use multi_ellip::system::fluid::Fluid;
 use multi_ellip::system::hamiltonian::is_calc;
 use multi_ellip::system::system::Simulation;
@@ -189,10 +189,13 @@ fn main() {
     let mut orientations: Vec<(Quaternion<f64>, Quaternion<f64>)> = Vec::with_capacity(nbody);
     let mut inertias: Vec<na::Matrix3<f64>> = Vec::with_capacity(nbody);
     let mut masses: Vec<f64> = Vec::with_capacity(nbody);
+    let mut body_info: Vec<BodyInfo> = Vec::with_capacity(nbody);
 
     for (i, b) in sys.bodies.iter().enumerate() {
         let pos = b.position;
         let vel = b.linear_velocity();
+        let lin_ke = b.linear_energy();
+        let rot_ke = b.rotational_energy();
         for c in 0..3 {
             p0[3 * i + c] = pos[c];
             v0[3 * i + c] = vel[c];
@@ -200,6 +203,15 @@ fn main() {
         orientations.push((b.orientation, b.angular_velocity()));
         inertias.push(b.inertia);
         masses.push(b.mass());
+        body_info.push(BodyInfo {
+            density: b.density,
+            shape: b.shape,
+            initial_ke_ratio: if lin_ke.abs() > f64::EPSILON {
+                rot_ke / lin_ke
+            } else {
+                f64::NAN
+            },
+        });
     }
 
     let x = (p0, v0);
@@ -234,6 +246,7 @@ fn main() {
         orientations,
         inertias,
         masses,
+        body_info,
         added_mass_tensors,
         added_mass_stab,
         t_end,

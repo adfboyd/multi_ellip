@@ -43,6 +43,7 @@ pub struct Rk4PCDM {
     nbody: usize,
     inertias: Vec<Matrix3<f64>>,
     masses: Vec<f64>,
+    body_info: Vec<BodyInfo>,
     /// Per-body body-frame (diagonal) added-mass tensors, scaled by the safety
     /// factor: M_a_safe = SAFETY * M_a. Used by the semi-implicit stabiliser.
     added_mass_safe: Vec<Matrix3<f64>>,
@@ -85,6 +86,13 @@ pub struct Rk4PCDM {
     initial_total_ke: Option<f64>,
 }
 
+#[derive(Clone)]
+pub struct BodyInfo {
+    pub density: f64,
+    pub shape: Vector3<f64>,
+    pub initial_ke_ratio: f64,
+}
+
 /// Solid-body kinetic energy breakdown for one timestep.
 pub(crate) struct SolidEnergy {
     total_lin: f64,
@@ -104,6 +112,7 @@ impl Rk4PCDM {
         orientations: Vec<(Quaternion<f64>, Quaternion<f64>)>, // (orientation, angular velocity) per body
         inertias: Vec<Matrix3<f64>>,
         masses: Vec<f64>,
+        body_info: Vec<BodyInfo>,
         added_mass_tensors: Vec<Matrix3<f64>>,
         added_mass_stab: bool,
         t_end: f64,
@@ -134,6 +143,7 @@ impl Rk4PCDM {
             nbody,
             inertias,
             masses,
+            body_info,
             added_mass_safe,
             added_mass_stab,
             lin_accel_prev: DVector::zeros(3 * nbody),

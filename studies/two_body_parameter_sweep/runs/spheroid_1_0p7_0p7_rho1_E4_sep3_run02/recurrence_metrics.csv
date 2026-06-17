@@ -1,0 +1,3 @@
+body,recurrence_png,embedding_dim,tau,target_rr,theiler,epsilon,achieved_rr,matrix_size
+1,C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\runs\spheroid_1_0p7_0p7_rho1_E4_sep3_run02\recurrence_body1.png,3,10,0.03,50,0.435138010647,0.030000295157,1981
+2,C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\runs\spheroid_1_0p7_0p7_rho1_E4_sep3_run02\recurrence_body2.png,3,10,0.03,50,0.697137270844,0.030000295157,1981

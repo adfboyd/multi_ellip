@@ -1,0 +1,266 @@
+========================================================================
+Study run started at 2026-06-16 23:36:24
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 0
+Rerun completed outputs: False
+Study invocation finished at 2026-06-16 23:36:24 wall=0s
+========================================================================
+Study run started at 2026-06-16 23:38:18
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 72
+Rerun completed outputs: False
+[001/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-16 23:38:18
+========================================================================
+Study run started at 2026-06-16 23:45:36
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 72
+Rerun completed outputs: True
+[001/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-16 23:45:36
+[001/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 wall=5m 57s rc=0
+Elapsed study time: 5m 57s
+[002/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 at 2026-06-16 23:51:33
+[002/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 wall=5m 32s rc=0
+Elapsed study time: 11m 29s
+[003/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 at 2026-06-16 23:57:05
+[003/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 wall=5m 18s rc=0
+Elapsed study time: 16m 47s
+[004/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep8_run02 at 2026-06-17 00:02:23
+========================================================================
+Study run started at 2026-06-17 00:04:23
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 72
+Rerun completed outputs: True
+Postprocess only: False
+[001/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-17 00:04:23
+========================================================================
+Study run started at 2026-06-17 00:06:29
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 2
+Rerun completed outputs: False
+Postprocess only: True
+[001/002] POST spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 at 2026-06-17 00:06:29
+Elapsed study time: 3s
+[002/002] POST spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 at 2026-06-17 00:06:32
+Elapsed study time: 5s
+Study invocation finished at 2026-06-17 00:06:35 wall=5s
+========================================================================
+Study run started at 2026-06-17 00:06:46
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 70
+Rerun completed outputs: False
+Postprocess only: False
+[001/070] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-17 00:06:46
+========================================================================
+Study run started at 2026-06-17 00:12:43
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 72
+Rerun completed outputs: True
+Postprocess only: False
+[001/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-17 00:12:43
+[001/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 wall=5m 44s rc=0
+Elapsed study time: 5m 46s
+[002/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 at 2026-06-17 00:18:29
+[002/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 wall=4m 57s rc=0
+Elapsed study time: 10m 46s
+[003/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 at 2026-06-17 00:23:29
+========================================================================
+Study run started at 2026-06-17 00:25:50
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 72
+Rerun completed outputs: True
+Postprocess only: False
+[001/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-17 00:25:50
+[001/072] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 wall=12m 49s rc=0
+Elapsed study time: 12m 53s
+[002/072] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 at 2026-06-17 00:38:43
+========================================================================
+Study run started at 2026-06-17 00:46:11
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 1
+Rerun completed outputs: False
+Postprocess only: True
+[001/001] POST spheroid_1_0p7_0p7_rho1_E0p25_sep3_run01 at 2026-06-17 00:46:11
+Elapsed study time: 5s | avg/case=5s | remaining=0 | ETA=0s | finish~2026-06-17 00:46:16
+Study invocation finished at 2026-06-17 00:46:16 wall=5s
+========================================================================
+Study run started at 2026-06-17 00:46:26
+Manifest: C:\Users\User\Documents\multi_ellip\studies\two_body_parameter_sweep\two_body_parameter_sweep_manifest.csv
+Total manifest cases: 72
+Pending this invocation: 71
+Rerun completed outputs: False
+Postprocess only: False
+[001/071] START spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 at 2026-06-17 00:46:26
+[001/071] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep3_run02 wall=12m 35s rc=0
+Elapsed study time: 12m 39s | avg/case=12m 39s | remaining=70 | ETA=14h 45m 28s | finish~2026-06-17 15:44:33
+[002/071] START spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 at 2026-06-17 00:59:05
+[002/071] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep8_run01 wall=11m 15s rc=0
+Elapsed study time: 23m 59s | avg/case=11m 59s | remaining=69 | ETA=13h 47m 10s | finish~2026-06-17 14:57:35
+[003/071] START spheroid_1_0p7_0p7_rho1_E0p25_sep8_run02 at 2026-06-17 01:10:25
+[003/071] OK      spheroid_1_0p7_0p7_rho1_E0p25_sep8_run02 wall=12m 33s rc=0
+Elapsed study time: 36m 36s | avg/case=12m 12s | remaining=68 | ETA=13h 49m 35s | finish~2026-06-17 15:12:37
+[004/071] START spheroid_1_0p7_0p7_rho1_E4_sep3_run01 at 2026-06-17 01:23:02
+[004/071] OK      spheroid_1_0p7_0p7_rho1_E4_sep3_run01 wall=12m 45s rc=0
+Elapsed study time: 49m 25s | avg/case=12m 21s | remaining=67 | ETA=13h 47m 44s | finish~2026-06-17 15:23:36
+[005/071] START spheroid_1_0p7_0p7_rho1_E4_sep3_run02 at 2026-06-17 01:35:51
+[005/071] OK      spheroid_1_0p7_0p7_rho1_E4_sep3_run02 wall=12m 23s rc=0
+Elapsed study time: 1h 1m 53s | avg/case=12m 23s | remaining=66 | ETA=13h 36m 48s | finish~2026-06-17 15:25:07
+[006/071] START spheroid_1_0p7_0p7_rho1_E4_sep8_run01 at 2026-06-17 01:48:19
+[006/071] OK      spheroid_1_0p7_0p7_rho1_E4_sep8_run01 wall=9m 43s rc=0
+Elapsed study time: 1h 11m 40s | avg/case=11m 57s | remaining=65 | ETA=12h 56m 20s | finish~2026-06-17 14:54:26
+[007/071] START spheroid_1_0p7_0p7_rho1_E4_sep8_run02 at 2026-06-17 01:58:06
+[007/071] OK      spheroid_1_0p7_0p7_rho1_E4_sep8_run02 wall=9m 43s rc=0
+Elapsed study time: 1h 21m 26s | avg/case=11m 38s | remaining=64 | ETA=12h 24m 33s | finish~2026-06-17 14:32:26
+[008/071] START spheroid_1_0p7_0p7_rho1_E16_sep3_run01 at 2026-06-17 02:07:53
+[008/071] OK      spheroid_1_0p7_0p7_rho1_E16_sep3_run01 wall=10m 5s rc=0
+Elapsed study time: 1h 31m 35s | avg/case=11m 27s | remaining=63 | ETA=12h 1m 12s | finish~2026-06-17 14:19:13
+[009/071] START spheroid_1_0p7_0p7_rho1_E16_sep3_run02 at 2026-06-17 02:18:01
+[009/071] OK      spheroid_1_0p7_0p7_rho1_E16_sep3_run02 wall=9m 53s rc=0
+Elapsed study time: 1h 41m 31s | avg/case=11m 17s | remaining=62 | ETA=11h 39m 23s | finish~2026-06-17 14:07:21
+[010/071] START spheroid_1_0p7_0p7_rho1_E16_sep8_run01 at 2026-06-17 02:27:58
+[010/071] OK      spheroid_1_0p7_0p7_rho1_E16_sep8_run01 wall=9m 57s rc=0
+Elapsed study time: 1h 51m 32s | avg/case=11m 9s | remaining=61 | ETA=11h 20m 23s | finish~2026-06-17 13:58:22
+[011/071] START spheroid_1_0p7_0p7_rho1_E16_sep8_run02 at 2026-06-17 02:37:59
+[011/071] OK      spheroid_1_0p7_0p7_rho1_E16_sep8_run02 wall=10m 6s rc=0
+Elapsed study time: 2h 1m 42s | avg/case=11m 4s | remaining=60 | ETA=11h 3m 49s | finish~2026-06-17 13:51:57
+[012/071] START spheroid_1_0p7_0p7_rho0p1_E0p25_sep3_run01 at 2026-06-17 02:48:08
+[012/071] OK      spheroid_1_0p7_0p7_rho0p1_E0p25_sep3_run01 wall=10m 31s rc=0
+Elapsed study time: 2h 12m 16s | avg/case=11m 1s | remaining=59 | ETA=10h 50m 20s | finish~2026-06-17 13:49:03
+[013/071] START spheroid_1_0p7_0p7_rho0p1_E0p25_sep3_run02 at 2026-06-17 02:58:43
+[013/071] OK      spheroid_1_0p7_0p7_rho0p1_E0p25_sep3_run02 wall=10m 20s rc=0
+Elapsed study time: 2h 22m 40s | avg/case=10m 58s | remaining=58 | ETA=10h 36m 32s | finish~2026-06-17 13:45:39
+[014/071] START spheroid_1_0p7_0p7_rho0p1_E0p25_sep8_run01 at 2026-06-17 03:09:07
+[014/071] OK      spheroid_1_0p7_0p7_rho0p1_E0p25_sep8_run01 wall=10m 43s rc=0
+Elapsed study time: 2h 33m 27s | avg/case=10m 58s | remaining=57 | ETA=10h 24m 47s | finish~2026-06-17 13:44:41
+[015/071] START spheroid_1_0p7_0p7_rho0p1_E0p25_sep8_run02 at 2026-06-17 03:19:54
+[015/071] OK      spheroid_1_0p7_0p7_rho0p1_E0p25_sep8_run02 wall=10m 38s rc=0
+Elapsed study time: 2h 44m 9s | avg/case=10m 57s | remaining=56 | ETA=10h 12m 49s | finish~2026-06-17 13:43:24
+[016/071] START spheroid_1_0p7_0p7_rho0p1_E4_sep3_run01 at 2026-06-17 03:30:35
+[016/071] OK      spheroid_1_0p7_0p7_rho0p1_E4_sep3_run01 wall=10m 49s rc=0
+Elapsed study time: 2h 55m 1s | avg/case=10m 56s | remaining=55 | ETA=10h 1m 38s | finish~2026-06-17 13:43:05
+[017/071] START spheroid_1_0p7_0p7_rho0p1_E4_sep3_run02 at 2026-06-17 03:41:28
+[017/071] OK      spheroid_1_0p7_0p7_rho0p1_E4_sep3_run02 wall=11m 3s rc=0
+Elapsed study time: 3h 6m 8s | avg/case=10m 57s | remaining=54 | ETA=9h 51m 14s | finish~2026-06-17 13:43:48
+[018/071] START spheroid_1_0p7_0p7_rho0p1_E4_sep8_run01 at 2026-06-17 03:52:34
+[018/071] OK      spheroid_1_0p7_0p7_rho0p1_E4_sep8_run01 wall=10m 45s rc=0
+Elapsed study time: 3h 16m 56s | avg/case=10m 56s | remaining=53 | ETA=9h 39m 51s | finish~2026-06-17 13:43:14
+[019/071] START spheroid_1_0p7_0p7_rho0p1_E4_sep8_run02 at 2026-06-17 04:03:22
+[019/071] OK      spheroid_1_0p7_0p7_rho0p1_E4_sep8_run02 wall=11m 1s rc=0
+Elapsed study time: 3h 28m 1s | avg/case=10m 57s | remaining=52 | ETA=9h 29m 18s | finish~2026-06-17 13:43:46
+[020/071] START spheroid_1_0p7_0p7_rho0p1_E16_sep3_run01 at 2026-06-17 04:14:27
+[020/071] OK      spheroid_1_0p7_0p7_rho0p1_E16_sep3_run01 wall=10m 55s rc=0
+Elapsed study time: 3h 39m 0s | avg/case=10m 57s | remaining=51 | ETA=9h 18m 27s | finish~2026-06-17 13:43:53
+[021/071] START spheroid_1_0p7_0p7_rho0p1_E16_sep3_run02 at 2026-06-17 04:25:26
+[021/071] OK      spheroid_1_0p7_0p7_rho0p1_E16_sep3_run02 wall=11m 38s rc=0
+Elapsed study time: 3h 50m 42s | avg/case=10m 59s | remaining=50 | ETA=9h 9m 16s | finish~2026-06-17 13:46:25
+[022/071] START spheroid_1_0p7_0p7_rho0p1_E16_sep8_run01 at 2026-06-17 04:37:08
+[022/071] OK      spheroid_1_0p7_0p7_rho0p1_E16_sep8_run01 wall=10m 45s rc=0
+Elapsed study time: 4h 1m 30s | avg/case=10m 59s | remaining=49 | ETA=8h 57m 53s | finish~2026-06-17 13:45:49
+[023/071] START spheroid_1_0p7_0p7_rho0p1_E16_sep8_run02 at 2026-06-17 04:47:56
+[023/071] OK      spheroid_1_0p7_0p7_rho0p1_E16_sep8_run02 wall=12m 14s rc=0
+Elapsed study time: 4h 13m 47s | avg/case=11m 2s | remaining=48 | ETA=8h 49m 38s | finish~2026-06-17 13:49:51
+[024/071] START spheroid_1_0p7_0p7_rho0p03_E0p25_sep3_run01 at 2026-06-17 05:00:13
+[024/071] OK      spheroid_1_0p7_0p7_rho0p03_E0p25_sep3_run01 wall=13m 2s rc=0
+Elapsed study time: 4h 26m 53s | avg/case=11m 7s | remaining=47 | ETA=8h 42m 39s | finish~2026-06-17 13:55:59
+[025/071] START spheroid_1_0p7_0p7_rho0p03_E0p25_sep3_run02 at 2026-06-17 05:13:20
+[025/071] OK      spheroid_1_0p7_0p7_rho0p03_E0p25_sep3_run02 wall=10m 31s rc=0
+Elapsed study time: 4h 37m 28s | avg/case=11m 6s | remaining=46 | ETA=8h 30m 32s | finish~2026-06-17 13:54:26
+[026/071] START spheroid_1_0p7_0p7_rho0p03_E0p25_sep8_run01 at 2026-06-17 05:23:54
+[026/071] OK      spheroid_1_0p7_0p7_rho0p03_E0p25_sep8_run01 wall=12m 15s rc=0
+Elapsed study time: 4h 49m 47s | avg/case=11m 9s | remaining=45 | ETA=8h 21m 32s | finish~2026-06-17 13:57:45
+[027/071] START spheroid_1_0p7_0p7_rho0p03_E0p25_sep8_run02 at 2026-06-17 05:36:13
+[027/071] OK      spheroid_1_0p7_0p7_rho0p03_E0p25_sep8_run02 wall=12m 13s rc=0
+Elapsed study time: 5h 2m 4s | avg/case=11m 11s | remaining=44 | ETA=8h 12m 15s | finish~2026-06-17 14:00:45
+[028/071] START spheroid_1_0p7_0p7_rho0p03_E4_sep3_run01 at 2026-06-17 05:48:30
+[028/071] OK      spheroid_1_0p7_0p7_rho0p03_E4_sep3_run01 wall=12m 15s rc=0
+Elapsed study time: 5h 14m 22s | avg/case=11m 14s | remaining=43 | ETA=8h 2m 47s | finish~2026-06-17 14:03:35
+[029/071] START spheroid_1_0p7_0p7_rho0p03_E4_sep3_run02 at 2026-06-17 06:00:48
+[029/071] OK      spheroid_1_0p7_0p7_rho0p03_E4_sep3_run02 wall=12m 28s rc=0
+Elapsed study time: 5h 26m 54s | avg/case=11m 16s | remaining=42 | ETA=7h 53m 26s | finish~2026-06-17 14:06:46
+[030/071] START spheroid_1_0p7_0p7_rho0p03_E4_sep8_run01 at 2026-06-17 06:13:20
+[030/071] OK      spheroid_1_0p7_0p7_rho0p03_E4_sep8_run01 wall=12m 40s rc=0
+Elapsed study time: 5h 39m 37s | avg/case=11m 19s | remaining=41 | ETA=7h 44m 8s | finish~2026-06-17 14:10:12
+[031/071] START spheroid_1_0p7_0p7_rho0p03_E4_sep8_run02 at 2026-06-17 06:26:03
+[031/071] OK      spheroid_1_0p7_0p7_rho0p03_E4_sep8_run02 wall=13m 6s rc=0
+Elapsed study time: 5h 52m 46s | avg/case=11m 23s | remaining=40 | ETA=7h 35m 11s | finish~2026-06-17 14:14:24
+[032/071] START spheroid_1_0p7_0p7_rho0p03_E16_sep3_run01 at 2026-06-17 06:39:13
+[032/071] OK      spheroid_1_0p7_0p7_rho0p03_E16_sep3_run01 wall=12m 17s rc=0
+Elapsed study time: 6h 5m 8s | avg/case=11m 25s | remaining=39 | ETA=7h 25m 0s | finish~2026-06-17 14:16:34
+[033/071] START spheroid_1_0p7_0p7_rho0p03_E16_sep3_run02 at 2026-06-17 06:51:34
+[033/071] OK      spheroid_1_0p7_0p7_rho0p03_E16_sep3_run02 wall=13m 57s rc=0
+Elapsed study time: 6h 19m 8s | avg/case=11m 29s | remaining=38 | ETA=7h 16m 35s | finish~2026-06-17 14:22:09
+[034/071] START spheroid_1_0p7_0p7_rho0p03_E16_sep8_run01 at 2026-06-17 07:05:35
+[034/071] OK      spheroid_1_0p7_0p7_rho0p03_E16_sep8_run01 wall=12m 4s rc=0
+Elapsed study time: 6h 31m 15s | avg/case=11m 30s | remaining=37 | ETA=7h 5m 47s | finish~2026-06-17 14:23:29
+[035/071] START spheroid_1_0p7_0p7_rho0p03_E16_sep8_run02 at 2026-06-17 07:17:42
+[035/071] OK      spheroid_1_0p7_0p7_rho0p03_E16_sep8_run02 wall=13m 59s rc=0
+Elapsed study time: 6h 45m 18s | avg/case=11m 35s | remaining=36 | ETA=6h 56m 52s | finish~2026-06-17 14:28:37
+[036/071] START ellipsoid_1_0p8_0p6_rho1_E0p25_sep3_run01 at 2026-06-17 07:31:44
+[036/071] OK      ellipsoid_1_0p8_0p6_rho1_E0p25_sep3_run01 wall=9m 16s rc=0
+Elapsed study time: 6h 54m 38s | avg/case=11m 31s | remaining=35 | ETA=6h 43m 7s | finish~2026-06-17 14:24:11
+[037/071] START ellipsoid_1_0p8_0p6_rho1_E0p25_sep3_run02 at 2026-06-17 07:41:04
+[037/071] OK      ellipsoid_1_0p8_0p6_rho1_E0p25_sep3_run02 wall=9m 47s rc=0
+Elapsed study time: 7h 4m 28s | avg/case=11m 28s | remaining=34 | ETA=6h 30m 3s | finish~2026-06-17 14:20:58
+[038/071] START ellipsoid_1_0p8_0p6_rho1_E0p25_sep8_run01 at 2026-06-17 07:50:55
+[038/071] OK      ellipsoid_1_0p8_0p6_rho1_E0p25_sep8_run01 wall=9m 47s rc=0
+Elapsed study time: 7h 14m 19s | avg/case=11m 26s | remaining=33 | ETA=6h 17m 11s | finish~2026-06-17 14:17:56
+[039/071] START ellipsoid_1_0p8_0p6_rho1_E0p25_sep8_run02 at 2026-06-17 08:00:46
+[039/071] OK      ellipsoid_1_0p8_0p6_rho1_E0p25_sep8_run02 wall=9m 39s rc=0
+Elapsed study time: 7h 24m 2s | avg/case=11m 23s | remaining=32 | ETA=6h 4m 20s | finish~2026-06-17 14:14:49
+[040/071] START ellipsoid_1_0p8_0p6_rho1_E4_sep3_run01 at 2026-06-17 08:10:29
+[040/071] OK      ellipsoid_1_0p8_0p6_rho1_E4_sep3_run01 wall=9m 50s rc=0
+Elapsed study time: 7h 33m 56s | avg/case=11m 21s | remaining=31 | ETA=5h 51m 48s | finish~2026-06-17 14:12:10
+[041/071] START ellipsoid_1_0p8_0p6_rho1_E4_sep3_run02 at 2026-06-17 08:20:22
+[041/071] OK      ellipsoid_1_0p8_0p6_rho1_E4_sep3_run02 wall=10m 57s rc=0
+Elapsed study time: 7h 44m 57s | avg/case=11m 20s | remaining=30 | ETA=5h 40m 12s | finish~2026-06-17 14:11:36
+[042/071] START ellipsoid_1_0p8_0p6_rho1_E4_sep8_run01 at 2026-06-17 08:31:23
+[042/071] OK      ellipsoid_1_0p8_0p6_rho1_E4_sep8_run01 wall=11m 42s rc=0
+Elapsed study time: 7h 56m 44s | avg/case=11m 21s | remaining=29 | ETA=5h 29m 10s | finish~2026-06-17 14:12:21
+[043/071] START ellipsoid_1_0p8_0p6_rho1_E4_sep8_run02 at 2026-06-17 08:43:11
+[043/071] OK      ellipsoid_1_0p8_0p6_rho1_E4_sep8_run02 wall=17m 34s rc=0
+Elapsed study time: 8h 14m 23s | avg/case=11m 30s | remaining=28 | ETA=5h 21m 55s | finish~2026-06-17 14:22:44
+[044/071] START ellipsoid_1_0p8_0p6_rho1_E16_sep3_run01 at 2026-06-17 09:00:49
+[044/071] OK      ellipsoid_1_0p8_0p6_rho1_E16_sep3_run01 wall=14m 11s rc=0
+Elapsed study time: 8h 28m 38s | avg/case=11m 34s | remaining=27 | ETA=5h 12m 7s | finish~2026-06-17 14:27:12
+[045/071] START ellipsoid_1_0p8_0p6_rho1_E16_sep3_run02 at 2026-06-17 09:15:05
+[045/071] OK      ellipsoid_1_0p8_0p6_rho1_E16_sep3_run02 wall=11m 21s rc=0
+Elapsed study time: 8h 40m 3s | avg/case=11m 33s | remaining=26 | ETA=5h 0m 28s | finish~2026-06-17 14:26:58
+[046/071] START ellipsoid_1_0p8_0p6_rho1_E16_sep8_run01 at 2026-06-17 09:26:29
+[046/071] OK      ellipsoid_1_0p8_0p6_rho1_E16_sep8_run01 wall=11m 35s rc=0
+Elapsed study time: 8h 51m 42s | avg/case=11m 34s | remaining=25 | ETA=4h 48m 58s | finish~2026-06-17 14:27:07
+[047/071] START ellipsoid_1_0p8_0p6_rho1_E16_sep8_run02 at 2026-06-17 09:38:09
+[047/071] OK      ellipsoid_1_0p8_0p6_rho1_E16_sep8_run02 wall=11m 1s rc=0
+Elapsed study time: 9h 2m 48s | avg/case=11m 33s | remaining=24 | ETA=4h 37m 10s | finish~2026-06-17 14:26:24
+[048/071] START ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep3_run01 at 2026-06-17 09:49:14
+[048/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep3_run01 wall=12m 40s rc=0
+Elapsed study time: 9h 15m 32s | avg/case=11m 34s | remaining=23 | ETA=4h 26m 11s | finish~2026-06-17 14:28:10
+[049/071] START ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep3_run02 at 2026-06-17 10:01:58
+[049/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep3_run02 wall=13m 17s rc=0
+Elapsed study time: 9h 28m 52s | avg/case=11m 37s | remaining=22 | ETA=4h 15m 25s | finish~2026-06-17 14:30:43
+[050/071] START ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep8_run01 at 2026-06-17 10:15:19
+[050/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep8_run01 wall=12m 42s rc=0
+Elapsed study time: 9h 41m 38s | avg/case=11m 38s | remaining=21 | ETA=4h 4m 17s | finish~2026-06-17 14:32:22
+[051/071] START ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep8_run02 at 2026-06-17 10:28:05
+[051/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E0p25_sep8_run02 wall=12m 31s rc=0
+Elapsed study time: 9h 54m 13s | avg/case=11m 39s | remaining=20 | ETA=3h 53m 1s | finish~2026-06-17 14:33:41
+[052/071] START ellipsoid_1_0p8_0p6_rho0p1_E4_sep3_run01 at 2026-06-17 10:40:39
+[052/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E4_sep3_run01 wall=12m 17s rc=0
+Elapsed study time: 10h 6m 33s | avg/case=11m 40s | remaining=19 | ETA=3h 41m 38s | finish~2026-06-17 14:34:37
+[053/071] START ellipsoid_1_0p8_0p6_rho0p1_E4_sep3_run02 at 2026-06-17 10:53:00
+[053/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E4_sep3_run02 wall=12m 45s rc=0
+Elapsed study time: 10h 19m 23s | avg/case=11m 41s | remaining=18 | ETA=3h 30m 21s | finish~2026-06-17 14:36:11
+[054/071] START ellipsoid_1_0p8_0p6_rho0p1_E4_sep8_run01 at 2026-06-17 11:05:49
+[054/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E4_sep8_run01 wall=12m 18s rc=0
+Elapsed study time: 10h 31m 45s | avg/case=11m 42s | remaining=17 | ETA=3h 18m 53s | finish~2026-06-17 14:37:04
+[055/071] START ellipsoid_1_0p8_0p6_rho0p1_E4_sep8_run02 at 2026-06-17 11:18:11
+[055/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E4_sep8_run02 wall=13m 17s rc=0
+Elapsed study time: 10h 45m 6s | avg/case=11m 44s | remaining=16 | ETA=3h 7m 40s | finish~2026-06-17 14:39:12
+[056/071] START ellipsoid_1_0p8_0p6_rho0p1_E16_sep3_run01 at 2026-06-17 11:31:32

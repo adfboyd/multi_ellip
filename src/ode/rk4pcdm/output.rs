@@ -54,6 +54,16 @@ impl Rk4PCDM {
             let v = Vector3::new(vel[3 * b], vel[3 * b + 1], vel[3 * b + 2]);
             let w = omega[b].imag();
             println!("  Body {:>2}", b + 1);
+            if let Some(info) = self.body_info.get(b) {
+                let shape_ratio = if info.shape[0].abs() > f64::EPSILON {
+                    info.shape / info.shape[0]
+                } else {
+                    Vector3::repeat(f64::NAN)
+                };
+                println!("    density:          {:.6}", info.density);
+                println!("    shape axes ratio: {}", self.format_vec3(&shape_ratio));
+                println!("    initial KE ratio: {:.6}", info.initial_ke_ratio);
+            }
             println!("    position:         {}", self.format_vec3(&p));
             println!("    velocity:         {}", self.format_vec3(&v));
             println!("    angular velocity: {}", self.format_vec3(&w));
