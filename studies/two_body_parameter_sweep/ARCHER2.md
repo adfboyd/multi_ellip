@@ -16,11 +16,11 @@ For a short-queue smoke test, submit one case with a 20 minute walltime:
 bash studies/two_body_parameter_sweep/submit_archer2_two_body_short_test.sh
 ```
 
-This defaults to `--partition=short`, `--qos=short`, `--time=00:20:00`, and
+This defaults to `--partition=standard`, `--qos=short`, `--time=00:20:00`, and
 `MAX_CASES=1`. If the local queue naming differs, override it at submit time:
 
 ```bash
-SHORT_PARTITION=standard SHORT_QOS=short bash studies/two_body_parameter_sweep/submit_archer2_two_body_short_test.sh
+SHORT_PARTITION=standard SHORT_QOS=standard bash studies/two_body_parameter_sweep/submit_archer2_two_body_short_test.sh
 ```
 
 Useful options:

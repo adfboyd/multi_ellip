@@ -8,7 +8,7 @@ MANIFEST="${ME_DIR}/studies/two_body_parameter_sweep/two_body_parameter_sweep_ma
 SETUP="${ME_DIR}/studies/two_body_parameter_sweep/setup_two_body_parameter_sweep.py"
 SERIAL_SLURM="${ME_DIR}/studies/two_body_parameter_sweep/archer2_serial_w_lapack.slurm"
 
-SHORT_PARTITION=${SHORT_PARTITION:-short}
+SHORT_PARTITION=${SHORT_PARTITION:-standard}
 SHORT_QOS=${SHORT_QOS:-short}
 WALLTIME=${WALLTIME:-00:20:00}
 RERUN=${RERUN:-0}
