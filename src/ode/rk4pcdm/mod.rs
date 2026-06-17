@@ -3,7 +3,7 @@ use crate::math::anderson::anderson_next;
 use crate::math::rotation;
 use crate::ode::dop_shared::{IntegrationError, Stats};
 use crate::system::system::BOOTSTRAP_PASSES;
-use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, Unit, UnitQuaternion, Vector3};
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -83,6 +83,12 @@ pub struct Rk4PCDM {
     /// Experimental impulse-mode post-step projection: adjusts generalized
     /// velocities to restore step-start KE while preserving total impulse.
     energy_projection: bool,
+    /// Experimental impulse-mode configuration-gradient correction. This is a
+    /// deliberately slow finite-difference diagnostic for the multibody
+    /// added-mass metric force.
+    fluid_energy_gradient: bool,
+    fluid_energy_gradient_eps: f64,
+    fluid_energy_gradient_scale: f64,
     initial_total_ke: Option<f64>,
 }
 
@@ -121,6 +127,9 @@ impl Rk4PCDM {
         print_rate: u32,
         scheme: CouplingScheme,
         energy_projection: bool,
+        fluid_energy_gradient: bool,
+        fluid_energy_gradient_eps: f64,
+        fluid_energy_gradient_scale: f64,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -170,6 +179,9 @@ impl Rk4PCDM {
             fluid_impulse_ang_step_start: None,
             scheme,
             energy_projection,
+            fluid_energy_gradient,
+            fluid_energy_gradient_eps,
+            fluid_energy_gradient_scale,
             initial_total_ke: None,
         }
     }
@@ -534,6 +546,17 @@ impl Rk4PCDM {
             });
 
             let (l_lin_np1, l_ang_np1) = self.solver.impulse();
+            let (gradient_force, gradient_torque) = if self.fluid_energy_gradient {
+                self.fluid_energy_configuration_gradient(&BodyState {
+                    lin: (p_new.clone(), v_new.clone()),
+                    ang: o_new.clone(),
+                })
+            } else {
+                (
+                    DVector::zeros(3 * self.nbody),
+                    DVector::zeros(3 * self.nbody),
+                )
+            };
 
             // The fluid force/torque on the body is F = +dL/dt (validated sign;
             // L = ρ∮φn̂dA is negative for positive velocity, so the body conserves
@@ -555,7 +578,10 @@ impl Rk4PCDM {
 
                 for c in 0..3 {
                     r_lin[3 * b + c] = ms * (v_new[3 * b + c] - v_n[3 * b + c])
-                        - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c]);
+                        - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c])
+                        - self.step_size
+                            * self.fluid_energy_gradient_scale
+                            * gradient_force[3 * b + c];
                 }
 
                 // Λ_b is taken about body b's translating centre, so the
@@ -568,7 +594,8 @@ impl Rk4PCDM {
                 let torque_vec =
                     (lambda_end - lambda_old) / self.step_size - v_mid.cross(&p_total_mid);
                 for c in 0..3 {
-                    new_torque[3 * b + c] = torque_vec[c];
+                    new_torque[3 * b + c] = torque_vec[c]
+                        + self.fluid_energy_gradient_scale * gradient_torque[3 * b + c];
                 }
             }
             // Base-map corrections. Linear: preconditioned Newton step
@@ -630,6 +657,76 @@ impl Rk4PCDM {
         if self.energy_projection {
             self.project_step_energy_preserving_impulse(ke_step_start, &conserved_step_start);
         }
+    }
+
+    fn fluid_energy_configuration_gradient(
+        &mut self,
+        state: &BodyState,
+    ) -> (DVector<f64>, DVector<f64>) {
+        let eps = self.fluid_energy_gradient_eps.abs().max(1.0e-6);
+        let (pos, vel) = &state.lin;
+        let (q, omega) = &state.ang;
+        let mut force = DVector::zeros(3 * self.nbody);
+        let mut torque = DVector::zeros(3 * self.nbody);
+
+        for dof in 0..(3 * self.nbody) {
+            let mut p_plus = pos.clone();
+            p_plus[dof] += eps;
+            self.solver.set_state(&BodyState {
+                lin: (p_plus, vel.clone()),
+                ang: state.ang.clone(),
+            });
+            let _ = self.solver.impulse();
+            let ke_plus = self.solver.fluid_kinetic_energy();
+
+            let mut p_minus = pos.clone();
+            p_minus[dof] -= eps;
+            self.solver.set_state(&BodyState {
+                lin: (p_minus, vel.clone()),
+                ang: state.ang.clone(),
+            });
+            let _ = self.solver.impulse();
+            let ke_minus = self.solver.fluid_kinetic_energy();
+
+            force[dof] = (ke_plus - ke_minus) / (2.0 * eps);
+        }
+
+        let axes = [
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+        ];
+        for b in 0..self.nbody {
+            for c in 0..3 {
+                let axis = Unit::new_normalize(axes[c]);
+                let dq_plus = UnitQuaternion::from_axis_angle(&axis, eps);
+                let dq_minus = UnitQuaternion::from_axis_angle(&axis, -eps);
+
+                let mut q_plus = q.clone();
+                q_plus[b] = (dq_plus * UnitQuaternion::from_quaternion(q[b])).into_inner();
+                self.solver.set_state(&BodyState {
+                    lin: (pos.clone(), vel.clone()),
+                    ang: (q_plus, omega.clone()),
+                });
+                let _ = self.solver.impulse();
+                let ke_plus = self.solver.fluid_kinetic_energy();
+
+                let mut q_minus = q.clone();
+                q_minus[b] = (dq_minus * UnitQuaternion::from_quaternion(q[b])).into_inner();
+                self.solver.set_state(&BodyState {
+                    lin: (pos.clone(), vel.clone()),
+                    ang: (q_minus, omega.clone()),
+                });
+                let _ = self.solver.impulse();
+                let ke_minus = self.solver.fluid_kinetic_energy();
+
+                torque[3 * b + c] = (ke_plus - ke_minus) / (2.0 * eps);
+            }
+        }
+
+        self.solver.set_state(state);
+        let _ = self.solver.impulse();
+        (force, torque)
     }
 
     fn project_step_energy_preserving_impulse(&mut self, target_ke: f64, target: &DVector<f64>) {

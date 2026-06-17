@@ -181,6 +181,9 @@ fn main() {
     let strong_couple = get("strong_couple", 0.0) > 0.5;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
     let energy_projection = get("energy_projection", 0.0) > 0.5;
+    let fluid_energy_gradient = get("fluid_energy_gradient", 0.0) > 0.5;
+    let fluid_energy_gradient_eps = get("fluid_energy_gradient_eps", 1.0e-3);
+    let fluid_energy_gradient_scale = get("fluid_energy_gradient_scale", 1.0);
     let phidot_blend = sys.phidot_blend;
 
     // Initial integrator state, stacked over bodies.
@@ -255,6 +258,9 @@ fn main() {
         logevery, // print_rate: console progress every logevery steps
         scheme,
         energy_projection,
+        fluid_energy_gradient,
+        fluid_energy_gradient_eps,
+        fluid_energy_gradient_scale,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -326,6 +332,12 @@ fn main() {
     println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
     println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
+    println!(
+        "  Fluid KE gradient: {}  (eps = {}, scale = {})",
+        fmt_enabled(fluid_energy_gradient),
+        fluid_energy_gradient_eps,
+        fluid_energy_gradient_scale
+    );
     if added_mass_stab {
         println!(
             "  Added-mass stab:   enabled  (safety factor = {})",
