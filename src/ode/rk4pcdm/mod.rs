@@ -38,6 +38,9 @@ pub enum CouplingScheme {
     /// final-state projection that preserves global conserved impulse and total
     /// body-fluid kinetic energy.
     Hamiltonian,
+    /// Experimental midpoint Hamiltonian scheme: solve endpoint configuration
+    /// from a BEM/projection evaluated at the midpoint configuration.
+    HamiltonianMidpoint,
 }
 
 pub struct Rk4PCDM {
@@ -79,6 +82,7 @@ pub struct Rk4PCDM {
     /// Aggregate diagnostics for the experimental energy projection.
     pub projection_max_corr_rel: f64,
     pub projection_max_energy_err_rel: f64,
+    pub projection_max_energy_floor_rel: f64,
     pub projection_max_constraint_resid: f64,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
@@ -183,6 +187,7 @@ impl Rk4PCDM {
             run_steady_per_step: 0.0,
             projection_max_corr_rel: 0.0,
             projection_max_energy_err_rel: 0.0,
+            projection_max_energy_floor_rel: 0.0,
             projection_max_constraint_resid: 0.0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
@@ -324,7 +329,12 @@ impl Rk4PCDM {
         // has not yet been computed, so run one extra BEM solve to obtain it (the
         // side effects — φ history push, fluid KE update — are harmless).
         if let Some((tp, xp, op, olp)) = pending.take() {
-            if self.scheme == CouplingScheme::Impulse {
+            if matches!(
+                self.scheme,
+                CouplingScheme::Impulse
+                    | CouplingScheme::Hamiltonian
+                    | CouplingScheme::HamiltonianMidpoint
+            ) {
                 let (l_lin, l_ang) = self.solver.impulse();
                 self.fluid_impulse_lin_step_start = Some(l_lin);
                 self.fluid_impulse_ang_step_start = Some(l_ang);
@@ -442,6 +452,7 @@ impl Rk4PCDM {
     /// the configured coupling scheme.
     fn advance_one_step(&mut self) {
         match self.scheme {
+            CouplingScheme::HamiltonianMidpoint => self.advance_one_step_hamiltonian_midpoint(),
             CouplingScheme::Hamiltonian => self.advance_one_step_hamiltonian(),
             CouplingScheme::Impulse => self.advance_one_step_impulse(),
             CouplingScheme::Strong => self.advance_one_step_strong(),
@@ -676,7 +687,8 @@ impl Rk4PCDM {
     /// This treats the BEM as a black-box energy/momentum oracle at the endpoint
     /// configuration. At each iteration it:
     /// 1. projects endpoint generalized velocities to the step-start total
-    ///    conserved impulse and kinetic energy at the current endpoint q,
+    ///    conserved impulse and the run's initial kinetic energy at the current
+    ///    endpoint q,
     /// 2. rebuilds the endpoint positions/orientations from midpoint
     ///    kinematics using those projected velocities.
     ///
@@ -718,10 +730,11 @@ impl Rk4PCDM {
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
 
-        let target_ke = self
+        let current_ke = self
             .solid_kinetic_energy(&self.state.lin, &self.state.ang)
             .total
             + self.fluid_ke_step_start;
+        let target_ke = self.initial_total_ke.unwrap_or(current_ke);
         let (p_n, v_n) = self.state.lin.clone();
         let start_state = self.state.clone();
         let target_impulse =
@@ -793,6 +806,160 @@ impl Rk4PCDM {
             lin: (p_end, v_end),
             ang: (q_end, omega_end),
         }
+    }
+
+    fn advance_one_step_hamiltonian_midpoint(&mut self) {
+        let (l_lin_n, l_ang_n) = self.solver.impulse();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
+        self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
+        self.capture_initial_total_ke();
+
+        let current_ke = self
+            .solid_kinetic_energy(&self.state.lin, &self.state.ang)
+            .total
+            + self.fluid_ke_step_start;
+        let target_ke = self.initial_total_ke.unwrap_or(current_ke);
+        let (p_n, v_n) = self.state.lin.clone();
+        let start_state = self.state.clone();
+        let target_impulse =
+            self.total_conserved_impulse(&p_n, &v_n, &self.state.ang, &l_lin_n, &l_ang_n);
+
+        let mut z_mid = self.generalized_velocity_vector();
+        let mut end_state = self.endpoint_state_from_mid_velocity(&start_state, &z_mid);
+
+        for _ in 0..HAMILTONIAN_MAXITER {
+            let mid_state = self.midpoint_state_from_endpoint(&start_state, &end_state);
+            self.state = mid_state;
+            self.solver.set_state(&self.state);
+            let _ = self.solver.impulse();
+
+            self.project_step_energy_preserving_impulse(target_ke, &target_impulse);
+            z_mid = self.generalized_velocity_vector();
+            let next_end = self.endpoint_state_from_mid_velocity(&start_state, &z_mid);
+            let residual = self.configuration_distance(&end_state, &next_end);
+            end_state = next_end;
+
+            if residual < 1e-10 * (z_mid.norm() + 1.0) {
+                break;
+            }
+        }
+
+        self.state = end_state;
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        // Store endpoint velocities that satisfy the endpoint global invariants
+        // when possible, so diagnostics/output report the same energy convention
+        // as the other schemes.
+        self.project_step_energy_preserving_impulse(target_ke, &target_impulse);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        self.o_lab = self.orientation_to_marker_point();
+    }
+
+    fn endpoint_state_from_mid_velocity(
+        &self,
+        start: &BodyState,
+        z_mid: &DVector<f64>,
+    ) -> BodyState {
+        let (p_n, _) = &start.lin;
+        let (q_n, _) = &start.ang;
+        let mut v_mid = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            v_mid[i] = z_mid[i];
+        }
+
+        let mut p_end = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            p_end[i] = p_n[i] + v_mid[i] * self.step_size;
+        }
+
+        let omega_offset = 3 * self.nbody;
+        let mut q_end = Vec::with_capacity(self.nbody);
+        let mut omega_mid = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            let w_mid = Vector3::new(
+                z_mid[omega_offset + 3 * b],
+                z_mid[omega_offset + 3 * b + 1],
+                z_mid[omega_offset + 3 * b + 2],
+            );
+            let w_mid_q = Quaternion::from_imag(w_mid);
+            q_end.push(
+                self.orientation_stepper(&q_n[b], &w_mid_q, self.step_size)
+                    .normalize(),
+            );
+            omega_mid.push(w_mid_q);
+        }
+
+        BodyState {
+            lin: (p_end, v_mid),
+            ang: (q_end, omega_mid),
+        }
+    }
+
+    fn midpoint_state_from_endpoint(&self, start: &BodyState, end: &BodyState) -> BodyState {
+        let (p_n, _) = &start.lin;
+        let (p_end, _) = &end.lin;
+        let (q_n, _) = &start.ang;
+        let (q_end, _) = &end.ang;
+
+        let mut p_mid = DVector::zeros(3 * self.nbody);
+        let mut v_mid = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            p_mid[i] = 0.5 * (p_n[i] + p_end[i]);
+            v_mid[i] = (p_end[i] - p_n[i]) / self.step_size;
+        }
+
+        let mut q_mid = Vec::with_capacity(self.nbody);
+        let mut omega_mid = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            let w_mid = self.midpoint_omega_from_endpoint(&q_n[b], &q_end[b]);
+            let w_mid_q = Quaternion::from_imag(w_mid);
+            q_mid.push(
+                self.orientation_stepper(&q_n[b], &w_mid_q, self.half_step)
+                    .normalize(),
+            );
+            omega_mid.push(w_mid_q);
+        }
+
+        BodyState {
+            lin: (p_mid, v_mid),
+            ang: (q_mid, omega_mid),
+        }
+    }
+
+    fn midpoint_omega_from_endpoint(
+        &self,
+        q_start: &Quaternion<f64>,
+        q_end: &Quaternion<f64>,
+    ) -> Vector3<f64> {
+        let Some(q_inv) = q_start.try_inverse() else {
+            return Vector3::repeat(f64::NAN);
+        };
+        let mut dq = q_end * q_inv;
+        if dq.w < 0.0 {
+            dq = -dq;
+        }
+        let v = dq.vector();
+        let s = v.norm();
+        if s <= 1.0e-14 {
+            return Vector3::zeros();
+        }
+        let angle = 2.0 * s.atan2(dq.w);
+        v * (angle / (s * self.step_size))
+    }
+
+    fn configuration_distance(&self, a: &BodyState, b: &BodyState) -> f64 {
+        let pos_dist = (&a.lin.0 - &b.lin.0).norm();
+        let (qa, _) = &a.ang;
+        let (qb, _) = &b.ang;
+        let mut rot_dist2 = 0.0;
+        for i in 0..self.nbody {
+            let dot = qa[i].coords.dot(&qb[i].coords).abs().min(1.0);
+            let angle = 2.0 * dot.acos();
+            rot_dist2 += angle * angle;
+        }
+        pos_dist + rot_dist2.sqrt()
     }
 
     fn fluid_energy_configuration_gradient(
@@ -883,9 +1050,15 @@ impl Rk4PCDM {
         else {
             return;
         };
+        let energy_floor = self.evaluate_total_ke_for_velocity(&z_particular);
+        if energy_floor.is_finite() {
+            let floor_rel = ((energy_floor - target_ke) / target_ke).max(0.0);
+            self.projection_max_energy_floor_rel =
+                self.projection_max_energy_floor_rel.max(floor_rel);
+        }
         let z_projected = self
             .project_velocity_to_energy_in_nullspace(target_ke, &z_pcon, &z_particular, &z_null)
-            .unwrap_or(z_pcon);
+            .unwrap_or(z_particular);
         let corr_rel = (&z_projected - &z_current).norm() / z_current.norm().max(1.0);
         if corr_rel.is_finite() {
             self.projection_max_corr_rel = self.projection_max_corr_rel.max(corr_rel);
@@ -914,9 +1087,63 @@ impl Rk4PCDM {
         let delta_p = a.transpose() * (&gram_inv * (target - c_current));
         let z_pcon = z_current + delta_p;
 
-        let z_particular = a.transpose() * (&gram_inv * (target - c_zero));
+        let mut z_particular = self
+            .minimum_energy_impulse_solution(&a, &c_zero, target)
+            .unwrap_or_else(|| a.transpose() * (&gram_inv * (target - c_zero.clone())));
+        let impulse_resid = target - (&a * &z_particular + &c_zero);
+        z_particular += a.transpose() * (&gram_inv * impulse_resid);
         let z_null = &z_pcon - &z_particular;
         Some((z_pcon, z_particular, z_null))
+    }
+
+    fn minimum_energy_impulse_solution(
+        &mut self,
+        a: &DMatrix<f64>,
+        c_zero: &DVector<f64>,
+        target: &DVector<f64>,
+    ) -> Option<DVector<f64>> {
+        let k = self.energy_quadratic_matrix();
+        let mut k_reg = k.clone();
+        for i in 0..k_reg.nrows() {
+            k_reg[(i, i)] += 1.0e-12;
+        }
+        let k_inv = k_reg.try_inverse()?;
+        let gram = a * &k_inv * a.transpose();
+        let gram_inv = gram.try_inverse()?;
+        Some(&k_inv * a.transpose() * (gram_inv * (target - c_zero)))
+    }
+
+    fn energy_quadratic_matrix(&mut self) -> DMatrix<f64> {
+        let dof = 6 * self.nbody;
+        let z_save = self.generalized_velocity_vector();
+        let z_zero = DVector::zeros(dof);
+        let e_zero = self.evaluate_total_ke_for_velocity(&z_zero);
+
+        let mut basis_energy = vec![0.0; dof];
+        for i in 0..dof {
+            let mut z = DVector::zeros(dof);
+            z[i] = 1.0;
+            basis_energy[i] = self.evaluate_total_ke_for_velocity(&z);
+        }
+
+        let mut k = DMatrix::zeros(dof, dof);
+        for i in 0..dof {
+            k[(i, i)] = 2.0 * (basis_energy[i] - e_zero);
+            for j in (i + 1)..dof {
+                let mut z = DVector::zeros(dof);
+                z[i] = 1.0;
+                z[j] = 1.0;
+                let e_ij = self.evaluate_total_ke_for_velocity(&z);
+                let kij = e_ij - basis_energy[i] - basis_energy[j] + e_zero;
+                k[(i, j)] = kij;
+                k[(j, i)] = kij;
+            }
+        }
+
+        self.set_generalized_velocity_vector(&z_save);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        k
     }
 
     fn project_velocity_to_energy_in_nullspace(

@@ -186,6 +186,7 @@ fn main() {
     let fluid_energy_gradient_scale = get("fluid_energy_gradient_scale", 1.0);
     let phidot_blend = sys.phidot_blend;
     let hamiltonian_scheme = get("hamiltonian_scheme", 0.0) > 0.5;
+    let hamiltonian_midpoint_scheme = get("hamiltonian_midpoint_scheme", 0.0) > 0.5;
     let hamiltonian_substeps = get("hamiltonian_substeps", 1.0).max(1.0) as usize;
 
     // Initial integrator state, stacked over bodies.
@@ -236,7 +237,9 @@ fn main() {
 
     // Hamiltonian takes precedence over impulse, then strong, then the explicit
     // default (keeps the former boolean precedence under the new option).
-    let scheme = if hamiltonian_scheme {
+    let scheme = if hamiltonian_midpoint_scheme {
+        rk4pcdm::CouplingScheme::HamiltonianMidpoint
+    } else if hamiltonian_scheme {
         rk4pcdm::CouplingScheme::Hamiltonian
     } else if impulse_scheme {
         rk4pcdm::CouplingScheme::Impulse
@@ -337,7 +340,11 @@ fn main() {
     println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
     println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
     println!("  Hamiltonian step:  {}", fmt_enabled(hamiltonian_scheme));
-    if hamiltonian_scheme {
+    println!(
+        "  Hamiltonian midpt: {}",
+        fmt_enabled(hamiltonian_midpoint_scheme)
+    );
+    if hamiltonian_scheme || hamiltonian_midpoint_scheme {
         println!("  Hamiltonian substeps: {}", hamiltonian_substeps);
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
@@ -388,7 +395,7 @@ fn main() {
                 stepper.run_steady_per_step
             );
             println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
-            if energy_projection || hamiltonian_scheme {
+            if energy_projection || hamiltonian_scheme || hamiltonian_midpoint_scheme {
                 println!(
                     "  Projection max |dz|/|z|:        {:.6e}",
                     stepper.projection_max_corr_rel
@@ -396,6 +403,10 @@ fn main() {
                 println!(
                     "  Projection max pre-KE error:    {:.6e}",
                     stepper.projection_max_energy_err_rel
+                );
+                println!(
+                    "  Projection max KE floor excess: {:.6e}",
+                    stepper.projection_max_energy_floor_rel
                 );
                 println!(
                     "  Projection max impulse residual: {:.6e}",
