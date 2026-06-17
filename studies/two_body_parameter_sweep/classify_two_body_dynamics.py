@@ -26,20 +26,32 @@ RECURRENCE_TAU = 10
 RECURRENCE_RATE = 0.03
 RECURRENCE_THEILER = 50
 MIN_DIAG_LEN = 4
-TOP_SPECTRAL_PEAKS = 8
+TOP_SPECTRAL_PEAKS = 12
+DIVERGENCE_HORIZON = 35
 
-CLASS_ORDER = ["periodic", "quasi-periodic", "chaotic", "ambiguous", "incomplete"]
+CLASS_ORDER = [
+    "periodic",
+    "quasi-periodic",
+    "chaotic",
+    "chaotic-candidate",
+    "ambiguous",
+    "mixed",
+    "incomplete",
+]
 CLASS_COLOR = {
     "periodic": "#2ca02c",
     "quasi-periodic": "#1f77b4",
     "chaotic": "#d62728",
+    "chaotic-candidate": "#ff7f0e",
     "ambiguous": "#ffbf00",
+    "mixed": "#7f7f7f",
     "incomplete": "#9e9e9e",
 }
 CLASS_CODE = {
     "periodic": "P",
     "quasi-periodic": "Q",
     "chaotic": "C",
+    "chaotic-candidate": "c",
     "ambiguous": "A",
     "incomplete": "I",
     "mixed": "M",
@@ -193,6 +205,7 @@ def rqa_metrics(series: np.ndarray) -> dict[str, float]:
         if lag_values.size > 1 and np.mean(lag_values) > 0.0
         else float("nan")
     )
+    divergence = divergence_metrics(dist, mask)
 
     return {
         "recurrence_rate": rr,
@@ -203,7 +216,43 @@ def rqa_metrics(series: np.ndarray) -> dict[str, float]:
         "diag_entropy": diag_entropy,
         "nearest_distance": nearest_distance,
         "return_cv": return_cv,
+        **divergence,
     }
+
+
+def divergence_metrics(dist: np.ndarray, mask: np.ndarray) -> dict[str, float]:
+    masked = dist.copy()
+    masked[~mask] = np.inf
+    pairs_i = np.arange(masked.shape[0])
+    pairs_j = np.argmin(masked, axis=1)
+    d0 = masked[pairs_i, pairs_j]
+    valid = np.isfinite(d0) & (d0 > 1.0e-12)
+    pairs_i = pairs_i[valid]
+    pairs_j = pairs_j[valid]
+    d0 = d0[valid]
+    if len(d0) < 10:
+        return {"divergence_slope": float("nan"), "divergence_gain": float("nan")}
+
+    max_h = min(DIVERGENCE_HORIZON, dist.shape[0] - 1)
+    horizons: list[int] = []
+    log_growth: list[float] = []
+    for h in range(1, max_h + 1):
+        ok = (pairs_i + h < dist.shape[0]) & (pairs_j + h < dist.shape[0])
+        if np.count_nonzero(ok) < 10:
+            continue
+        dh = dist[pairs_i[ok] + h, pairs_j[ok] + h]
+        finite = np.isfinite(dh) & (dh > 1.0e-12)
+        if np.count_nonzero(finite) < 10:
+            continue
+        horizons.append(h)
+        log_growth.append(float(np.median(np.log(dh[finite] / d0[ok][finite]))))
+
+    if len(horizons) < 5:
+        return {"divergence_slope": float("nan"), "divergence_gain": float("nan")}
+    fit_n = min(18, len(horizons))
+    slope = float(np.polyfit(np.asarray(horizons[:fit_n], dtype=float), np.asarray(log_growth[:fit_n]), 1)[0])
+    gain = float(max(log_growth[:fit_n]) - log_growth[0])
+    return {"divergence_slope": slope, "divergence_gain": gain}
 
 
 def spectral_metrics(series: np.ndarray) -> dict[str, float]:
@@ -213,16 +262,61 @@ def spectral_metrics(series: np.ndarray) -> dict[str, float]:
     spectra = np.fft.rfft(values * window, axis=0)
     power = np.sum(np.abs(spectra) ** 2, axis=1)
     if power.size <= 2:
-        return {"spectral_entropy": float("nan"), "peak_fraction": float("nan")}
+        return {
+            "spectral_entropy": float("nan"),
+            "peak_fraction": float("nan"),
+            "dominant_fraction": float("nan"),
+            "harmonicity": float("nan"),
+        }
     power = power[1:]
     total = float(power.sum())
     if total <= 0.0 or not np.isfinite(total):
-        return {"spectral_entropy": 0.0, "peak_fraction": 1.0}
+        return {
+            "spectral_entropy": 0.0,
+            "peak_fraction": 1.0,
+            "dominant_fraction": 1.0,
+            "harmonicity": 1.0,
+        }
     probs = power / total
     entropy = float(-np.sum(probs * np.log(probs + 1.0e-300)) / math.log(len(probs)))
     top = np.partition(power, -min(TOP_SPECTRAL_PEAKS, len(power)))[-TOP_SPECTRAL_PEAKS:]
     peak_fraction = float(top.sum() / total)
-    return {"spectral_entropy": entropy, "peak_fraction": peak_fraction}
+    dominant_fraction = float(power.max() / total)
+    harmonicity = harmonicity_score(power)
+    return {
+        "spectral_entropy": entropy,
+        "peak_fraction": peak_fraction,
+        "dominant_fraction": dominant_fraction,
+        "harmonicity": harmonicity,
+    }
+
+
+def harmonicity_score(power: np.ndarray) -> float:
+    n_peaks = min(TOP_SPECTRAL_PEAKS, len(power))
+    if n_peaks == 0:
+        return 1.0
+    peak_bins = np.argpartition(power, -n_peaks)[-n_peaks:] + 1
+    peak_power = power[peak_bins - 1]
+    order = np.argsort(peak_power)[::-1]
+    peak_bins = peak_bins[order]
+    peak_power = peak_power[order]
+    top_power = float(peak_power.sum())
+    if top_power <= 0.0:
+        return 1.0
+
+    best = 0.0
+    candidate_fundamentals = sorted(set(int(b) for b in peak_bins[: min(6, len(peak_bins))]))
+    for fundamental in candidate_fundamentals:
+        harmonic_power = 0.0
+        for bin_idx, pwr in zip(peak_bins, peak_power):
+            ratio = bin_idx / fundamental
+            nearest = max(1, round(ratio))
+            bin_error = abs(bin_idx - nearest * fundamental)
+            tolerance = max(1.5, 0.035 * bin_idx)
+            if bin_error <= tolerance:
+                harmonic_power += float(pwr)
+        best = max(best, harmonic_power / top_power)
+    return float(best)
 
 
 def classify(metrics: dict[str, float]) -> str:
@@ -231,12 +325,28 @@ def classify(metrics: dict[str, float]) -> str:
     sent = metrics["spectral_entropy"]
     peak = metrics["peak_fraction"]
     rcv = metrics["return_cv"]
+    div = metrics["divergence_slope"]
+    gain = metrics["divergence_gain"]
+    harmonicity = metrics["harmonicity"]
+    dominant = metrics["dominant_fraction"]
 
-    if det > 0.92 and lmax > 0.45 and sent < 0.22 and peak > 0.82 and rcv < 0.18:
+    strong_divergence = div > 0.018 and gain > 0.25
+    weak_divergence = div > 0.010 and gain > 0.18
+
+    if strong_divergence and (sent > 0.34 or peak < 0.86 or det < 0.90):
+        return "chaotic"
+    if weak_divergence and (sent > 0.42 or peak < 0.78 or det < 0.82):
+        return "chaotic-candidate"
+
+    if det > 0.90 and lmax > 0.35 and sent < 0.30 and peak > 0.82 and harmonicity > 0.78:
         return "periodic"
-    if det > 0.82 and lmax > 0.25 and sent < 0.42 and peak > 0.62:
+    if det > 0.80 and lmax > 0.20 and sent < 0.50 and peak > 0.58:
+        if harmonicity > 0.82 and dominant > 0.28 and sent < 0.38:
+            return "periodic"
         return "quasi-periodic"
-    if det < 0.72 and lmax < 0.18 and sent > 0.52 and peak < 0.58:
+    if weak_divergence:
+        return "chaotic-candidate"
+    if det < 0.78 and lmax < 0.22 and sent > 0.42 and peak < 0.68:
         return "chaotic"
     if sent > 0.62 and peak < 0.50:
         return "chaotic"
