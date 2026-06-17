@@ -215,7 +215,13 @@ def write_input(path: Path, values: dict[str, object]) -> None:
             f.write(f"{key}={value}\n")
 
 
-def write_manifest(case_list: list[dict[str, object]]) -> None:
+def manifest_path(path: Path, portable: bool) -> str:
+    if portable:
+        return path.relative_to(ROOT).as_posix()
+    return str(path)
+
+
+def write_manifest(case_list: list[dict[str, object]], portable: bool = False) -> None:
     STUDY.mkdir(parents=True, exist_ok=True)
     fields = [
         "name",
@@ -247,17 +253,17 @@ def write_manifest(case_list: list[dict[str, object]]) -> None:
                     "ndiv": NDIV,
                     "dt": DT,
                     "tend": T_END,
-                    "input": run_dir / "input.txt",
-                    "output": run_dir / "multiple_body_complete.dat",
+                    "input": manifest_path(run_dir / "input.txt", portable),
+                    "output": manifest_path(run_dir / "multiple_body_complete.dat", portable),
                 }
             )
 
 
-def setup_inputs(case_list: list[dict[str, object]]) -> None:
+def setup_inputs(case_list: list[dict[str, object]], portable_manifest: bool = False) -> None:
     for case in case_list:
         run_dir = RUNS / case_name(case)
         write_input(run_dir / "input.txt", input_values(case))
-    write_manifest(case_list)
+    write_manifest(case_list, portable=portable_manifest)
 
 
 def print_plan(case_list: list[dict[str, object]]) -> None:
@@ -283,15 +289,22 @@ def print_plan(case_list: list[dict[str, object]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Set up the two-body E/rho/separation parameter sweep.")
     parser.add_argument("--write", action="store_true", help="write input folders and manifest")
+    parser.add_argument(
+        "--portable-manifest",
+        action="store_true",
+        help="write manifest input/output paths relative to the repository root",
+    )
     args = parser.parse_args()
 
     case_list = cases()
     print_plan(case_list)
     if args.write:
-        setup_inputs(case_list)
+        setup_inputs(case_list, portable_manifest=args.portable_manifest)
         print()
         print(f"Wrote {len(case_list)} inputs and manifest:")
         print(f"  {MANIFEST}")
+        if args.portable_manifest:
+            print("  Manifest paths are relative to the repository root.")
     else:
         print("Dry run only. Re-run with --write after confirming the matrix.")
 
