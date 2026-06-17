@@ -20,7 +20,7 @@ OUT_CSV = STUDY / "two_body_dynamics_classification.csv"
 OUT_SUMMARY = STUDY / "two_body_dynamics_classification_summary.csv"
 OUT_PNG = STUDY / "two_body_dynamics_classification.png"
 
-TRANSIENT_FRACTION = 0.5
+DEFAULT_TRANSIENT_FRACTION = 0.5
 RECURRENCE_DIM = 3
 RECURRENCE_TAU = 10
 RECURRENCE_RATE = 0.03
@@ -264,7 +264,7 @@ def consensus(classes: list[str]) -> str:
     return "mixed"
 
 
-def analyze_run(row: dict[str, str]) -> dict[str, object]:
+def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, object]:
     base: dict[str, object] = {
         "name": row["name"],
         "shape_name": row["shape_name"],
@@ -292,7 +292,7 @@ def analyze_run(row: dict[str, str]) -> dict[str, object]:
         return {**base, "status": "nonfinite", "class_consensus": "incomplete"}
 
     t = data["time"]
-    keep = t >= (float(row["tend"]) * TRANSIENT_FRACTION)
+    keep = t >= (float(row["tend"]) * transient_fraction)
     data = data[keep]
     analyses = {
         "body1": analyze_series(body_state(data, 1)),
@@ -358,7 +358,7 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return out
 
 
-def plot_summary(summary_rows: list[dict[str, object]]) -> None:
+def plot_summary(summary_rows: list[dict[str, object]], out_png: Path, title_suffix: str) -> None:
     shapes = sorted({str(row["shape_name"]) for row in summary_rows})
     fig, axes = plt.subplots(len(shapes), 1, figsize=(13, 4.8 * len(shapes)), constrained_layout=True)
     if len(shapes) == 1:
@@ -401,32 +401,51 @@ def plot_summary(summary_rows: list[dict[str, object]]) -> None:
         for cls, color in CLASS_COLOR.items()
     ]
     fig.legend(handles=handles, loc="outside lower center", ncol=len(handles))
-    fig.suptitle("Two-body dynamics classification from second-half trajectories", fontsize=14)
-    fig.savefig(OUT_PNG, dpi=170)
+    fig.suptitle(f"Two-body dynamics classification from {title_suffix} trajectories", fontsize=14)
+    fig.savefig(out_png, dpi=170)
     plt.close(fig)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Classify two-body runs as periodic/quasi/chaotic.")
     parser.add_argument("--limit", type=int, default=None, help="analyze only the first N manifest rows")
+    parser.add_argument(
+        "--transient-fraction",
+        type=float,
+        default=DEFAULT_TRANSIENT_FRACTION,
+        help="discard this fraction of tend before analysis; use 0 for full-run classification",
+    )
+    parser.add_argument(
+        "--suffix",
+        default="",
+        help="append a suffix before file extensions, e.g. _full_run",
+    )
     args = parser.parse_args()
 
     rows = load_manifest()
     if args.limit is not None:
         rows = rows[: args.limit]
 
+    if not 0.0 <= args.transient_fraction < 1.0:
+        raise SystemExit("--transient-fraction must be in [0, 1)")
+
+    out_csv = OUT_CSV.with_name(f"{OUT_CSV.stem}{args.suffix}{OUT_CSV.suffix}")
+    out_summary = OUT_SUMMARY.with_name(f"{OUT_SUMMARY.stem}{args.suffix}{OUT_SUMMARY.suffix}")
+    out_png = OUT_PNG.with_name(f"{OUT_PNG.stem}{args.suffix}{OUT_PNG.suffix}")
+    title_suffix = "full-run" if args.transient_fraction == 0.0 else f"post-transient ({args.transient_fraction:g} tend)"
+
     results = []
     for i, row in enumerate(rows, start=1):
         print(f"[{i:03d}/{len(rows):03d}] {row['name']}", flush=True)
-        results.append(analyze_run(row))
+        results.append(analyze_run(row, args.transient_fraction))
 
     summary = summarize(results)
-    write_rows(OUT_CSV, results)
-    write_rows(OUT_SUMMARY, summary)
-    plot_summary(summary)
-    print(f"Wrote {OUT_CSV}")
-    print(f"Wrote {OUT_SUMMARY}")
-    print(f"Wrote {OUT_PNG}")
+    write_rows(out_csv, results)
+    write_rows(out_summary, summary)
+    plot_summary(summary, out_png, title_suffix)
+    print(f"Wrote {out_csv}")
+    print(f"Wrote {out_summary}")
+    print(f"Wrote {out_png}")
 
 
 if __name__ == "__main__":
