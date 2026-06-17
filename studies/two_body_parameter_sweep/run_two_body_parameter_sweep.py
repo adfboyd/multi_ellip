@@ -11,6 +11,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 import numpy as np
 
 
@@ -113,6 +114,37 @@ def total_conserved_vector(data: np.ndarray, prefix: str) -> np.ndarray:
     return np.sum(cols, axis=0)
 
 
+def plot_marker_path(ax, marker_values: np.ndarray, t: np.ndarray, title: str) -> None:
+    start = len(t) // 2
+    path = marker_values[start:]
+    times = t[start:]
+    stride = max(1, len(path) // 900)
+    path = path[::stride]
+    times = times[::stride]
+
+    if len(path) > 1:
+        segments = np.stack([path[:-1], path[1:]], axis=1)
+        lc = Line3DCollection(segments, cmap="viridis", linewidth=0.28, alpha=0.55)
+        lc.set_array(times[:-1])
+        ax.add_collection3d(lc)
+    ax.scatter(
+        path[:, 0],
+        path[:, 1],
+        path[:, 2],
+        c=times,
+        cmap="viridis",
+        s=1.6,
+        alpha=0.7,
+        depthshade=False,
+        rasterized=True,
+    )
+    ax.set_xlim(-1.03, 1.03)
+    ax.set_ylim(-1.03, 1.03)
+    ax.set_zlim(-1.03, 1.03)
+    ax.set_box_aspect((1, 1, 1))
+    ax.set(title=f"{title} (second half)", xlabel="ofix1", ylabel="ofix2", zlabel="ofix3")
+
+
 def has_finite_output(data: np.ndarray) -> bool:
     cols = ["time", "ke_total", "ke_fluid", "ke_solid"]
     return all(np.all(np.isfinite(data[col])) for col in cols)
@@ -180,34 +212,10 @@ def save_dashboard(row: dict[str, str], data: np.ndarray) -> Path:
     ax.grid(alpha=0.25)
 
     ax3 = fig.add_subplot(gs[2, 0], projection="3d")
-    stride = max(1, len(t) // 1200)
-    colors = t[::stride]
-    ax3.scatter(
-        m1[::stride, 0],
-        m1[::stride, 1],
-        m1[::stride, 2],
-        c=colors,
-        cmap="viridis",
-        s=2.0,
-        alpha=0.8,
-        depthshade=False,
-        rasterized=True,
-    )
-    ax3.set(title="Marker path body 1", xlabel="ofix1", ylabel="ofix2", zlabel="ofix3")
+    plot_marker_path(ax3, m1, t, "Marker path body 1")
 
     ax3 = fig.add_subplot(gs[2, 1], projection="3d")
-    ax3.scatter(
-        m2[::stride, 0],
-        m2[::stride, 1],
-        m2[::stride, 2],
-        c=colors,
-        cmap="viridis",
-        s=2.0,
-        alpha=0.8,
-        depthshade=False,
-        rasterized=True,
-    )
-    ax3.set(title="Marker path body 2", xlabel="ofix1", ylabel="ofix2", zlabel="ofix3")
+    plot_marker_path(ax3, m2, t, "Marker path body 2")
 
     ax = fig.add_subplot(gs[2, 2])
     ax.plot(t, p_err, lw=1.0, label="linear momentum")
