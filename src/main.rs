@@ -185,6 +185,8 @@ fn main() {
     let fluid_energy_gradient_eps = get("fluid_energy_gradient_eps", 1.0e-3);
     let fluid_energy_gradient_scale = get("fluid_energy_gradient_scale", 1.0);
     let phidot_blend = sys.phidot_blend;
+    let hamiltonian_scheme = get("hamiltonian_scheme", 0.0) > 0.5;
+    let hamiltonian_substeps = get("hamiltonian_substeps", 1.0).max(1.0) as usize;
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -232,9 +234,11 @@ fn main() {
 
     let solver = bem_for_ode::BemSolver::new(sys);
 
-    // Impulse takes precedence over strong, then the explicit default (matches the
-    // former boolean precedence).
-    let scheme = if impulse_scheme {
+    // Hamiltonian takes precedence over impulse, then strong, then the explicit
+    // default (keeps the former boolean precedence under the new option).
+    let scheme = if hamiltonian_scheme {
+        rk4pcdm::CouplingScheme::Hamiltonian
+    } else if impulse_scheme {
         rk4pcdm::CouplingScheme::Impulse
     } else if strong_couple {
         rk4pcdm::CouplingScheme::Strong
@@ -261,6 +265,7 @@ fn main() {
         fluid_energy_gradient,
         fluid_energy_gradient_eps,
         fluid_energy_gradient_scale,
+        hamiltonian_substeps,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -331,6 +336,10 @@ fn main() {
     );
     println!("  Strong coupling:   {}", fmt_enabled(strong_couple));
     println!("  Impulse scheme:    {}", fmt_enabled(impulse_scheme));
+    println!("  Hamiltonian step:  {}", fmt_enabled(hamiltonian_scheme));
+    if hamiltonian_scheme {
+        println!("  Hamiltonian substeps: {}", hamiltonian_substeps);
+    }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
     println!(
         "  Fluid KE gradient: {}  (eps = {}, scale = {})",
@@ -379,7 +388,7 @@ fn main() {
                 stepper.run_steady_per_step
             );
             println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
-            if energy_projection {
+            if energy_projection || hamiltonian_scheme {
                 println!(
                     "  Projection max |dz|/|z|:        {:.6e}",
                     stepper.projection_max_corr_rel

@@ -19,6 +19,10 @@ const ANDERSON_DEPTH: usize = 5;
 /// Max iterations for the per-body implicit-midpoint angular solve.
 const ANG_MID_MAXITER: usize = 20;
 
+/// Fixed-point iterations for the experimental Hamiltonian/discrete-gradient
+/// endpoint solve.
+const HAMILTONIAN_MAXITER: usize = 12;
+
 /// Fluid--structure coupling scheme the integrator advances with. Replaces the
 /// former `strong_couple`/`impulse_scheme` boolean pair and their precedence.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -30,6 +34,10 @@ pub enum CouplingScheme {
     Strong,
     /// Implicit impulse-difference scheme (momentum/energy-consistent).
     Impulse,
+    /// Experimental endpoint scheme: iterate a midpoint kinematic update with a
+    /// final-state projection that preserves global conserved impulse and total
+    /// body-fluid kinetic energy.
+    Hamiltonian,
 }
 
 pub struct Rk4PCDM {
@@ -89,6 +97,7 @@ pub struct Rk4PCDM {
     fluid_energy_gradient: bool,
     fluid_energy_gradient_eps: f64,
     fluid_energy_gradient_scale: f64,
+    hamiltonian_substeps: usize,
     initial_total_ke: Option<f64>,
 }
 
@@ -130,6 +139,7 @@ impl Rk4PCDM {
         fluid_energy_gradient: bool,
         fluid_energy_gradient_eps: f64,
         fluid_energy_gradient_scale: f64,
+        hamiltonian_substeps: usize,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -182,6 +192,7 @@ impl Rk4PCDM {
             fluid_energy_gradient,
             fluid_energy_gradient_eps,
             fluid_energy_gradient_scale,
+            hamiltonian_substeps: hamiltonian_substeps.max(1),
             initial_total_ke: None,
         }
     }
@@ -431,6 +442,7 @@ impl Rk4PCDM {
     /// the configured coupling scheme.
     fn advance_one_step(&mut self) {
         match self.scheme {
+            CouplingScheme::Hamiltonian => self.advance_one_step_hamiltonian(),
             CouplingScheme::Impulse => self.advance_one_step_impulse(),
             CouplingScheme::Strong => self.advance_one_step_strong(),
             CouplingScheme::Explicit => self.advance_one_step_explicit(),
@@ -656,6 +668,130 @@ impl Rk4PCDM {
 
         if self.energy_projection {
             self.project_step_energy_preserving_impulse(ke_step_start, &conserved_step_start);
+        }
+    }
+
+    /// Experimental Hamiltonian/discrete-gradient endpoint solve.
+    ///
+    /// This treats the BEM as a black-box energy/momentum oracle at the endpoint
+    /// configuration. At each iteration it:
+    /// 1. projects endpoint generalized velocities to the step-start total
+    ///    conserved impulse and kinetic energy at the current endpoint q,
+    /// 2. rebuilds the endpoint positions/orientations from midpoint
+    ///    kinematics using those projected velocities.
+    ///
+    /// It is intentionally slower than the impulse scheme but avoids injecting a
+    /// raw finite-difference force into the equations.
+    fn advance_one_step_hamiltonian(&mut self) {
+        let substeps = self.hamiltonian_substeps.max(1);
+        if substeps == 1 {
+            self.advance_one_hamiltonian_substep();
+            return;
+        }
+
+        let (l_lin_start, l_ang_start) = self.solver.impulse();
+        let fluid_ke_start = self.solver.fluid_kinetic_energy();
+        let step_save = self.step_size;
+        let half_save = self.half_step;
+        let quarter_save = self.quarter_step;
+        let h = step_save / substeps as f64;
+        self.step_size = h;
+        self.half_step = 0.5 * h;
+        self.quarter_step = 0.25 * h;
+
+        for _ in 0..substeps {
+            self.advance_one_hamiltonian_substep();
+        }
+
+        self.step_size = step_save;
+        self.half_step = half_save;
+        self.quarter_step = quarter_save;
+        self.fluid_ke_step_start = fluid_ke_start;
+        self.fluid_impulse_lin_step_start = Some(l_lin_start);
+        self.fluid_impulse_ang_step_start = Some(l_ang_start);
+    }
+
+    fn advance_one_hamiltonian_substep(&mut self) {
+        let (l_lin_n, l_ang_n) = self.solver.impulse();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
+        self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
+        self.capture_initial_total_ke();
+
+        let target_ke = self
+            .solid_kinetic_energy(&self.state.lin, &self.state.ang)
+            .total
+            + self.fluid_ke_step_start;
+        let (p_n, v_n) = self.state.lin.clone();
+        let start_state = self.state.clone();
+        let target_impulse =
+            self.total_conserved_impulse(&p_n, &v_n, &self.state.ang, &l_lin_n, &l_ang_n);
+
+        let mut z = self.generalized_velocity_vector();
+        self.state = self.endpoint_state_from_velocity(&start_state, &z);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+
+        for _ in 0..HAMILTONIAN_MAXITER {
+            let z_before = self.generalized_velocity_vector();
+            self.project_step_energy_preserving_impulse(target_ke, &target_impulse);
+            let z_projected = self.generalized_velocity_vector();
+            let next_state = self.endpoint_state_from_velocity(&start_state, &z_projected);
+            let dz = (&z_projected - &z_before).norm();
+
+            self.state = next_state;
+            self.solver.set_state(&self.state);
+            let _ = self.solver.impulse();
+            z = z_projected;
+
+            if dz < 1e-10 * (z.norm() + 1.0) {
+                break;
+            }
+        }
+
+        // One last projection at the final endpoint configuration. Leave that
+        // projected endpoint in place; rebuilding q once more from the newly
+        // projected velocities would move the configuration after enforcing the
+        // energy/momentum constraints.
+        self.project_step_energy_preserving_impulse(target_ke, &target_impulse);
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        self.o_lab = self.orientation_to_marker_point();
+    }
+
+    fn endpoint_state_from_velocity(&self, start: &BodyState, z: &DVector<f64>) -> BodyState {
+        let (p_n, v_n) = &start.lin;
+        let (q_n, omega_n) = &start.ang;
+
+        let mut v_end = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            v_end[i] = z[i];
+        }
+
+        let mut p_end = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            p_end[i] = p_n[i] + 0.5 * (v_n[i] + v_end[i]) * self.step_size;
+        }
+
+        let mut q_end = Vec::with_capacity(self.nbody);
+        let mut omega_end = Vec::with_capacity(self.nbody);
+        let omega_offset = 3 * self.nbody;
+        for b in 0..self.nbody {
+            let w_end = Vector3::new(
+                z[omega_offset + 3 * b],
+                z[omega_offset + 3 * b + 1],
+                z[omega_offset + 3 * b + 2],
+            );
+            let omega_end_q = Quaternion::from_imag(w_end);
+            let omega_mid = Quaternion::from_imag(0.5 * (omega_n[b].imag() + w_end));
+            let q_full = self.orientation_stepper(&q_n[b], &omega_mid, self.step_size);
+            q_end.push(q_full.normalize());
+            omega_end.push(omega_end_q);
+        }
+
+        BodyState {
+            lin: (p_end, v_end),
+            ang: (q_end, omega_end),
         }
     }
 
