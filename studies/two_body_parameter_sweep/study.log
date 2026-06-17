@@ -264,3 +264,51 @@ Elapsed study time: 10h 31m 45s | avg/case=11m 42s | remaining=17 | ETA=3h 18m 5
 [055/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E4_sep8_run02 wall=13m 17s rc=0
 Elapsed study time: 10h 45m 6s | avg/case=11m 44s | remaining=16 | ETA=3h 7m 40s | finish~2026-06-17 14:39:12
 [056/071] START ellipsoid_1_0p8_0p6_rho0p1_E16_sep3_run01 at 2026-06-17 11:31:32
+[056/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E16_sep3_run01 wall=12m 4s rc=0
+Elapsed study time: 10h 57m 13s | avg/case=11m 44s | remaining=15 | ETA=2h 56m 3s | finish~2026-06-17 14:39:42
+[057/071] START ellipsoid_1_0p8_0p6_rho0p1_E16_sep3_run02 at 2026-06-17 11:43:40
+[057/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E16_sep3_run02 wall=9m 59s rc=0
+Elapsed study time: 11h 7m 17s | avg/case=11m 42s | remaining=14 | ETA=2h 43m 54s | finish~2026-06-17 14:37:37
+[058/071] START ellipsoid_1_0p8_0p6_rho0p1_E16_sep8_run01 at 2026-06-17 11:53:43
+[058/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E16_sep8_run01 wall=9m 57s rc=0
+Elapsed study time: 11h 17m 17s | avg/case=11m 41s | remaining=13 | ETA=2h 31m 48s | finish~2026-06-17 14:35:32
+[059/071] START ellipsoid_1_0p8_0p6_rho0p1_E16_sep8_run02 at 2026-06-17 12:03:43
+[059/071] OK      ellipsoid_1_0p8_0p6_rho0p1_E16_sep8_run02 wall=10m 30s rc=0
+Elapsed study time: 11h 27m 51s | avg/case=11m 40s | remaining=12 | ETA=2h 19m 54s | finish~2026-06-17 14:34:12
+[060/071] START ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep3_run01 at 2026-06-17 12:14:17
+[060/071] STOPPED ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep3_run01 wall=13s rc=0 msg=Solver stopped with error: Non-finite state detected at x = 0.9000000000000002: position[0] = NaN.
+Elapsed study time: 11h 28m 4s | avg/case=11m 28s | remaining=11 | ETA=2h 6m 9s | finish~2026-06-17 14:20:39
+[061/071] START ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep3_run02 at 2026-06-17 12:14:30
+[061/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep3_run02 wall=12m 3s rc=0
+Elapsed study time: 11h 40m 11s | avg/case=11m 29s | remaining=10 | ETA=1h 54m 47s | finish~2026-06-17 14:21:24
+[062/071] START ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep8_run01 at 2026-06-17 12:26:37
+[062/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep8_run01 wall=11m 27s rc=0
+Elapsed study time: 11h 51m 42s | avg/case=11m 29s | remaining=9 | ETA=1h 43m 19s | finish~2026-06-17 14:21:27
+[063/071] START ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep8_run02 at 2026-06-17 12:38:09
+[063/071] STOPPED ellipsoid_1_0p8_0p6_rho0p03_E0p25_sep8_run02 wall=10m 41s rc=0 msg=Solver stopped with error: Non-finite state detected at x = 88.6999999999971: position[0] = NaN.
+Elapsed study time: 12h 2m 23s | avg/case=11m 28s | remaining=8 | ETA=1h 31m 44s | finish~2026-06-17 14:20:34
+[064/071] START ellipsoid_1_0p8_0p6_rho0p03_E4_sep3_run01 at 2026-06-17 12:48:50
+[064/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E4_sep3_run01 wall=11m 25s rc=0
+Elapsed study time: 12h 13m 52s | avg/case=11m 28s | remaining=7 | ETA=1h 20m 16s | finish~2026-06-17 14:20:34
+[065/071] START ellipsoid_1_0p8_0p6_rho0p03_E4_sep3_run02 at 2026-06-17 13:00:18
+[065/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E4_sep3_run02 wall=11m 54s rc=0
+Elapsed study time: 12h 25m 50s | avg/case=11m 28s | remaining=6 | ETA=1h 8m 51s | finish~2026-06-17 14:21:07
+[066/071] START ellipsoid_1_0p8_0p6_rho0p03_E4_sep8_run01 at 2026-06-17 13:12:16
+[066/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E4_sep8_run01 wall=11m 32s rc=0
+Elapsed study time: 12h 37m 26s | avg/case=11m 29s | remaining=5 | ETA=57m 23s | finish~2026-06-17 14:21:15
+[067/071] START ellipsoid_1_0p8_0p6_rho0p03_E4_sep8_run02 at 2026-06-17 13:23:52
+[067/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E4_sep8_run02 wall=11m 57s rc=0
+Elapsed study time: 12h 49m 27s | avg/case=11m 29s | remaining=4 | ETA=45m 56s | finish~2026-06-17 14:21:49
+[068/071] START ellipsoid_1_0p8_0p6_rho0p03_E16_sep3_run01 at 2026-06-17 13:35:53
+[068/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E16_sep3_run01 wall=12m 1s rc=0
+Elapsed study time: 13h 1m 32s | avg/case=11m 30s | remaining=3 | ETA=34m 29s | finish~2026-06-17 14:22:27
+[069/071] START ellipsoid_1_0p8_0p6_rho0p03_E16_sep3_run02 at 2026-06-17 13:47:59
+[069/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E16_sep3_run02 wall=11m 39s rc=0
+Elapsed study time: 13h 13m 15s | avg/case=11m 30s | remaining=2 | ETA=23m 0s | finish~2026-06-17 14:22:41
+[070/071] START ellipsoid_1_0p8_0p6_rho0p03_E16_sep8_run01 at 2026-06-17 13:59:41
+[070/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E16_sep8_run01 wall=12m 8s rc=0
+Elapsed study time: 13h 25m 27s | avg/case=11m 30s | remaining=1 | ETA=11m 30s | finish~2026-06-17 14:23:24
+[071/071] START ellipsoid_1_0p8_0p6_rho0p03_E16_sep8_run02 at 2026-06-17 14:11:54
+[071/071] OK      ellipsoid_1_0p8_0p6_rho0p03_E16_sep8_run02 wall=11m 47s rc=0
+Elapsed study time: 13h 37m 18s | avg/case=11m 31s | remaining=0 | ETA=0s | finish~2026-06-17 14:23:44
+Study invocation finished at 2026-06-17 14:23:44 wall=13h 37m 18s
