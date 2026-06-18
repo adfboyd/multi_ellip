@@ -25,7 +25,14 @@ echo [2/4] Writing aggregate conservation/solver summaries
   --summary "%SUMMARY%" ^
   --out-dir "%ANALYSIS%"
 
-echo [3/4] Classifying dynamics on the second half of each trajectory
+echo [3/5] Building per-run dashboard gallery
+"C:\Users\User\anaconda3\python.exe" ^
+  "studies\two_body_parameter_sweep\build_dashboard_index.py" ^
+  --run-root "%RUN_ROOT%" ^
+  --summary "%SUMMARY%" ^
+  --out "%ANALYSIS%\dashboard_index.html"
+
+echo [4/5] Classifying dynamics on the second half of each trajectory
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\classify_two_body_dynamics.py" ^
   --manifest "%MANIFEST%" ^
@@ -33,7 +40,7 @@ echo [3/4] Classifying dynamics on the second half of each trajectory
   --suffix "_second_half" ^
   --transient-fraction 0.5
 
-echo [4/4] Classifying dynamics on full trajectories
+echo [5/5] Classifying dynamics on full trajectories
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\classify_two_body_dynamics.py" ^
   --manifest "%MANIFEST%" ^
