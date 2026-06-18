@@ -520,6 +520,14 @@ fn main() {
                         "  Coupled Jacobian builds:        {}",
                         stepper.coupled_jacobian_builds
                     );
+                    println!(
+                        "  Hamiltonian adaptive retries:   {}",
+                        stepper.hamiltonian_adaptive_retry_count
+                    );
+                    println!(
+                        "  Hamiltonian max substeps used:  {}",
+                        stepper.hamiltonian_max_substeps_used
+                    );
                 }
             }
             println!(

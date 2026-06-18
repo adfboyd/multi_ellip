@@ -104,6 +104,8 @@ pub struct Rk4PCDM {
     pub coupled_last_step_raw_angular_impulse_resid: f64,
     pub coupled_last_step_true_energy_err_rel: f64,
     pub coupled_jacobian_builds: usize,
+    pub hamiltonian_adaptive_retry_count: usize,
+    pub hamiltonian_max_substeps_used: usize,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -277,6 +279,8 @@ impl Rk4PCDM {
             coupled_last_step_raw_angular_impulse_resid: 0.0,
             coupled_last_step_true_energy_err_rel: 0.0,
             coupled_jacobian_builds: 0,
+            hamiltonian_adaptive_retry_count: 0,
+            hamiltonian_max_substeps_used: hamiltonian_substeps.max(1),
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
@@ -1011,12 +1015,14 @@ impl Rk4PCDM {
                 self.projection_last_step_floor_fallbacks,
                 self.coupled_last_step_residual_norm
             );
+            self.hamiltonian_adaptive_retry_count += 1;
             substeps = next_substeps;
         }
     }
 
     fn advance_one_step_hamiltonian_midpoint_fixed(&mut self, substeps: usize) {
         let substeps = substeps.max(1);
+        self.hamiltonian_max_substeps_used = self.hamiltonian_max_substeps_used.max(substeps);
         self.coupled_last_step_residual_norm = 0.0;
         self.coupled_last_step_impulse_resid = 0.0;
         self.coupled_last_step_energy_err_rel = 0.0;

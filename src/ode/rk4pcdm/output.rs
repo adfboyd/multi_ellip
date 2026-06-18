@@ -42,6 +42,19 @@ impl Rk4PCDM {
             ke_fluid,
             ke_solid.total
         );
+        if self.hamiltonian_coupled_solve {
+            println!(
+                "  Coupled residual last/max {:.3e}/{:.3e} | true dE max {:.3e} | raw dP/dH max {:.3e}/{:.3e} | Jacobians {} | adaptive retries {} | max substeps {}",
+                self.coupled_last_step_residual_norm,
+                self.coupled_max_residual_norm,
+                self.coupled_max_true_energy_err_rel,
+                self.coupled_max_raw_linear_impulse_resid,
+                self.coupled_max_raw_angular_impulse_resid,
+                self.coupled_jacobian_builds,
+                self.hamiltonian_adaptive_retry_count,
+                self.hamiltonian_max_substeps_used
+            );
+        }
     }
 
     pub(crate) fn print_projection_floor_event(&self, step: usize, time: f64) {
