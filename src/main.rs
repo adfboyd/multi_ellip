@@ -501,8 +501,20 @@ fn main() {
                         stepper.coupled_max_impulse_resid
                     );
                     println!(
+                        "  Coupled max raw linear impulse residual: {:.6e}",
+                        stepper.coupled_max_raw_linear_impulse_resid
+                    );
+                    println!(
+                        "  Coupled max raw angular impulse residual: {:.6e}",
+                        stepper.coupled_max_raw_angular_impulse_resid
+                    );
+                    println!(
                         "  Coupled max energy error rel:   {:.6e}",
                         stepper.coupled_max_energy_err_rel
+                    );
+                    println!(
+                        "  Coupled max true energy error rel: {:.6e}",
+                        stepper.coupled_max_true_energy_err_rel
                     );
                     println!(
                         "  Coupled Jacobian builds:        {}",

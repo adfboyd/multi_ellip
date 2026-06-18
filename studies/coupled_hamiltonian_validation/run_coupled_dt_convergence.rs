@@ -40,7 +40,11 @@ struct Summary {
     rel_dh: Option<f64>,
     mean_step_s: Option<f64>,
     coupled_residual: Option<f64>,
+    coupled_impulse_residual: Option<f64>,
+    coupled_raw_linear_impulse_residual: Option<f64>,
+    coupled_raw_angular_impulse_residual: Option<f64>,
     coupled_energy_error_rel: Option<f64>,
+    coupled_true_energy_error_rel: Option<f64>,
     jacobian_builds: Option<f64>,
     error: String,
 }
@@ -342,7 +346,20 @@ fn summarize_case(run_dir: &Path, reference: &[Row]) -> Summary {
         rel_dh: (norm(h0) > 0.0).then_some(max_dh / norm(h0)),
         mean_step_s: log_value(&log_text, "Mean time/step:"),
         coupled_residual: log_value(&log_text, "Coupled max residual norm:"),
+        coupled_impulse_residual: log_value(&log_text, "Coupled max scaled impulse residual:"),
+        coupled_raw_linear_impulse_residual: log_value(
+            &log_text,
+            "Coupled max raw linear impulse residual:",
+        ),
+        coupled_raw_angular_impulse_residual: log_value(
+            &log_text,
+            "Coupled max raw angular impulse residual:",
+        ),
         coupled_energy_error_rel: log_value(&log_text, "Coupled max energy error rel:"),
+        coupled_true_energy_error_rel: log_value(
+            &log_text,
+            "Coupled max true energy error rel:",
+        ),
         jacobian_builds: log_value(&log_text, "Coupled Jacobian builds:"),
         error: solver_error.unwrap_or_default(),
     }
@@ -365,7 +382,11 @@ impl Summary {
             rel_dh: None,
             mean_step_s: None,
             coupled_residual: None,
+            coupled_impulse_residual: None,
+            coupled_raw_linear_impulse_residual: None,
+            coupled_raw_angular_impulse_residual: None,
             coupled_energy_error_rel: None,
+            coupled_true_energy_error_rel: None,
             jacobian_builds: None,
             error: error.to_string(),
         }
@@ -433,11 +454,11 @@ fn load_rows(path: &Path) -> io::Result<Vec<Row>> {
 
 fn write_summary(path: &Path, rows: &[(Case, Summary)]) -> io::Result<()> {
     let mut file = File::create(path)?;
-    writeln!(file, "dt,status,rows,max_ke_drift_pct,final_ke_drift_pct,max_pos_err,final_pos_err,max_sep_err,final_sep_err,max_marker_err,final_marker_err,rel_dP,rel_dH,mean_step_s,coupled_residual,coupled_energy_error_rel,jacobian_builds,error")?;
+    writeln!(file, "dt,status,rows,max_ke_drift_pct,final_ke_drift_pct,max_pos_err,final_pos_err,max_sep_err,final_sep_err,max_marker_err,final_marker_err,rel_dP,rel_dH,mean_step_s,coupled_residual,coupled_impulse_residual,coupled_raw_linear_impulse_residual,coupled_raw_angular_impulse_residual,coupled_energy_error_rel,coupled_true_energy_error_rel,jacobian_builds,error")?;
     for (case, s) in rows {
         writeln!(
             file,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             case.dt,
             s.status,
             s.rows,
@@ -453,7 +474,11 @@ fn write_summary(path: &Path, rows: &[(Case, Summary)]) -> io::Result<()> {
             csv_opt(s.rel_dh),
             csv_opt(s.mean_step_s),
             csv_opt(s.coupled_residual),
+            csv_opt(s.coupled_impulse_residual),
+            csv_opt(s.coupled_raw_linear_impulse_residual),
+            csv_opt(s.coupled_raw_angular_impulse_residual),
             csv_opt(s.coupled_energy_error_rel),
+            csv_opt(s.coupled_true_energy_error_rel),
             csv_opt(s.jacobian_builds),
             s.error.replace(',', ";")
         )?;

@@ -94,9 +94,15 @@ pub struct Rk4PCDM {
     pub coupled_max_residual_norm: f64,
     pub coupled_max_impulse_resid: f64,
     pub coupled_max_energy_err_rel: f64,
+    pub coupled_max_raw_linear_impulse_resid: f64,
+    pub coupled_max_raw_angular_impulse_resid: f64,
+    pub coupled_max_true_energy_err_rel: f64,
     pub coupled_last_step_residual_norm: f64,
     pub coupled_last_step_impulse_resid: f64,
     pub coupled_last_step_energy_err_rel: f64,
+    pub coupled_last_step_raw_linear_impulse_resid: f64,
+    pub coupled_last_step_raw_angular_impulse_resid: f64,
+    pub coupled_last_step_true_energy_err_rel: f64,
     pub coupled_jacobian_builds: usize,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
@@ -161,6 +167,16 @@ struct CoupledDiagnosticsSnapshot {
     max_residual_norm: f64,
     max_impulse_resid: f64,
     max_energy_err_rel: f64,
+    max_raw_linear_impulse_resid: f64,
+    max_raw_angular_impulse_resid: f64,
+    max_true_energy_err_rel: f64,
+}
+
+struct CoupledResidualEval {
+    scaled: DVector<f64>,
+    raw_linear_impulse_resid: f64,
+    raw_angular_impulse_resid: f64,
+    true_energy_err_rel: f64,
 }
 
 impl Rk4PCDM {
@@ -251,9 +267,15 @@ impl Rk4PCDM {
             coupled_max_residual_norm: 0.0,
             coupled_max_impulse_resid: 0.0,
             coupled_max_energy_err_rel: 0.0,
+            coupled_max_raw_linear_impulse_resid: 0.0,
+            coupled_max_raw_angular_impulse_resid: 0.0,
+            coupled_max_true_energy_err_rel: 0.0,
             coupled_last_step_residual_norm: 0.0,
             coupled_last_step_impulse_resid: 0.0,
             coupled_last_step_energy_err_rel: 0.0,
+            coupled_last_step_raw_linear_impulse_resid: 0.0,
+            coupled_last_step_raw_angular_impulse_resid: 0.0,
+            coupled_last_step_true_energy_err_rel: 0.0,
             coupled_jacobian_builds: 0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
@@ -574,6 +596,9 @@ impl Rk4PCDM {
             max_residual_norm: self.coupled_max_residual_norm,
             max_impulse_resid: self.coupled_max_impulse_resid,
             max_energy_err_rel: self.coupled_max_energy_err_rel,
+            max_raw_linear_impulse_resid: self.coupled_max_raw_linear_impulse_resid,
+            max_raw_angular_impulse_resid: self.coupled_max_raw_angular_impulse_resid,
+            max_true_energy_err_rel: self.coupled_max_true_energy_err_rel,
         }
     }
 
@@ -581,9 +606,15 @@ impl Rk4PCDM {
         self.coupled_max_residual_norm = snapshot.max_residual_norm;
         self.coupled_max_impulse_resid = snapshot.max_impulse_resid;
         self.coupled_max_energy_err_rel = snapshot.max_energy_err_rel;
+        self.coupled_max_raw_linear_impulse_resid = snapshot.max_raw_linear_impulse_resid;
+        self.coupled_max_raw_angular_impulse_resid = snapshot.max_raw_angular_impulse_resid;
+        self.coupled_max_true_energy_err_rel = snapshot.max_true_energy_err_rel;
         self.coupled_last_step_residual_norm = 0.0;
         self.coupled_last_step_impulse_resid = 0.0;
         self.coupled_last_step_energy_err_rel = 0.0;
+        self.coupled_last_step_raw_linear_impulse_resid = 0.0;
+        self.coupled_last_step_raw_angular_impulse_resid = 0.0;
+        self.coupled_last_step_true_energy_err_rel = 0.0;
     }
 
     /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
@@ -989,6 +1020,9 @@ impl Rk4PCDM {
         self.coupled_last_step_residual_norm = 0.0;
         self.coupled_last_step_impulse_resid = 0.0;
         self.coupled_last_step_energy_err_rel = 0.0;
+        self.coupled_last_step_raw_linear_impulse_resid = 0.0;
+        self.coupled_last_step_raw_angular_impulse_resid = 0.0;
+        self.coupled_last_step_true_energy_err_rel = 0.0;
         if substeps == 1 {
             self.advance_one_hamiltonian_midpoint_substep();
             return;
@@ -1201,6 +1235,31 @@ impl Rk4PCDM {
             }
         }
 
+        if let Some(eval) =
+            self.coupled_endpoint_residual_eval(start, &z, target_ke, target_impulse)
+        {
+            residual = eval.scaled;
+            residual_norm = residual.norm();
+            self.coupled_max_raw_linear_impulse_resid = self
+                .coupled_max_raw_linear_impulse_resid
+                .max(eval.raw_linear_impulse_resid);
+            self.coupled_max_raw_angular_impulse_resid = self
+                .coupled_max_raw_angular_impulse_resid
+                .max(eval.raw_angular_impulse_resid);
+            self.coupled_max_true_energy_err_rel = self
+                .coupled_max_true_energy_err_rel
+                .max(eval.true_energy_err_rel);
+            self.coupled_last_step_raw_linear_impulse_resid = self
+                .coupled_last_step_raw_linear_impulse_resid
+                .max(eval.raw_linear_impulse_resid);
+            self.coupled_last_step_raw_angular_impulse_resid = self
+                .coupled_last_step_raw_angular_impulse_resid
+                .max(eval.raw_angular_impulse_resid);
+            self.coupled_last_step_true_energy_err_rel = self
+                .coupled_last_step_true_energy_err_rel
+                .max(eval.true_energy_err_rel);
+        }
+
         let impulse_resid = residual.rows(0, 6).norm();
         let energy_err_rel = residual[6].abs();
         self.coupled_max_residual_norm = self.coupled_max_residual_norm.max(residual_norm);
@@ -1283,6 +1342,19 @@ impl Rk4PCDM {
         target_ke: f64,
         target_impulse: &DVector<f64>,
     ) -> Option<DVector<f64>> {
+        Some(
+            self.coupled_endpoint_residual_eval(start, z, target_ke, target_impulse)?
+                .scaled,
+        )
+    }
+
+    fn coupled_endpoint_residual_eval(
+        &mut self,
+        start: &BodyState,
+        z: &DVector<f64>,
+        target_ke: f64,
+        target_impulse: &DVector<f64>,
+    ) -> Option<CoupledResidualEval> {
         let lin_scale = target_impulse.rows(0, 3).norm().max(1.0);
         let ang_scale = target_impulse.rows(3, 3).norm().max(1.0);
         let energy_scale = target_ke.abs().max(1.0);
@@ -1310,12 +1382,21 @@ impl Rk4PCDM {
             return None;
         }
         let mut residual = DVector::zeros(7);
+        let mut lin_resid = [0.0; 3];
+        let mut ang_resid = [0.0; 3];
         for c in 0..3 {
-            residual[c] = (conserved[c] - target_impulse[c]) / lin_scale;
-            residual[3 + c] = (conserved[3 + c] - target_impulse[3 + c]) / ang_scale;
+            lin_resid[c] = conserved[c] - target_impulse[c];
+            ang_resid[c] = conserved[3 + c] - target_impulse[3 + c];
+            residual[c] = lin_resid[c] / lin_scale;
+            residual[3 + c] = ang_resid[c] / ang_scale;
         }
         residual[6] = (ke - target_ke) / energy_scale;
-        Some(residual)
+        Some(CoupledResidualEval {
+            scaled: residual,
+            raw_linear_impulse_resid: norm3(lin_resid),
+            raw_angular_impulse_resid: norm3(ang_resid),
+            true_energy_err_rel: (ke - target_ke).abs() / target_ke.abs().max(f64::EPSILON),
+        })
     }
 
     fn coupled_endpoint_state(&self, start: &BodyState, z: &DVector<f64>) -> BodyState {
@@ -2090,4 +2171,8 @@ impl Rk4PCDM {
         let omega_n1 = Quaternion::from_parts(real_part, imag_part);
         omega_n1 * q1
     }
+}
+
+fn norm3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }

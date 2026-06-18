@@ -28,7 +28,10 @@ struct Summary {
     mean_step_s: Option<f64>,
     coupled_residual: Option<f64>,
     coupled_impulse_residual: Option<f64>,
+    coupled_raw_linear_impulse_residual: Option<f64>,
+    coupled_raw_angular_impulse_residual: Option<f64>,
     coupled_energy_error_rel: Option<f64>,
+    coupled_true_energy_error_rel: Option<f64>,
     floor_excess: Option<f64>,
     floor_hits_fallbacks: Option<String>,
     error: String,
@@ -377,7 +380,19 @@ fn summarize_run(run_dir: &Path) -> Summary {
         mean_step_s: log_value(&log_text, "Mean time/step:"),
         coupled_residual: log_value(&log_text, "Coupled max residual norm:"),
         coupled_impulse_residual: log_value(&log_text, "Coupled max scaled impulse residual:"),
+        coupled_raw_linear_impulse_residual: log_value(
+            &log_text,
+            "Coupled max raw linear impulse residual:",
+        ),
+        coupled_raw_angular_impulse_residual: log_value(
+            &log_text,
+            "Coupled max raw angular impulse residual:",
+        ),
         coupled_energy_error_rel: log_value(&log_text, "Coupled max energy error rel:"),
+        coupled_true_energy_error_rel: log_value(
+            &log_text,
+            "Coupled max true energy error rel:",
+        ),
         floor_excess: log_value(&log_text, "Projection max KE floor excess:"),
         floor_hits_fallbacks: log_floor_counts(&log_text),
         error: solver_error.unwrap_or_default(),
@@ -398,7 +413,10 @@ impl Summary {
             mean_step_s: None,
             coupled_residual: None,
             coupled_impulse_residual: None,
+            coupled_raw_linear_impulse_residual: None,
+            coupled_raw_angular_impulse_residual: None,
             coupled_energy_error_rel: None,
+            coupled_true_energy_error_rel: None,
             floor_excess: None,
             floor_hits_fallbacks: None,
             error: error.to_string(),
@@ -408,11 +426,11 @@ impl Summary {
 
 fn write_summary(path: &Path, rows: &[(Case, Summary)]) -> io::Result<()> {
     let mut file = File::create(path)?;
-    writeln!(file, "name,scheme,rho,ndiv,dt,tend,sep,status,rows,max_ke_drift_pct,final_ke_drift_pct,max_dP,rel_dP,max_dH,rel_dH,mean_step_s,coupled_residual,coupled_impulse_residual,coupled_energy_error_rel,floor_excess,floor_hits_fallbacks,error")?;
+    writeln!(file, "name,scheme,rho,ndiv,dt,tend,sep,status,rows,max_ke_drift_pct,final_ke_drift_pct,max_dP,rel_dP,max_dH,rel_dH,mean_step_s,coupled_residual,coupled_impulse_residual,coupled_raw_linear_impulse_residual,coupled_raw_angular_impulse_residual,coupled_energy_error_rel,coupled_true_energy_error_rel,floor_excess,floor_hits_fallbacks,error")?;
     for (case, s) in rows {
         writeln!(
             file,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             case.name,
             case.scheme,
             case.rho,
@@ -431,7 +449,10 @@ fn write_summary(path: &Path, rows: &[(Case, Summary)]) -> io::Result<()> {
             csv_opt(s.mean_step_s),
             csv_opt(s.coupled_residual),
             csv_opt(s.coupled_impulse_residual),
+            csv_opt(s.coupled_raw_linear_impulse_residual),
+            csv_opt(s.coupled_raw_angular_impulse_residual),
             csv_opt(s.coupled_energy_error_rel),
+            csv_opt(s.coupled_true_energy_error_rel),
             csv_opt(s.floor_excess),
             s.floor_hits_fallbacks.clone().unwrap_or_default(),
             s.error.replace(',', ";")
