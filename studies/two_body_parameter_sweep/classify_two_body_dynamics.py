@@ -65,8 +65,8 @@ def base_class(value: object) -> str:
     return text
 
 
-def load_manifest() -> list[dict[str, str]]:
-    with MANIFEST.open("r", encoding="utf-8", newline="") as f:
+def load_manifest(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
 
@@ -530,18 +530,24 @@ def main() -> None:
         default="",
         help="append a suffix before file extensions, e.g. _full_run",
     )
+    parser.add_argument("--manifest", type=Path, default=MANIFEST, help="manifest CSV to classify")
+    parser.add_argument("--out-dir", type=Path, default=STUDY, help="directory for classification outputs")
     args = parser.parse_args()
 
-    rows = load_manifest()
+    manifest = args.manifest if args.manifest.is_absolute() else ROOT / args.manifest
+    out_dir = args.out_dir if args.out_dir.is_absolute() else ROOT / args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = load_manifest(manifest)
     if args.limit is not None:
         rows = rows[: args.limit]
 
     if not 0.0 <= args.transient_fraction < 1.0:
         raise SystemExit("--transient-fraction must be in [0, 1)")
 
-    out_csv = OUT_CSV.with_name(f"{OUT_CSV.stem}{args.suffix}{OUT_CSV.suffix}")
-    out_summary = OUT_SUMMARY.with_name(f"{OUT_SUMMARY.stem}{args.suffix}{OUT_SUMMARY.suffix}")
-    out_png = OUT_PNG.with_name(f"{OUT_PNG.stem}{args.suffix}{OUT_PNG.suffix}")
+    out_csv = out_dir / f"{OUT_CSV.stem}{args.suffix}{OUT_CSV.suffix}"
+    out_summary = out_dir / f"{OUT_SUMMARY.stem}{args.suffix}{OUT_SUMMARY.suffix}"
+    out_png = out_dir / f"{OUT_PNG.stem}{args.suffix}{OUT_PNG.suffix}"
     title_suffix = "full-run" if args.transient_fraction == 0.0 else f"post-transient ({args.transient_fraction:g} tend)"
 
     results = []
