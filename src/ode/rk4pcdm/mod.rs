@@ -125,6 +125,7 @@ pub struct Rk4PCDM {
     hamiltonian_coupled_max_shift: f64,
     hamiltonian_coupled_jacobian_interval: usize,
     hamiltonian_coupled_broyden_update: bool,
+    hamiltonian_coupled_endpoint_velocity: bool,
     initial_total_ke: Option<f64>,
 }
 
@@ -194,6 +195,7 @@ impl Rk4PCDM {
         hamiltonian_coupled_max_shift: f64,
         hamiltonian_coupled_jacobian_interval: usize,
         hamiltonian_coupled_broyden_update: bool,
+        hamiltonian_coupled_endpoint_velocity: bool,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -271,6 +273,7 @@ impl Rk4PCDM {
             hamiltonian_coupled_max_shift: hamiltonian_coupled_max_shift.max(0.0),
             hamiltonian_coupled_jacobian_interval: hamiltonian_coupled_jacobian_interval.max(1),
             hamiltonian_coupled_broyden_update,
+            hamiltonian_coupled_endpoint_velocity,
             initial_total_ke: None,
         }
     }
@@ -1038,7 +1041,7 @@ impl Rk4PCDM {
                 target_ke,
                 &target_impulse,
             );
-            self.state = self.endpoint_state_from_mid_velocity(&start_state, &z_mid);
+            self.state = self.coupled_endpoint_state(&start_state, &z_mid);
             self.solver.set_state(&self.state);
             let _ = self.solver.impulse();
             self.o_lab = self.orientation_to_marker_point();
@@ -1199,7 +1202,7 @@ impl Rk4PCDM {
         }
 
         let impulse_resid = residual.rows(0, 6).norm();
-        let energy_err_rel = residual[6].abs() / target_ke.abs().sqrt().max(1.0);
+        let energy_err_rel = residual[6].abs();
         self.coupled_max_residual_norm = self.coupled_max_residual_norm.max(residual_norm);
         self.coupled_max_impulse_resid = self.coupled_max_impulse_resid.max(impulse_resid);
         self.coupled_max_energy_err_rel = self.coupled_max_energy_err_rel.max(energy_err_rel);
@@ -1276,12 +1279,15 @@ impl Rk4PCDM {
     fn coupled_endpoint_residual(
         &mut self,
         start: &BodyState,
-        z_mid: &DVector<f64>,
+        z: &DVector<f64>,
         target_ke: f64,
         target_impulse: &DVector<f64>,
     ) -> Option<DVector<f64>> {
+        let lin_scale = target_impulse.rows(0, 3).norm().max(1.0);
+        let ang_scale = target_impulse.rows(3, 3).norm().max(1.0);
+        let energy_scale = target_ke.abs().max(1.0);
         let saved_state = self.state.clone();
-        self.state = self.endpoint_state_from_mid_velocity(start, z_mid);
+        self.state = self.coupled_endpoint_state(start, z);
         self.solver.set_state(&self.state);
         let (l_lin, l_ang) = self.solver.impulse();
         let conserved = self.total_conserved_impulse(
@@ -1305,11 +1311,19 @@ impl Rk4PCDM {
         }
         let mut residual = DVector::zeros(7);
         for c in 0..3 {
-            residual[c] = conserved[c] - target_impulse[c];
-            residual[3 + c] = conserved[3 + c] - target_impulse[3 + c];
+            residual[c] = (conserved[c] - target_impulse[c]) / lin_scale;
+            residual[3 + c] = (conserved[3 + c] - target_impulse[3 + c]) / ang_scale;
         }
-        residual[6] = (ke - target_ke) / target_ke.abs().sqrt().max(1.0);
+        residual[6] = (ke - target_ke) / energy_scale;
         Some(residual)
+    }
+
+    fn coupled_endpoint_state(&self, start: &BodyState, z: &DVector<f64>) -> BodyState {
+        if self.hamiltonian_coupled_endpoint_velocity {
+            self.endpoint_state_from_velocity(start, z)
+        } else {
+            self.endpoint_state_from_mid_velocity(start, z)
+        }
     }
 
     fn endpoint_state_from_mid_velocity(

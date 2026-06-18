@@ -211,6 +211,8 @@ fn main() {
     )
     .max(1.0) as usize;
     let hamiltonian_coupled_broyden_update = get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
+    let hamiltonian_coupled_endpoint_velocity =
+        get("hamiltonian_coupled_endpoint_velocity", 0.0) > 0.5;
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -301,6 +303,7 @@ fn main() {
         hamiltonian_coupled_max_shift,
         hamiltonian_coupled_jacobian_interval,
         hamiltonian_coupled_broyden_update,
+        hamiltonian_coupled_endpoint_velocity,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -409,6 +412,10 @@ fn main() {
                 "  Coupled Broyden update: {}",
                 fmt_enabled(hamiltonian_coupled_broyden_update)
             );
+            println!(
+                "  Coupled endpoint velocity: {}",
+                fmt_enabled(hamiltonian_coupled_endpoint_velocity)
+            );
         }
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
@@ -490,7 +497,7 @@ fn main() {
                         stepper.coupled_max_residual_norm
                     );
                     println!(
-                        "  Coupled max impulse residual:   {:.6e}",
+                        "  Coupled max scaled impulse residual: {:.6e}",
                         stepper.coupled_max_impulse_resid
                     );
                     println!(

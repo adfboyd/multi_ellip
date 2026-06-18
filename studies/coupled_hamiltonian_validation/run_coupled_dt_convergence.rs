@@ -55,6 +55,7 @@ fn main() -> io::Result<()> {
     let study = root.join("coupled_dt_convergence_runs");
     let runs = study.join("runs");
     let summary_path = study.join("coupled_dt_convergence_summary.csv");
+    let pairwise_path = study.join("coupled_dt_pairwise_summary.csv");
     let study_log = study.join("study.log");
     let exe = root.join("target").join("release").join("multi_ellip.exe");
     fs::create_dir_all(&runs)?;
@@ -115,9 +116,14 @@ fn main() -> io::Result<()> {
         rows.push((case.clone(), summarize_case(&run_dir, &reference)));
     }
     write_summary(&summary_path, &rows)?;
+    write_pairwise_summary(&pairwise_path, &cases, &runs)?;
     log_line(
         &study_log,
         &format!("summary written {}", summary_path.display()),
+    )?;
+    log_line(
+        &study_log,
+        &format!("pairwise summary written {}", pairwise_path.display()),
     )?;
 
     println!(
@@ -138,6 +144,7 @@ fn main() -> io::Result<()> {
             fmt_opt(s.jacobian_builds)
         );
     }
+    println!("pairwise summary: {}", pairwise_path.display());
 
     Ok(())
 }
@@ -260,9 +267,10 @@ fn input_text(case: &Case) -> String {
         "hamiltonian_coupled_max_shift=0.2".to_string(),
         "hamiltonian_coupled_jacobian_interval=6".to_string(),
         "hamiltonian_coupled_broyden_update=1".to_string(),
+        "hamiltonian_coupled_endpoint_velocity=1".to_string(),
         "hamiltonian_adaptive_substeps=1".to_string(),
         "hamiltonian_max_substeps=8".to_string(),
-        "hamiltonian_floor_tol=0.001".to_string(),
+        "hamiltonian_floor_tol=0.0001".to_string(),
     ];
     lines.join("\n") + "\n"
 }
@@ -449,6 +457,72 @@ fn write_summary(path: &Path, rows: &[(Case, Summary)]) -> io::Result<()> {
             csv_opt(s.jacobian_builds),
             s.error.replace(',', ";")
         )?;
+    }
+    Ok(())
+}
+
+fn write_pairwise_summary(path: &Path, cases: &[Case], runs: &Path) -> io::Result<()> {
+    let horizons = [0.25, 0.5, 1.0, 2.0];
+    let mut loaded = Vec::new();
+    for case in cases {
+        let rows = load_rows(
+            &runs
+                .join(&case.name)
+                .join("out")
+                .join("multiple_body_complete.dat"),
+        )
+        .unwrap_or_default();
+        loaded.push((case, rows));
+    }
+
+    let mut file = File::create(path)?;
+    writeln!(
+        file,
+        "dt_coarse,dt_fine,horizon,ncompare,max_pos_err,final_pos_err,max_sep_err,final_sep_err,max_marker_err,final_marker_err"
+    )?;
+    for pair in loaded.windows(2) {
+        let (coarse_case, coarse_rows) = &pair[0];
+        let (fine_case, fine_rows) = &pair[1];
+        if coarse_rows.is_empty() || fine_rows.is_empty() {
+            continue;
+        }
+        for horizon in horizons {
+            let mut ncompare = 0_usize;
+            let mut max_pos_err = 0.0_f64;
+            let mut final_pos_err = 0.0_f64;
+            let mut max_sep_err = 0.0_f64;
+            let mut final_sep_err = 0.0_f64;
+            let mut max_marker_err = 0.0_f64;
+            let mut final_marker_err = 0.0_f64;
+            for row in coarse_rows.iter().filter(|row| row.time <= horizon + 1.0e-8) {
+                if let Some(fine) = reference_at(fine_rows, row.time) {
+                    ncompare += 1;
+                    let pos_err = stacked_error(&row.pos, &fine.pos);
+                    let sep_err = (separation(row) - separation(fine)).abs();
+                    let marker_err = stacked_error(&row.marker, &fine.marker);
+                    max_pos_err = max_pos_err.max(pos_err);
+                    max_sep_err = max_sep_err.max(sep_err);
+                    max_marker_err = max_marker_err.max(marker_err);
+                    final_pos_err = pos_err;
+                    final_sep_err = sep_err;
+                    final_marker_err = marker_err;
+                }
+            }
+            writeln!(
+                file,
+                "{},{},{},{},{:.12e},{:.12e},{:.12e},{:.12e},{:.12e},{:.12e}",
+                coarse_case.dt,
+                fine_case.dt,
+                horizon,
+                ncompare,
+                max_pos_err,
+                final_pos_err,
+                max_sep_err,
+                final_sep_err,
+                max_marker_err,
+                final_marker_err
+            )?;
+        }
     }
     Ok(())
 }

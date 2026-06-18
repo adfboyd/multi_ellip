@@ -266,10 +266,15 @@ fn input_text(case: &Case) -> String {
         lines.extend([
             "hamiltonian_midpoint_scheme=1".to_string(),
             "hamiltonian_coupled_solve=1".to_string(),
-            "hamiltonian_coupled_iters=4".to_string(),
+            "hamiltonian_coupled_iters=6".to_string(),
             "hamiltonian_coupled_eps=0.001".to_string(),
             "hamiltonian_coupled_max_shift=0.2".to_string(),
-            "hamiltonian_floor_tol=0.001".to_string(),
+            "hamiltonian_coupled_jacobian_interval=6".to_string(),
+            "hamiltonian_coupled_broyden_update=1".to_string(),
+            "hamiltonian_coupled_endpoint_velocity=1".to_string(),
+            "hamiltonian_adaptive_substeps=1".to_string(),
+            "hamiltonian_max_substeps=8".to_string(),
+            "hamiltonian_floor_tol=0.0001".to_string(),
         ]);
     }
     lines.join("\n") + "\n"
@@ -371,7 +376,7 @@ fn summarize_run(run_dir: &Path) -> Summary {
         rel_dh: (h0_norm > 0.0).then_some(max_dh / h0_norm),
         mean_step_s: log_value(&log_text, "Mean time/step:"),
         coupled_residual: log_value(&log_text, "Coupled max residual norm:"),
-        coupled_impulse_residual: log_value(&log_text, "Coupled max impulse residual:"),
+        coupled_impulse_residual: log_value(&log_text, "Coupled max scaled impulse residual:"),
         coupled_energy_error_rel: log_value(&log_text, "Coupled max energy error rel:"),
         floor_excess: log_value(&log_text, "Projection max KE floor excess:"),
         floor_hits_fallbacks: log_floor_counts(&log_text),
