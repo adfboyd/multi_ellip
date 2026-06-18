@@ -162,6 +162,10 @@ def default_manifest_path(solver_mode: str) -> Path:
     return MANIFEST
 
 
+def repo_path(path: Path) -> Path:
+    return path if path.is_absolute() else ROOT / path
+
+
 def solver_values(solver_mode: str) -> Dict[str, Any]:
     if solver_mode == "impulse_projection":
         return {
@@ -399,8 +403,8 @@ def main() -> None:
     args = parser.parse_args()
 
     case_list = cases()
-    manifest_path = args.manifest or default_manifest_path(args.solver_mode)
-    runs_root = args.runs_root or default_runs_root(args.solver_mode)
+    manifest_path = repo_path(args.manifest) if args.manifest else default_manifest_path(args.solver_mode)
+    runs_root = repo_path(args.runs_root) if args.runs_root else default_runs_root(args.solver_mode)
     print_plan(case_list, args.solver_mode, manifest_path, runs_root)
     if args.write:
         setup_inputs(
