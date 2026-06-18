@@ -409,6 +409,14 @@ fn main() {
                     stepper.projection_max_energy_floor_rel
                 );
                 println!(
+                    "  Projection max KE floor abs:    {:.6e}",
+                    stepper.projection_max_energy_floor_abs
+                );
+                println!(
+                    "  Projection floor hits/fallbacks: {} / {}",
+                    stepper.projection_floor_hit_count, stepper.projection_floor_fallback_count
+                );
+                println!(
                     "  Projection max impulse residual: {:.6e}",
                     stepper.projection_max_constraint_resid
                 );

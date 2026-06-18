@@ -44,6 +44,24 @@ impl Rk4PCDM {
         );
     }
 
+    pub(crate) fn print_projection_floor_event(&self, step: usize, time: f64) {
+        if self.projection_last_step_floor_hits == 0
+            && self.projection_last_step_floor_fallbacks == 0
+        {
+            return;
+        }
+
+        println!(
+            "  Projection floor step {:>5} | t {:.6} | hits {} | fallbacks {} | max excess {:.6e} ({:.6e})",
+            step,
+            time,
+            self.projection_last_step_floor_hits,
+            self.projection_last_step_floor_fallbacks,
+            self.projection_last_step_max_floor_rel,
+            self.projection_last_step_max_floor_abs
+        );
+    }
+
     pub(crate) fn print_initial_state(&self) {
         let (pos, vel) = &self.state.lin;
         let (q, omega) = &self.state.ang;

@@ -83,7 +83,14 @@ pub struct Rk4PCDM {
     pub projection_max_corr_rel: f64,
     pub projection_max_energy_err_rel: f64,
     pub projection_max_energy_floor_rel: f64,
+    pub projection_max_energy_floor_abs: f64,
     pub projection_max_constraint_resid: f64,
+    pub projection_floor_hit_count: usize,
+    pub projection_floor_fallback_count: usize,
+    pub projection_last_step_floor_hits: usize,
+    pub projection_last_step_floor_fallbacks: usize,
+    pub projection_last_step_max_floor_rel: f64,
+    pub projection_last_step_max_floor_abs: f64,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -188,7 +195,14 @@ impl Rk4PCDM {
             projection_max_corr_rel: 0.0,
             projection_max_energy_err_rel: 0.0,
             projection_max_energy_floor_rel: 0.0,
+            projection_max_energy_floor_abs: 0.0,
             projection_max_constraint_resid: 0.0,
+            projection_floor_hit_count: 0,
+            projection_floor_fallback_count: 0,
+            projection_last_step_floor_hits: 0,
+            projection_last_step_floor_fallbacks: 0,
+            projection_last_step_max_floor_rel: 0.0,
+            projection_last_step_max_floor_abs: 0.0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
@@ -236,6 +250,7 @@ impl Rk4PCDM {
                 println!();
             }
             let t_new = self.t + self.step_size;
+            self.print_projection_floor_event(i + 1, t_new);
             self.ensure_finite_state(t_new)?;
 
             if i % samp_rate == 0 {
@@ -298,6 +313,7 @@ impl Rk4PCDM {
                 println!();
             }
             let t_new = self.t + self.step_size;
+            self.print_projection_floor_event(i + 1, t_new);
 
             // Flush the pending row now: its state is the start state of the step
             // just run, so `fluid_ke_step_start` (captured in stage A) is the
@@ -451,6 +467,7 @@ impl Rk4PCDM {
     /// Advance the full state `(self.state.lin, self.state.ang, self.o_lab)` by one timestep with
     /// the configured coupling scheme.
     fn advance_one_step(&mut self) {
+        self.reset_projection_step_diagnostics();
         match self.scheme {
             CouplingScheme::HamiltonianMidpoint => self.advance_one_step_hamiltonian_midpoint(),
             CouplingScheme::Hamiltonian => self.advance_one_step_hamiltonian(),
@@ -458,6 +475,13 @@ impl Rk4PCDM {
             CouplingScheme::Strong => self.advance_one_step_strong(),
             CouplingScheme::Explicit => self.advance_one_step_explicit(),
         }
+    }
+
+    fn reset_projection_step_diagnostics(&mut self) {
+        self.projection_last_step_floor_hits = 0;
+        self.projection_last_step_floor_fallbacks = 0;
+        self.projection_last_step_max_floor_rel = 0.0;
+        self.projection_last_step_max_floor_abs = 0.0;
     }
 
     /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
@@ -1081,13 +1105,34 @@ impl Rk4PCDM {
         };
         let energy_floor = self.evaluate_total_ke_for_velocity(&z_particular);
         if energy_floor.is_finite() {
-            let floor_rel = ((energy_floor - target_ke) / target_ke).max(0.0);
+            let floor_abs = (energy_floor - target_ke).max(0.0);
+            let floor_rel = floor_abs / target_ke.abs().max(f64::EPSILON);
             self.projection_max_energy_floor_rel =
                 self.projection_max_energy_floor_rel.max(floor_rel);
+            self.projection_max_energy_floor_abs =
+                self.projection_max_energy_floor_abs.max(floor_abs);
+            if floor_abs > 1.0e-10 * target_ke.abs().max(1.0) {
+                self.projection_floor_hit_count += 1;
+                self.projection_last_step_floor_hits += 1;
+                self.projection_last_step_max_floor_rel =
+                    self.projection_last_step_max_floor_rel.max(floor_rel);
+                self.projection_last_step_max_floor_abs =
+                    self.projection_last_step_max_floor_abs.max(floor_abs);
+            }
         }
-        let z_projected = self
-            .project_velocity_to_energy_in_nullspace(target_ke, &z_pcon, &z_particular, &z_null)
-            .unwrap_or(z_particular);
+        let z_projected = match self.project_velocity_to_energy_in_nullspace(
+            target_ke,
+            &z_pcon,
+            &z_particular,
+            &z_null,
+        ) {
+            Some(z) => z,
+            None => {
+                self.projection_floor_fallback_count += 1;
+                self.projection_last_step_floor_fallbacks += 1;
+                z_particular
+            }
+        };
         let corr_rel = (&z_projected - &z_current).norm() / z_current.norm().max(1.0);
         if corr_rel.is_finite() {
             self.projection_max_corr_rel = self.projection_max_corr_rel.max(corr_rel);
