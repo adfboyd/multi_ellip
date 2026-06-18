@@ -109,6 +109,9 @@ pub struct Rk4PCDM {
     fluid_energy_gradient_eps: f64,
     fluid_energy_gradient_scale: f64,
     hamiltonian_substeps: usize,
+    hamiltonian_adaptive_substeps: bool,
+    hamiltonian_max_substeps: usize,
+    hamiltonian_floor_tol: f64,
     initial_total_ke: Option<f64>,
 }
 
@@ -126,6 +129,17 @@ pub(crate) struct SolidEnergy {
     total: f64,
     /// (linear, rotational, total) kinetic energy for each body.
     per_body: Vec<(f64, f64, f64)>,
+}
+
+#[derive(Clone, Copy)]
+struct ProjectionDiagnosticsSnapshot {
+    max_corr_rel: f64,
+    max_energy_err_rel: f64,
+    max_energy_floor_rel: f64,
+    max_energy_floor_abs: f64,
+    max_constraint_resid: f64,
+    floor_hit_count: usize,
+    floor_fallback_count: usize,
 }
 
 impl Rk4PCDM {
@@ -151,6 +165,9 @@ impl Rk4PCDM {
         fluid_energy_gradient_eps: f64,
         fluid_energy_gradient_scale: f64,
         hamiltonian_substeps: usize,
+        hamiltonian_adaptive_substeps: bool,
+        hamiltonian_max_substeps: usize,
+        hamiltonian_floor_tol: f64,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -212,6 +229,9 @@ impl Rk4PCDM {
             fluid_energy_gradient_eps,
             fluid_energy_gradient_scale,
             hamiltonian_substeps: hamiltonian_substeps.max(1),
+            hamiltonian_adaptive_substeps,
+            hamiltonian_max_substeps: hamiltonian_max_substeps.max(hamiltonian_substeps.max(1)),
+            hamiltonian_floor_tol: hamiltonian_floor_tol.max(0.0),
             initial_total_ke: None,
         }
     }
@@ -482,6 +502,29 @@ impl Rk4PCDM {
         self.projection_last_step_floor_fallbacks = 0;
         self.projection_last_step_max_floor_rel = 0.0;
         self.projection_last_step_max_floor_abs = 0.0;
+    }
+
+    fn projection_diagnostics_snapshot(&self) -> ProjectionDiagnosticsSnapshot {
+        ProjectionDiagnosticsSnapshot {
+            max_corr_rel: self.projection_max_corr_rel,
+            max_energy_err_rel: self.projection_max_energy_err_rel,
+            max_energy_floor_rel: self.projection_max_energy_floor_rel,
+            max_energy_floor_abs: self.projection_max_energy_floor_abs,
+            max_constraint_resid: self.projection_max_constraint_resid,
+            floor_hit_count: self.projection_floor_hit_count,
+            floor_fallback_count: self.projection_floor_fallback_count,
+        }
+    }
+
+    fn restore_projection_diagnostics(&mut self, snapshot: ProjectionDiagnosticsSnapshot) {
+        self.projection_max_corr_rel = snapshot.max_corr_rel;
+        self.projection_max_energy_err_rel = snapshot.max_energy_err_rel;
+        self.projection_max_energy_floor_rel = snapshot.max_energy_floor_rel;
+        self.projection_max_energy_floor_abs = snapshot.max_energy_floor_abs;
+        self.projection_max_constraint_resid = snapshot.max_constraint_resid;
+        self.projection_floor_hit_count = snapshot.floor_hit_count;
+        self.projection_floor_fallback_count = snapshot.floor_fallback_count;
+        self.reset_projection_step_diagnostics();
     }
 
     /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
@@ -833,7 +876,51 @@ impl Rk4PCDM {
     }
 
     fn advance_one_step_hamiltonian_midpoint(&mut self) {
-        let substeps = self.hamiltonian_substeps.max(1);
+        if self.hamiltonian_adaptive_substeps {
+            self.advance_one_step_hamiltonian_midpoint_adaptive();
+        } else {
+            self.advance_one_step_hamiltonian_midpoint_fixed(self.hamiltonian_substeps.max(1));
+        }
+    }
+
+    fn advance_one_step_hamiltonian_midpoint_adaptive(&mut self) {
+        let base_substeps = self.hamiltonian_substeps.max(1);
+        let max_substeps = self.hamiltonian_max_substeps.max(base_substeps);
+        let start_state = self.state.clone();
+        let start_marker = self.o_lab.clone();
+        let start_diag = self.projection_diagnostics_snapshot();
+        let mut substeps = base_substeps;
+
+        loop {
+            self.state = start_state.clone();
+            self.o_lab = start_marker.clone();
+            self.solver.set_state(&self.state);
+            let _ = self.solver.impulse();
+            self.restore_projection_diagnostics(start_diag);
+
+            self.advance_one_step_hamiltonian_midpoint_fixed(substeps);
+
+            let retry = self.projection_last_step_max_floor_rel > self.hamiltonian_floor_tol
+                || self.projection_last_step_floor_fallbacks > 0;
+            if !retry || substeps >= max_substeps {
+                break;
+            }
+
+            let next_substeps = (2 * substeps).min(max_substeps);
+            println!(
+                "  Hamiltonian adaptive retry | t {:.6} | substeps {} -> {} | floor {:.6e} | fallbacks {}",
+                self.t + self.step_size,
+                substeps,
+                next_substeps,
+                self.projection_last_step_max_floor_rel,
+                self.projection_last_step_floor_fallbacks
+            );
+            substeps = next_substeps;
+        }
+    }
+
+    fn advance_one_step_hamiltonian_midpoint_fixed(&mut self, substeps: usize) {
+        let substeps = substeps.max(1);
         if substeps == 1 {
             self.advance_one_hamiltonian_midpoint_substep();
             return;

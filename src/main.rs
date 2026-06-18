@@ -188,6 +188,13 @@ fn main() {
     let hamiltonian_scheme = get("hamiltonian_scheme", 0.0) > 0.5;
     let hamiltonian_midpoint_scheme = get("hamiltonian_midpoint_scheme", 0.0) > 0.5;
     let hamiltonian_substeps = get("hamiltonian_substeps", 1.0).max(1.0) as usize;
+    let hamiltonian_adaptive_substeps = get("hamiltonian_adaptive_substeps", 0.0) > 0.5;
+    let hamiltonian_max_substeps = get(
+        "hamiltonian_max_substeps",
+        (hamiltonian_substeps.max(1) * 4) as f64,
+    )
+    .max(hamiltonian_substeps.max(1) as f64) as usize;
+    let hamiltonian_floor_tol = get("hamiltonian_floor_tol", 1.0e-3);
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -269,6 +276,9 @@ fn main() {
         fluid_energy_gradient_eps,
         fluid_energy_gradient_scale,
         hamiltonian_substeps,
+        hamiltonian_adaptive_substeps,
+        hamiltonian_max_substeps,
+        hamiltonian_floor_tol,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -346,6 +356,16 @@ fn main() {
     );
     if hamiltonian_scheme || hamiltonian_midpoint_scheme {
         println!("  Hamiltonian substeps: {}", hamiltonian_substeps);
+        println!(
+            "  Hamiltonian adaptive: {}",
+            fmt_enabled(hamiltonian_adaptive_substeps)
+        );
+        if hamiltonian_adaptive_substeps {
+            println!(
+                "  Hamiltonian max substeps: {}, floor tol: {:.6e}",
+                hamiltonian_max_substeps, hamiltonian_floor_tol
+            );
+        }
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
     println!(
