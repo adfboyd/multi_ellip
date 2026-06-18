@@ -28,6 +28,9 @@ T_END = 100.0
 REQ = 1.0
 RHO_F = 1.0
 NBODY = 2
+DEFAULT_SOLVER_MODE = "coupled_endpoint"
+
+SOLVER_MODES = ("impulse_projection", "coupled_endpoint")
 
 ROTATIONS_OVER_RUN = 100.0
 ORIENTATIONS = [
@@ -114,14 +117,17 @@ def speed_for_ratio(
     return math.sqrt(2.0 * target_lin_ke / mass)
 
 
-def case_name(case: Case) -> str:
-    return (
+def case_name(case: Case, solver_mode: str = "impulse_projection") -> str:
+    name = (
         f"{case['shape_name']}"
         f"_rho{label_float(float(case['rho']))}"
         f"_E{label_float(float(case['energy_ratio']))}"
         f"_sep{label_float(float(case['separation']))}"
         f"_run{int(case['repeat']):02d}"
     )
+    if solver_mode != "impulse_projection":
+        name += f"_{solver_mode}"
+    return name
 
 
 def cases() -> List[Case]:
@@ -142,7 +148,33 @@ def cases() -> List[Case]:
     return out
 
 
-def input_values(case: Case) -> Dict[str, Any]:
+def solver_values(solver_mode: str) -> Dict[str, Any]:
+    if solver_mode == "impulse_projection":
+        return {
+            "impulse_scheme": 1,
+            "energy_projection": 1,
+        }
+    if solver_mode == "coupled_endpoint":
+        return {
+            "impulse_scheme": 1,
+            "energy_projection": 0,
+            "fluid_energy_gradient": 0,
+            "hamiltonian_midpoint_scheme": 1,
+            "hamiltonian_coupled_solve": 1,
+            "hamiltonian_coupled_iters": 6,
+            "hamiltonian_coupled_eps": 0.001,
+            "hamiltonian_coupled_max_shift": 0.2,
+            "hamiltonian_coupled_jacobian_interval": 6,
+            "hamiltonian_coupled_broyden_update": 1,
+            "hamiltonian_coupled_endpoint_velocity": 1,
+            "hamiltonian_adaptive_substeps": 1,
+            "hamiltonian_max_substeps": 8,
+            "hamiltonian_floor_tol": 0.0001,
+        }
+    raise ValueError(f"unknown solver mode {solver_mode!r}")
+
+
+def input_values(case: Case, solver_mode: str) -> Dict[str, Any]:
     shape = case["shape"]
     assert isinstance(shape, tuple)
     rho = float(case["rho"])
@@ -206,9 +238,8 @@ def input_values(case: Case) -> Dict[str, Any]:
         "tprint": 1,
         "logevery": 100,
         "nbody": NBODY,
-        "impulse_scheme": 1,
-        "energy_projection": 1,
     }
+    values.update(solver_values(solver_mode))
     return values
 
 
@@ -225,7 +256,7 @@ def manifest_path(path: Path, portable: bool) -> str:
     return str(path)
 
 
-def write_manifest(case_list: List[Case], portable: bool = False) -> None:
+def write_manifest(case_list: List[Case], solver_mode: str, portable: bool = False) -> None:
     STUDY.mkdir(parents=True, exist_ok=True)
     fields = [
         "name",
@@ -234,6 +265,7 @@ def write_manifest(case_list: List[Case], portable: bool = False) -> None:
         "energy_ratio",
         "separation",
         "repeat",
+        "solver_mode",
         "ndiv",
         "dt",
         "tend",
@@ -244,7 +276,7 @@ def write_manifest(case_list: List[Case], portable: bool = False) -> None:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         for case in case_list:
-            name = case_name(case)
+            name = case_name(case, solver_mode)
             run_dir = RUNS / name
             writer.writerow(
                 {
@@ -254,6 +286,7 @@ def write_manifest(case_list: List[Case], portable: bool = False) -> None:
                     "energy_ratio": case["energy_ratio"],
                     "separation": case["separation"],
                     "repeat": case["repeat"],
+                    "solver_mode": solver_mode,
                     "ndiv": NDIV,
                     "dt": DT,
                     "tend": T_END,
@@ -263,14 +296,18 @@ def write_manifest(case_list: List[Case], portable: bool = False) -> None:
             )
 
 
-def setup_inputs(case_list: List[Case], portable_manifest: bool = False) -> None:
+def setup_inputs(
+    case_list: List[Case],
+    solver_mode: str,
+    portable_manifest: bool = False,
+) -> None:
     for case in case_list:
-        run_dir = RUNS / case_name(case)
-        write_input(run_dir / "input.txt", input_values(case))
-    write_manifest(case_list, portable=portable_manifest)
+        run_dir = RUNS / case_name(case, solver_mode)
+        write_input(run_dir / "input.txt", input_values(case, solver_mode))
+    write_manifest(case_list, solver_mode, portable=portable_manifest)
 
 
-def print_plan(case_list: List[Case]) -> None:
+def print_plan(case_list: List[Case], solver_mode: str) -> None:
     print("Two-body parameter sweep proposal")
     print(f"  Study dir:       {STUDY}")
     print(f"  Shapes:          {', '.join(SHAPES)}")
@@ -280,14 +317,18 @@ def print_plan(case_list: List[Case]) -> None:
     print(f"  Repeats:         {REPEATS} per (shape, rho, E, separation)")
     print(f"  Mesh/time:       ndiv={NDIV}, dt={DT}, tend={T_END}")
     print(f"  Spin magnitude:  {ROTATIONS_OVER_RUN:g} rotations over tend")
-    print(f"  Projection:      energy_projection=1")
+    print(f"  Solver mode:     {solver_mode}")
+    if solver_mode == "impulse_projection":
+        print("  Coupling:        impulse_scheme=1, energy_projection=1")
+    else:
+        print("  Coupling:        Hamiltonian midpoint + coupled endpoint velocity")
     print("  Initial v:       both bodies parallel, deterministic-random direction; speed set by E")
     print("  Initial omega:   deterministic-random directions, fixed total rotation count")
     print(f"  Total cases:     {len(case_list)}")
     print()
     print("First 8 case names:")
     for case in case_list[:8]:
-        print(f"  {case_name(case)}")
+        print(f"  {case_name(case, solver_mode)}")
 
 
 def main() -> None:
@@ -298,15 +339,26 @@ def main() -> None:
         action="store_true",
         help="write manifest input/output paths relative to the repository root",
     )
+    parser.add_argument(
+        "--solver-mode",
+        choices=SOLVER_MODES,
+        default=DEFAULT_SOLVER_MODE,
+        help=(
+            "solver settings to write. coupled_endpoint uses the energy-conserving "
+            "Hamiltonian midpoint endpoint-velocity mode; impulse_projection writes "
+            "the older impulse+energy_projection inputs"
+        ),
+    )
     args = parser.parse_args()
 
     case_list = cases()
-    print_plan(case_list)
+    print_plan(case_list, args.solver_mode)
     if args.write:
-        setup_inputs(case_list, portable_manifest=args.portable_manifest)
+        setup_inputs(case_list, args.solver_mode, portable_manifest=args.portable_manifest)
         print()
         print(f"Wrote {len(case_list)} inputs and manifest:")
         print(f"  {MANIFEST}")
+        print(f"  Solver mode: {args.solver_mode}")
         if args.portable_manifest:
             print("  Manifest paths are relative to the repository root.")
     else:

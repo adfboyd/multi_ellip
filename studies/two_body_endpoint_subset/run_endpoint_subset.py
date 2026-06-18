@@ -97,6 +97,16 @@ def log_value(text: str, label: str) -> str:
     return ""
 
 
+def read_text_best_effort(path: Path) -> str:
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in raw[:200]:
+        return raw.decode("utf-16", errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
 def summarize_dat(path: Path) -> tuple[int, float, float]:
     with path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f, skipinitialspace=True)
@@ -133,7 +143,7 @@ def run_case(source_row: dict[str, str], rerun: bool) -> dict[str, str]:
     else:
         status = "cached"
 
-    log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+    log_text = read_text_best_effort(log_path) if log_path.exists() else ""
     if "Solver stopped with error:" in log_text:
         status = "solver_error"
     rows, max_ke, final_ke = summarize_dat(data_path) if data_path.exists() else (0, float("nan"), float("nan"))
