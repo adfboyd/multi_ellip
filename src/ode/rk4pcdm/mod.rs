@@ -809,6 +809,35 @@ impl Rk4PCDM {
     }
 
     fn advance_one_step_hamiltonian_midpoint(&mut self) {
+        let substeps = self.hamiltonian_substeps.max(1);
+        if substeps == 1 {
+            self.advance_one_hamiltonian_midpoint_substep();
+            return;
+        }
+
+        let (l_lin_start, l_ang_start) = self.solver.impulse();
+        let fluid_ke_start = self.solver.fluid_kinetic_energy();
+        let step_save = self.step_size;
+        let half_save = self.half_step;
+        let quarter_save = self.quarter_step;
+        let h = step_save / substeps as f64;
+        self.step_size = h;
+        self.half_step = 0.5 * h;
+        self.quarter_step = 0.25 * h;
+
+        for _ in 0..substeps {
+            self.advance_one_hamiltonian_midpoint_substep();
+        }
+
+        self.step_size = step_save;
+        self.half_step = half_save;
+        self.quarter_step = quarter_save;
+        self.fluid_ke_step_start = fluid_ke_start;
+        self.fluid_impulse_lin_step_start = Some(l_lin_start);
+        self.fluid_impulse_ang_step_start = Some(l_ang_start);
+    }
+
+    fn advance_one_hamiltonian_midpoint_substep(&mut self) {
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
