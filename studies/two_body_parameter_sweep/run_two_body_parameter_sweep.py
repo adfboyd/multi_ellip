@@ -49,15 +49,15 @@ def fmt_finish_time(seconds_from_now: float) -> str:
     )
 
 
-def append_study_log(message: str) -> None:
-    STUDY.mkdir(parents=True, exist_ok=True)
-    with STUDY_LOG.open("a", encoding="utf-8", newline="\n") as f:
+def append_study_log(path: Path, message: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as f:
         f.write(message + "\n")
     print(message, flush=True)
 
 
-def load_manifest() -> list[dict[str, str]]:
-    with MANIFEST.open("r", encoding="utf-8", newline="") as f:
+def load_manifest(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
 
@@ -323,7 +323,12 @@ def last_error(log_path: Path) -> str:
     return ""
 
 
-def stream_run(row: dict[str, str], index: int, total: int) -> dict[str, str]:
+def stream_run(
+    row: dict[str, str],
+    index: int,
+    total: int,
+    study_log: Path,
+) -> dict[str, str]:
     name = row["name"]
     input_path = Path(row["input"])
     output_dir = Path(row["output"]).parent
@@ -331,7 +336,7 @@ def stream_run(row: dict[str, str], index: int, total: int) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     started = time.monotonic()
-    append_study_log(f"[{index:03d}/{total:03d}] START {name} at {now()}")
+    append_study_log(study_log, f"[{index:03d}/{total:03d}] START {name} at {now()}")
     cmd = [str(BIN), str(input_path), str(output_dir)]
     rc = 0
     with log_path.open("w", encoding="utf-8", newline="\n") as log:
@@ -358,6 +363,7 @@ def stream_run(row: dict[str, str], index: int, total: int) -> dict[str, str]:
         status = "STOPPED"
     post = postprocess_case(row) if status == "OK" else {"dashboard": "", "postprocess_message": "skipped"}
     append_study_log(
+        study_log,
         f"[{index:03d}/{total:03d}] {status:<7} {name} wall={fmt_hms(wall)} rc={rc}"
         + (f" msg={err}" if err else "")
     )
@@ -372,10 +378,10 @@ def stream_run(row: dict[str, str], index: int, total: int) -> dict[str, str]:
     }
 
 
-def append_summary(row: dict[str, str], write_header: bool) -> None:
-    SUMMARY.parent.mkdir(parents=True, exist_ok=True)
+def append_summary(path: Path, row: dict[str, str], write_header: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = list(row.keys())
-    with SUMMARY.open("a", encoding="utf-8", newline="") as f:
+    with path.open("a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             writer.writeheader()
@@ -387,11 +393,20 @@ def main() -> None:
     parser.add_argument("--rerun", action="store_true", help="rerun completed outputs")
     parser.add_argument("--limit", type=int, default=None, help="only run the first N pending cases")
     parser.add_argument("--postprocess-only", action="store_true", help="generate dashboards/recurrences for completed outputs")
+    parser.add_argument("--manifest", type=Path, default=MANIFEST, help="manifest CSV to run")
+    parser.add_argument("--summary", type=Path, default=SUMMARY, help="summary CSV to append/write")
+    parser.add_argument(
+        "--study-log",
+        type=Path,
+        default=None,
+        help="study log path; defaults to study.log beside the selected summary",
+    )
     args = parser.parse_args()
+    study_log = args.study_log or args.summary.parent / "study.log"
 
     if not BIN.exists():
         raise SystemExit(f"Missing release binary: {BIN}. Run cargo build --release first.")
-    rows = load_manifest()
+    rows = load_manifest(args.manifest)
     if args.postprocess_only:
         pending = [row for row in rows if output_complete(row)]
     else:
@@ -399,39 +414,47 @@ def main() -> None:
     if args.limit is not None:
         pending = pending[: args.limit]
 
-    append_study_log("=" * 72)
-    append_study_log(f"Study run started at {now()}")
-    append_study_log(f"Manifest: {MANIFEST}")
-    append_study_log(f"Total manifest cases: {len(rows)}")
-    append_study_log(f"Pending this invocation: {len(pending)}")
-    append_study_log(f"Rerun completed outputs: {args.rerun}")
-    append_study_log(f"Postprocess only: {args.postprocess_only}")
+    append_study_log(study_log, "=" * 72)
+    append_study_log(study_log, f"Study run started at {now()}")
+    append_study_log(study_log, f"Manifest: {args.manifest}")
+    append_study_log(study_log, f"Summary: {args.summary}")
+    append_study_log(study_log, f"Total manifest cases: {len(rows)}")
+    append_study_log(study_log, f"Pending this invocation: {len(pending)}")
+    append_study_log(study_log, f"Rerun completed outputs: {args.rerun}")
+    append_study_log(study_log, f"Postprocess only: {args.postprocess_only}")
 
-    write_header = not SUMMARY.exists() or args.rerun
-    if args.rerun and SUMMARY.exists():
-        SUMMARY.unlink()
+    write_header = not args.summary.exists() or args.rerun
+    if args.rerun and args.summary.exists():
+        args.summary.unlink()
 
     started = time.monotonic()
     for i, row in enumerate(pending, start=1):
         if args.postprocess_only:
-            append_study_log(f"[{i:03d}/{len(pending):03d}] POST {row['name']} at {now()}")
+            append_study_log(
+                study_log,
+                f"[{i:03d}/{len(pending):03d}] POST {row['name']} at {now()}",
+            )
             result = {**row, "status": "POST", "returncode": "", "wall_seconds": "", "log": "", "message": "", **postprocess_case(row)}
         else:
-            result = stream_run(row, i, len(pending))
-        append_summary(result, write_header)
+            result = stream_run(row, i, len(pending), study_log)
+        append_summary(args.summary, result, write_header)
         write_header = False
         elapsed = time.monotonic() - started
         remaining_cases = len(pending) - i
         avg_case = elapsed / i
         eta_seconds = avg_case * remaining_cases
         append_study_log(
+            study_log,
             "Elapsed study time: "
             f"{fmt_hms(elapsed)} | avg/case={fmt_hms(avg_case)} | "
             f"remaining={remaining_cases} | ETA={fmt_hms(eta_seconds)} | "
             f"finish~{fmt_finish_time(eta_seconds)}"
         )
 
-    append_study_log(f"Study invocation finished at {now()} wall={fmt_hms(time.monotonic() - started)}")
+    append_study_log(
+        study_log,
+        f"Study invocation finished at {now()} wall={fmt_hms(time.monotonic() - started)}",
+    )
 
 
 if __name__ == "__main__":

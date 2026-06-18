@@ -47,6 +47,7 @@ studies/**/runs/
 /coupled_validation_runs/
 /coupled_dt_convergence_runs/
 /two_body_endpoint_subset_runs/
+/two_body_parameter_sweep_coupled_runs/
 /coupled_validation_runner.exe
 /coupled_dt_convergence_runner.exe
 /coupled_validation_runner.pdb

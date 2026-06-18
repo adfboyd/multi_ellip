@@ -10,7 +10,9 @@ from typing import Any, Dict, List, Tuple
 ROOT = Path(__file__).resolve().parents[2]
 STUDY = ROOT / "studies" / "two_body_parameter_sweep"
 RUNS = STUDY / "runs"
+COUPLED_RUNS = ROOT / "two_body_parameter_sweep_coupled_runs"
 MANIFEST = STUDY / "two_body_parameter_sweep_manifest.csv"
+COUPLED_MANIFEST = COUPLED_RUNS / "two_body_parameter_sweep_manifest.csv"
 
 # Corner pilot before launching the full production matrix.
 SHAPES = {
@@ -148,6 +150,18 @@ def cases() -> List[Case]:
     return out
 
 
+def default_runs_root(solver_mode: str) -> Path:
+    if solver_mode == "coupled_endpoint":
+        return COUPLED_RUNS
+    return RUNS
+
+
+def default_manifest_path(solver_mode: str) -> Path:
+    if solver_mode == "coupled_endpoint":
+        return COUPLED_MANIFEST
+    return MANIFEST
+
+
 def solver_values(solver_mode: str) -> Dict[str, Any]:
     if solver_mode == "impulse_projection":
         return {
@@ -250,14 +264,19 @@ def write_input(path: Path, values: Dict[str, Any]) -> None:
             f.write(f"{key}={value}\n")
 
 
-def manifest_path(path: Path, portable: bool) -> str:
+def format_manifest_path(path: Path, portable: bool) -> str:
     if portable:
         return path.relative_to(ROOT).as_posix()
     return str(path)
 
 
-def write_manifest(case_list: List[Case], solver_mode: str, portable: bool = False) -> None:
-    STUDY.mkdir(parents=True, exist_ok=True)
+def write_manifest(
+    case_list: List[Case],
+    solver_mode: str,
+    manifest_path: Path,
+    portable: bool = False,
+) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "name",
         "shape_name",
@@ -272,12 +291,12 @@ def write_manifest(case_list: List[Case], solver_mode: str, portable: bool = Fal
         "input",
         "output",
     ]
-    with MANIFEST.open("w", encoding="utf-8", newline="") as f:
+    with manifest_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         for case in case_list:
             name = case_name(case, solver_mode)
-            run_dir = RUNS / name
+            run_dir = default_runs_root(solver_mode) / name
             writer.writerow(
                 {
                     "name": name,
@@ -290,8 +309,8 @@ def write_manifest(case_list: List[Case], solver_mode: str, portable: bool = Fal
                     "ndiv": NDIV,
                     "dt": DT,
                     "tend": T_END,
-                    "input": manifest_path(run_dir / "input.txt", portable),
-                    "output": manifest_path(run_dir / "multiple_body_complete.dat", portable),
+                    "input": format_manifest_path(run_dir / "input.txt", portable),
+                    "output": format_manifest_path(run_dir / "multiple_body_complete.dat", portable),
                 }
             )
 
@@ -299,17 +318,21 @@ def write_manifest(case_list: List[Case], solver_mode: str, portable: bool = Fal
 def setup_inputs(
     case_list: List[Case],
     solver_mode: str,
+    manifest_path: Path,
     portable_manifest: bool = False,
 ) -> None:
+    runs_root = default_runs_root(solver_mode)
     for case in case_list:
-        run_dir = RUNS / case_name(case, solver_mode)
+        run_dir = runs_root / case_name(case, solver_mode)
         write_input(run_dir / "input.txt", input_values(case, solver_mode))
-    write_manifest(case_list, solver_mode, portable=portable_manifest)
+    write_manifest(case_list, solver_mode, manifest_path, portable=portable_manifest)
 
 
-def print_plan(case_list: List[Case], solver_mode: str) -> None:
+def print_plan(case_list: List[Case], solver_mode: str, manifest_path: Path) -> None:
     print("Two-body parameter sweep proposal")
     print(f"  Study dir:       {STUDY}")
+    print(f"  Runs dir:        {default_runs_root(solver_mode)}")
+    print(f"  Manifest:        {manifest_path}")
     print(f"  Shapes:          {', '.join(SHAPES)}")
     print(f"  Densities rho:   {DENSITIES}")
     print(f"  Energy ratios E: {ENERGY_RATIOS}  (rotational KE / translational KE per body)")
@@ -349,15 +372,27 @@ def main() -> None:
             "the older impulse+energy_projection inputs"
         ),
     )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="manifest path to write; defaults to the solver-mode-specific manifest",
+    )
     args = parser.parse_args()
 
     case_list = cases()
-    print_plan(case_list, args.solver_mode)
+    manifest_path = args.manifest or default_manifest_path(args.solver_mode)
+    print_plan(case_list, args.solver_mode, manifest_path)
     if args.write:
-        setup_inputs(case_list, args.solver_mode, portable_manifest=args.portable_manifest)
+        setup_inputs(
+            case_list,
+            args.solver_mode,
+            manifest_path,
+            portable_manifest=args.portable_manifest,
+        )
         print()
         print(f"Wrote {len(case_list)} inputs and manifest:")
-        print(f"  {MANIFEST}")
+        print(f"  {manifest_path}")
         print(f"  Solver mode: {args.solver_mode}")
         if args.portable_manifest:
             print("  Manifest paths are relative to the repository root.")
