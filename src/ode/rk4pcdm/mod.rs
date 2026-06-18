@@ -94,6 +94,7 @@ pub struct Rk4PCDM {
     pub coupled_max_residual_norm: f64,
     pub coupled_max_impulse_resid: f64,
     pub coupled_max_energy_err_rel: f64,
+    pub coupled_jacobian_builds: usize,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -119,6 +120,8 @@ pub struct Rk4PCDM {
     hamiltonian_coupled_iters: usize,
     hamiltonian_coupled_eps: f64,
     hamiltonian_coupled_max_shift: f64,
+    hamiltonian_coupled_jacobian_interval: usize,
+    hamiltonian_coupled_broyden_update: bool,
     initial_total_ke: Option<f64>,
 }
 
@@ -179,6 +182,8 @@ impl Rk4PCDM {
         hamiltonian_coupled_iters: usize,
         hamiltonian_coupled_eps: f64,
         hamiltonian_coupled_max_shift: f64,
+        hamiltonian_coupled_jacobian_interval: usize,
+        hamiltonian_coupled_broyden_update: bool,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -234,6 +239,7 @@ impl Rk4PCDM {
             coupled_max_residual_norm: 0.0,
             coupled_max_impulse_resid: 0.0,
             coupled_max_energy_err_rel: 0.0,
+            coupled_jacobian_builds: 0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
@@ -250,6 +256,8 @@ impl Rk4PCDM {
             hamiltonian_coupled_iters: hamiltonian_coupled_iters.max(1),
             hamiltonian_coupled_eps: hamiltonian_coupled_eps.max(1.0e-8),
             hamiltonian_coupled_max_shift: hamiltonian_coupled_max_shift.max(0.0),
+            hamiltonian_coupled_jacobian_interval: hamiltonian_coupled_jacobian_interval.max(1),
+            hamiltonian_coupled_broyden_update,
             initial_total_ke: None,
         }
     }
@@ -1044,48 +1052,35 @@ impl Rk4PCDM {
             return z;
         };
         let mut residual_norm = residual.norm();
-        let dof = z.len();
         let max_dz = if self.hamiltonian_coupled_max_shift > 0.0 {
             self.hamiltonian_coupled_max_shift / self.step_size.max(1.0e-12)
         } else {
             f64::INFINITY
         };
+        let mut reusable_jacobian: Option<DMatrix<f64>> = None;
 
-        for _ in 0..self.hamiltonian_coupled_iters {
+        for iter in 0..self.hamiltonian_coupled_iters {
             if residual_norm <= self.hamiltonian_floor_tol.max(1.0e-12) {
                 break;
             }
 
-            let mut jac = DMatrix::zeros(residual.len(), dof);
-            for j in 0..dof {
-                let eps = self.hamiltonian_coupled_eps * (z[j].abs() + 1.0);
-                let mut zp = z.clone();
-                zp[j] += eps;
-                let Some(rp) =
-                    self.coupled_endpoint_residual(start, &zp, target_ke, target_impulse)
-                else {
-                    continue;
-                };
-                for row in 0..residual.len() {
-                    jac[(row, j)] = (rp[row] - residual[row]) / eps;
-                }
+            let interval = self.hamiltonian_coupled_jacobian_interval.max(1);
+            if reusable_jacobian.is_none() || iter % interval == 0 {
+                reusable_jacobian =
+                    self.coupled_endpoint_jacobian(start, &z, &residual, target_ke, target_impulse);
             }
 
-            let mut gram = &jac * jac.transpose();
-            for i in 0..gram.nrows() {
-                gram[(i, i)] += 1.0e-10;
-            }
-            let Some(gram_inv) = gram.try_inverse() else {
+            let Some(jacobian) = reusable_jacobian.as_ref() else {
                 break;
             };
-            let mut dz = -jac.transpose() * (gram_inv * &residual);
-            let dz_norm = dz.norm();
-            if dz_norm.is_finite() && dz_norm > max_dz {
-                dz *= max_dz / dz_norm;
-            }
+            let Some(dz) = self.coupled_newton_step(jacobian, &residual, max_dz) else {
+                break;
+            };
 
             let mut accepted = false;
             let mut alpha = 1.0;
+            let z_before = z.clone();
+            let residual_before = residual.clone();
             for _ in 0..8 {
                 let z_trial = &z + alpha * &dz;
                 let Some(r_trial) =
@@ -1108,6 +1103,14 @@ impl Rk4PCDM {
             if !accepted {
                 break;
             }
+
+            if self.hamiltonian_coupled_broyden_update {
+                if let Some(jacobian) = reusable_jacobian.as_mut() {
+                    let step = &z - &z_before;
+                    let residual_delta = &residual - &residual_before;
+                    Self::broyden_update_jacobian(jacobian, &step, &residual_delta);
+                }
+            }
         }
 
         let impulse_resid = residual.rows(0, 6).norm();
@@ -1117,6 +1120,66 @@ impl Rk4PCDM {
         self.coupled_max_energy_err_rel = self.coupled_max_energy_err_rel.max(energy_err_rel);
 
         z
+    }
+
+    fn coupled_endpoint_jacobian(
+        &mut self,
+        start: &BodyState,
+        z: &DVector<f64>,
+        residual: &DVector<f64>,
+        target_ke: f64,
+        target_impulse: &DVector<f64>,
+    ) -> Option<DMatrix<f64>> {
+        let dof = z.len();
+        let mut jac = DMatrix::zeros(residual.len(), dof);
+        for j in 0..dof {
+            let eps = self.hamiltonian_coupled_eps * (z[j].abs() + 1.0);
+            let mut zp = z.clone();
+            zp[j] += eps;
+            let rp = self.coupled_endpoint_residual(start, &zp, target_ke, target_impulse)?;
+            for row in 0..residual.len() {
+                jac[(row, j)] = (rp[row] - residual[row]) / eps;
+            }
+        }
+        self.coupled_jacobian_builds += 1;
+        Some(jac)
+    }
+
+    fn coupled_newton_step(
+        &self,
+        jacobian: &DMatrix<f64>,
+        residual: &DVector<f64>,
+        max_dz: f64,
+    ) -> Option<DVector<f64>> {
+        let mut gram = jacobian * jacobian.transpose();
+        for i in 0..gram.nrows() {
+            gram[(i, i)] += 1.0e-10;
+        }
+        let gram_inv = gram.try_inverse()?;
+        let mut dz = -jacobian.transpose() * (gram_inv * residual);
+        let dz_norm = dz.norm();
+        if dz_norm.is_finite() && dz_norm > max_dz {
+            dz *= max_dz / dz_norm;
+        }
+        Some(dz)
+    }
+
+    fn broyden_update_jacobian(
+        jacobian: &mut DMatrix<f64>,
+        step: &DVector<f64>,
+        residual_delta: &DVector<f64>,
+    ) {
+        let denom = step.dot(step);
+        if !denom.is_finite() || denom <= 1.0e-24 {
+            return;
+        }
+        let predicted = &*jacobian * step;
+        let correction = residual_delta - predicted;
+        for row in 0..jacobian.nrows() {
+            for col in 0..jacobian.ncols() {
+                jacobian[(row, col)] += correction[row] * step[col] / denom;
+            }
+        }
     }
 
     fn coupled_endpoint_residual(

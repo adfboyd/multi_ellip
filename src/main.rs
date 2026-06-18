@@ -199,6 +199,18 @@ fn main() {
     let hamiltonian_coupled_iters = get("hamiltonian_coupled_iters", 4.0).max(1.0) as usize;
     let hamiltonian_coupled_eps = get("hamiltonian_coupled_eps", 1.0e-3);
     let hamiltonian_coupled_max_shift = get("hamiltonian_coupled_max_shift", 5.0e-2);
+    let hamiltonian_coupled_reuse_jacobian = get("hamiltonian_coupled_reuse_jacobian", 0.0) > 0.5;
+    let default_jacobian_interval = if hamiltonian_coupled_reuse_jacobian {
+        hamiltonian_coupled_iters
+    } else {
+        1
+    };
+    let hamiltonian_coupled_jacobian_interval = get(
+        "hamiltonian_coupled_jacobian_interval",
+        default_jacobian_interval as f64,
+    )
+    .max(1.0) as usize;
+    let hamiltonian_coupled_broyden_update = get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -287,6 +299,8 @@ fn main() {
         hamiltonian_coupled_iters,
         hamiltonian_coupled_eps,
         hamiltonian_coupled_max_shift,
+        hamiltonian_coupled_jacobian_interval,
+        hamiltonian_coupled_broyden_update,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -383,6 +397,18 @@ fn main() {
                 "  Coupled iters/eps/max shift: {} / {:.6e} / {:.6e}",
                 hamiltonian_coupled_iters, hamiltonian_coupled_eps, hamiltonian_coupled_max_shift
             );
+            println!(
+                "  Coupled reuse Jacobian: {}",
+                fmt_enabled(hamiltonian_coupled_reuse_jacobian)
+            );
+            println!(
+                "  Coupled Jacobian interval: {}",
+                hamiltonian_coupled_jacobian_interval
+            );
+            println!(
+                "  Coupled Broyden update: {}",
+                fmt_enabled(hamiltonian_coupled_broyden_update)
+            );
         }
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
@@ -470,6 +496,10 @@ fn main() {
                     println!(
                         "  Coupled max energy error rel:   {:.6e}",
                         stepper.coupled_max_energy_err_rel
+                    );
+                    println!(
+                        "  Coupled Jacobian builds:        {}",
+                        stepper.coupled_jacobian_builds
                     );
                 }
             }
