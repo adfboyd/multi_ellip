@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import matplotlib
 
@@ -26,6 +28,19 @@ RECURRENCE_DIM = 3
 RECURRENCE_TAU = 10
 RECURRENCE_RATE = 0.03
 RECURRENCE_THEILER = 50
+FLOAT_RE = r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+LOG_METRIC_PATTERNS = {
+    "mean_step_s": r"Mean time/step:\s*" + FLOAT_RE,
+    "coupled_residual": r"Coupled max residual norm:\s*" + FLOAT_RE,
+    "coupled_scaled_impulse_residual": r"Coupled max scaled impulse residual:\s*" + FLOAT_RE,
+    "coupled_raw_linear_impulse_residual": r"Coupled max raw linear impulse residual:\s*" + FLOAT_RE,
+    "coupled_raw_angular_impulse_residual": r"Coupled max raw angular impulse residual:\s*" + FLOAT_RE,
+    "coupled_energy_error_rel": r"Coupled max energy error rel:\s*" + FLOAT_RE,
+    "coupled_true_energy_error_rel": r"Coupled max true energy error rel:\s*" + FLOAT_RE,
+    "coupled_jacobian_builds": r"Coupled Jacobian builds:\s*(\d+)",
+    "hamiltonian_adaptive_retries": r"Hamiltonian adaptive retries:\s*(\d+)",
+    "hamiltonian_max_substeps_used": r"Hamiltonian max substeps used:\s*(\d+)",
+}
 
 
 def now() -> str:
@@ -153,6 +168,41 @@ def has_finite_output(data: np.ndarray) -> bool:
 def drift_pct(data: np.ndarray) -> np.ndarray:
     e0 = float(data["ke_total"][0])
     return 100.0 * (data["ke_total"] - e0) / e0
+
+
+def fmt_metric(value: float) -> str:
+    if not np.isfinite(value):
+        return ""
+    return f"{float(value):.12g}"
+
+
+def case_metrics(data: np.ndarray) -> dict[str, str]:
+    drift = drift_pct(data)
+    p1 = position(data, 1)
+    p2 = position(data, 2)
+    sep = np.linalg.norm(p1 - p2, axis=1)
+    p_err = vector_error_pct(total_conserved_vector(data, "pcon"))
+    h_err = vector_error_pct(total_conserved_vector(data, "hcon"))
+    return {
+        "max_abs_ke_drift_pct": fmt_metric(np.max(np.abs(drift))),
+        "final_ke_drift_pct": fmt_metric(drift[-1]),
+        "min_separation": fmt_metric(np.min(sep)),
+        "final_separation": fmt_metric(sep[-1]),
+        "max_pcon_drift_pct": fmt_metric(np.max(p_err)),
+        "max_hcon_drift_pct": fmt_metric(np.max(h_err)),
+    }
+
+
+def log_metrics(log_path: Path) -> dict[str, str]:
+    metrics = {name: "" for name in LOG_METRIC_PATTERNS}
+    if not log_path.exists():
+        return metrics
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    for name, pattern in LOG_METRIC_PATTERNS.items():
+        matches = re.findall(pattern, text)
+        if matches:
+            metrics[name] = str(matches[-1])
+    return metrics
 
 
 def save_dashboard(row: dict[str, str], data: np.ndarray) -> Path:
@@ -290,24 +340,40 @@ def save_recurrence(row: dict[str, str], data: np.ndarray, body: int) -> dict[st
     }
 
 
-def postprocess_case(row: dict[str, str]) -> dict[str, str]:
+def postprocess_case(row: dict[str, str], log_path: Optional[Path] = None) -> dict[str, str]:
     output = Path(row["output"])
+    if log_path is None:
+        log_path = output.parent / "run.log"
     if not output.exists():
         return {"dashboard": "", "postprocess_message": "missing output"}
     data = load_output(row)
     if len(data) < 2 or not has_finite_output(data):
         return {"dashboard": "", "postprocess_message": "non-finite or too-short output"}
     dashboard = save_dashboard(row, data)
-    rec_rows = [save_recurrence(row, data, 1), save_recurrence(row, data, 2)]
+    rec_rows = []
+    rec_message = "ok"
+    for body in (1, 2):
+        try:
+            rec_rows.append(save_recurrence(row, data, body))
+        except ValueError as exc:
+            rec_message = f"recurrence skipped: {exc}"
     rec_csv = output.parent / "recurrence_metrics.csv"
-    with rec_csv.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rec_rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rec_rows)
+    if rec_rows:
+        with rec_csv.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rec_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rec_rows)
+    rec_by_body = {row["body"]: row for row in rec_rows}
     return {
         "dashboard": str(dashboard),
-        "recurrence_metrics": str(rec_csv),
-        "postprocess_message": "ok",
+        "recurrence_metrics": str(rec_csv) if rec_rows else "",
+        "recurrence_rr_body1": rec_by_body.get("1", {}).get("achieved_rr", ""),
+        "recurrence_rr_body2": rec_by_body.get("2", {}).get("achieved_rr", ""),
+        "recurrence_eps_body1": rec_by_body.get("1", {}).get("epsilon", ""),
+        "recurrence_eps_body2": rec_by_body.get("2", {}).get("epsilon", ""),
+        **case_metrics(data),
+        **log_metrics(log_path),
+        "postprocess_message": rec_message,
     }
 
 
@@ -361,7 +427,11 @@ def stream_run(
     status = "OK" if rc == 0 and complete and not err else "FAIL"
     if rc == 0 and err:
         status = "STOPPED"
-    post = postprocess_case(row) if status == "OK" else {"dashboard": "", "postprocess_message": "skipped"}
+    post = (
+        postprocess_case(row, log_path)
+        if status == "OK"
+        else {"dashboard": "", "postprocess_message": "skipped"}
+    )
     append_study_log(
         study_log,
         f"[{index:03d}/{total:03d}] {status:<7} {name} wall={fmt_hms(wall)} rc={rc}"
@@ -434,7 +504,15 @@ def main() -> None:
                 study_log,
                 f"[{i:03d}/{len(pending):03d}] POST {row['name']} at {now()}",
             )
-            result = {**row, "status": "POST", "returncode": "", "wall_seconds": "", "log": "", "message": "", **postprocess_case(row)}
+            result = {
+                **row,
+                "status": "POST",
+                "returncode": "",
+                "wall_seconds": "",
+                "log": "",
+                "message": "",
+                **postprocess_case(row),
+            }
         else:
             result = stream_run(row, i, len(pending), study_log)
         append_summary(args.summary, result, write_header)
