@@ -94,6 +94,9 @@ pub struct Rk4PCDM {
     pub coupled_max_residual_norm: f64,
     pub coupled_max_impulse_resid: f64,
     pub coupled_max_energy_err_rel: f64,
+    pub coupled_last_step_residual_norm: f64,
+    pub coupled_last_step_impulse_resid: f64,
+    pub coupled_last_step_energy_err_rel: f64,
     pub coupled_jacobian_builds: usize,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
@@ -150,6 +153,13 @@ struct ProjectionDiagnosticsSnapshot {
     max_constraint_resid: f64,
     floor_hit_count: usize,
     floor_fallback_count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct CoupledDiagnosticsSnapshot {
+    max_residual_norm: f64,
+    max_impulse_resid: f64,
+    max_energy_err_rel: f64,
 }
 
 impl Rk4PCDM {
@@ -239,6 +249,9 @@ impl Rk4PCDM {
             coupled_max_residual_norm: 0.0,
             coupled_max_impulse_resid: 0.0,
             coupled_max_energy_err_rel: 0.0,
+            coupled_last_step_residual_norm: 0.0,
+            coupled_last_step_impulse_resid: 0.0,
+            coupled_last_step_energy_err_rel: 0.0,
             coupled_jacobian_builds: 0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
@@ -551,6 +564,23 @@ impl Rk4PCDM {
         self.projection_floor_hit_count = snapshot.floor_hit_count;
         self.projection_floor_fallback_count = snapshot.floor_fallback_count;
         self.reset_projection_step_diagnostics();
+    }
+
+    fn coupled_diagnostics_snapshot(&self) -> CoupledDiagnosticsSnapshot {
+        CoupledDiagnosticsSnapshot {
+            max_residual_norm: self.coupled_max_residual_norm,
+            max_impulse_resid: self.coupled_max_impulse_resid,
+            max_energy_err_rel: self.coupled_max_energy_err_rel,
+        }
+    }
+
+    fn restore_coupled_diagnostics(&mut self, snapshot: CoupledDiagnosticsSnapshot) {
+        self.coupled_max_residual_norm = snapshot.max_residual_norm;
+        self.coupled_max_impulse_resid = snapshot.max_impulse_resid;
+        self.coupled_max_energy_err_rel = snapshot.max_energy_err_rel;
+        self.coupled_last_step_residual_norm = 0.0;
+        self.coupled_last_step_impulse_resid = 0.0;
+        self.coupled_last_step_energy_err_rel = 0.0;
     }
 
     /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
@@ -914,7 +944,8 @@ impl Rk4PCDM {
         let max_substeps = self.hamiltonian_max_substeps.max(base_substeps);
         let start_state = self.state.clone();
         let start_marker = self.o_lab.clone();
-        let start_diag = self.projection_diagnostics_snapshot();
+        let start_projection_diag = self.projection_diagnostics_snapshot();
+        let start_coupled_diag = self.coupled_diagnostics_snapshot();
         let mut substeps = base_substeps;
 
         loop {
@@ -922,24 +953,29 @@ impl Rk4PCDM {
             self.o_lab = start_marker.clone();
             self.solver.set_state(&self.state);
             let _ = self.solver.impulse();
-            self.restore_projection_diagnostics(start_diag);
+            self.restore_projection_diagnostics(start_projection_diag);
+            self.restore_coupled_diagnostics(start_coupled_diag);
 
             self.advance_one_step_hamiltonian_midpoint_fixed(substeps);
 
+            let coupled_retry =
+                self.coupled_last_step_residual_norm > self.hamiltonian_floor_tol.max(1.0e-12);
             let retry = self.projection_last_step_max_floor_rel > self.hamiltonian_floor_tol
-                || self.projection_last_step_floor_fallbacks > 0;
+                || self.projection_last_step_floor_fallbacks > 0
+                || coupled_retry;
             if !retry || substeps >= max_substeps {
                 break;
             }
 
             let next_substeps = (2 * substeps).min(max_substeps);
             println!(
-                "  Hamiltonian adaptive retry | t {:.6} | substeps {} -> {} | floor {:.6e} | fallbacks {}",
+                "  Hamiltonian adaptive retry | t {:.6} | substeps {} -> {} | floor {:.6e} | fallbacks {} | coupled residual {:.6e}",
                 self.t + self.step_size,
                 substeps,
                 next_substeps,
                 self.projection_last_step_max_floor_rel,
-                self.projection_last_step_floor_fallbacks
+                self.projection_last_step_floor_fallbacks,
+                self.coupled_last_step_residual_norm
             );
             substeps = next_substeps;
         }
@@ -947,6 +983,9 @@ impl Rk4PCDM {
 
     fn advance_one_step_hamiltonian_midpoint_fixed(&mut self, substeps: usize) {
         let substeps = substeps.max(1);
+        self.coupled_last_step_residual_norm = 0.0;
+        self.coupled_last_step_impulse_resid = 0.0;
+        self.coupled_last_step_energy_err_rel = 0.0;
         if substeps == 1 {
             self.advance_one_hamiltonian_midpoint_substep();
             return;
@@ -1052,6 +1091,7 @@ impl Rk4PCDM {
             return z;
         };
         let mut residual_norm = residual.norm();
+        let residual_tol = self.hamiltonian_floor_tol.max(1.0e-12);
         let max_dz = if self.hamiltonian_coupled_max_shift > 0.0 {
             self.hamiltonian_coupled_max_shift / self.step_size.max(1.0e-12)
         } else {
@@ -1060,7 +1100,7 @@ impl Rk4PCDM {
         let mut reusable_jacobian: Option<DMatrix<f64>> = None;
 
         for iter in 0..self.hamiltonian_coupled_iters {
-            if residual_norm <= self.hamiltonian_floor_tol.max(1.0e-12) {
+            if residual_norm <= residual_tol {
                 break;
             }
 
@@ -1113,11 +1153,62 @@ impl Rk4PCDM {
             }
         }
 
+        if residual_norm > residual_tol
+            && (self.hamiltonian_coupled_broyden_update
+                || self.hamiltonian_coupled_jacobian_interval > 1)
+        {
+            for _ in 0..self.hamiltonian_coupled_iters {
+                if residual_norm <= residual_tol {
+                    break;
+                }
+
+                let Some(jacobian) =
+                    self.coupled_endpoint_jacobian(start, &z, &residual, target_ke, target_impulse)
+                else {
+                    break;
+                };
+                let Some(dz) = self.coupled_newton_step(&jacobian, &residual, max_dz) else {
+                    break;
+                };
+
+                let mut accepted = false;
+                let mut alpha = 1.0;
+                for _ in 0..8 {
+                    let z_trial = &z + alpha * &dz;
+                    let Some(r_trial) =
+                        self.coupled_endpoint_residual(start, &z_trial, target_ke, target_impulse)
+                    else {
+                        alpha *= 0.5;
+                        continue;
+                    };
+                    let trial_norm = r_trial.norm();
+                    if trial_norm.is_finite() && trial_norm < residual_norm {
+                        z = z_trial;
+                        residual = r_trial;
+                        residual_norm = trial_norm;
+                        accepted = true;
+                        break;
+                    }
+                    alpha *= 0.5;
+                }
+
+                if !accepted {
+                    break;
+                }
+            }
+        }
+
         let impulse_resid = residual.rows(0, 6).norm();
         let energy_err_rel = residual[6].abs() / target_ke.abs().sqrt().max(1.0);
         self.coupled_max_residual_norm = self.coupled_max_residual_norm.max(residual_norm);
         self.coupled_max_impulse_resid = self.coupled_max_impulse_resid.max(impulse_resid);
         self.coupled_max_energy_err_rel = self.coupled_max_energy_err_rel.max(energy_err_rel);
+        self.coupled_last_step_residual_norm =
+            self.coupled_last_step_residual_norm.max(residual_norm);
+        self.coupled_last_step_impulse_resid =
+            self.coupled_last_step_impulse_resid.max(impulse_resid);
+        self.coupled_last_step_energy_err_rel =
+            self.coupled_last_step_energy_err_rel.max(energy_err_rel);
 
         z
     }

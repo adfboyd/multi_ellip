@@ -45,8 +45,11 @@ __pycache__/
 # Generated study run directories
 studies/**/runs/
 /coupled_validation_runs/
+/coupled_dt_convergence_runs/
 /coupled_validation_runner.exe
+/coupled_dt_convergence_runner.exe
 /coupled_validation_runner.pdb
+/coupled_dt_convergence_runner.pdb
 /rustc_tmp/
 /write_test_root.txt
 
