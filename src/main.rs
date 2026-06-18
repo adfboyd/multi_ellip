@@ -195,6 +195,10 @@ fn main() {
     )
     .max(hamiltonian_substeps.max(1) as f64) as usize;
     let hamiltonian_floor_tol = get("hamiltonian_floor_tol", 1.0e-3);
+    let hamiltonian_coupled_solve = get("hamiltonian_coupled_solve", 0.0) > 0.5;
+    let hamiltonian_coupled_iters = get("hamiltonian_coupled_iters", 4.0).max(1.0) as usize;
+    let hamiltonian_coupled_eps = get("hamiltonian_coupled_eps", 1.0e-3);
+    let hamiltonian_coupled_max_shift = get("hamiltonian_coupled_max_shift", 5.0e-2);
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -279,6 +283,10 @@ fn main() {
         hamiltonian_adaptive_substeps,
         hamiltonian_max_substeps,
         hamiltonian_floor_tol,
+        hamiltonian_coupled_solve,
+        hamiltonian_coupled_iters,
+        hamiltonian_coupled_eps,
+        hamiltonian_coupled_max_shift,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -366,6 +374,16 @@ fn main() {
                 hamiltonian_max_substeps, hamiltonian_floor_tol
             );
         }
+        println!(
+            "  Hamiltonian coupled: {}",
+            fmt_enabled(hamiltonian_coupled_solve)
+        );
+        if hamiltonian_coupled_solve {
+            println!(
+                "  Coupled iters/eps/max shift: {} / {:.6e} / {:.6e}",
+                hamiltonian_coupled_iters, hamiltonian_coupled_eps, hamiltonian_coupled_max_shift
+            );
+        }
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
     println!(
@@ -440,6 +458,20 @@ fn main() {
                     "  Projection max impulse residual: {:.6e}",
                     stepper.projection_max_constraint_resid
                 );
+                if hamiltonian_coupled_solve {
+                    println!(
+                        "  Coupled max residual norm:      {:.6e}",
+                        stepper.coupled_max_residual_norm
+                    );
+                    println!(
+                        "  Coupled max impulse residual:   {:.6e}",
+                        stepper.coupled_max_impulse_resid
+                    );
+                    println!(
+                        "  Coupled max energy error rel:   {:.6e}",
+                        stepper.coupled_max_energy_err_rel
+                    );
+                }
             }
             println!(
                 "  CPU cores:         {} available, {} Rayon worker thread(s)",

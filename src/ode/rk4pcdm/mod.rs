@@ -91,6 +91,9 @@ pub struct Rk4PCDM {
     pub projection_last_step_floor_fallbacks: usize,
     pub projection_last_step_max_floor_rel: f64,
     pub projection_last_step_max_floor_abs: f64,
+    pub coupled_max_residual_norm: f64,
+    pub coupled_max_impulse_resid: f64,
+    pub coupled_max_energy_err_rel: f64,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -112,6 +115,10 @@ pub struct Rk4PCDM {
     hamiltonian_adaptive_substeps: bool,
     hamiltonian_max_substeps: usize,
     hamiltonian_floor_tol: f64,
+    hamiltonian_coupled_solve: bool,
+    hamiltonian_coupled_iters: usize,
+    hamiltonian_coupled_eps: f64,
+    hamiltonian_coupled_max_shift: f64,
     initial_total_ke: Option<f64>,
 }
 
@@ -168,6 +175,10 @@ impl Rk4PCDM {
         hamiltonian_adaptive_substeps: bool,
         hamiltonian_max_substeps: usize,
         hamiltonian_floor_tol: f64,
+        hamiltonian_coupled_solve: bool,
+        hamiltonian_coupled_iters: usize,
+        hamiltonian_coupled_eps: f64,
+        hamiltonian_coupled_max_shift: f64,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -220,6 +231,9 @@ impl Rk4PCDM {
             projection_last_step_floor_fallbacks: 0,
             projection_last_step_max_floor_rel: 0.0,
             projection_last_step_max_floor_abs: 0.0,
+            coupled_max_residual_norm: 0.0,
+            coupled_max_impulse_resid: 0.0,
+            coupled_max_energy_err_rel: 0.0,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
@@ -232,6 +246,10 @@ impl Rk4PCDM {
             hamiltonian_adaptive_substeps,
             hamiltonian_max_substeps: hamiltonian_max_substeps.max(hamiltonian_substeps.max(1)),
             hamiltonian_floor_tol: hamiltonian_floor_tol.max(0.0),
+            hamiltonian_coupled_solve,
+            hamiltonian_coupled_iters: hamiltonian_coupled_iters.max(1),
+            hamiltonian_coupled_eps: hamiltonian_coupled_eps.max(1.0e-8),
+            hamiltonian_coupled_max_shift: hamiltonian_coupled_max_shift.max(0.0),
             initial_total_ke: None,
         }
     }
@@ -965,6 +983,21 @@ impl Rk4PCDM {
         let target_impulse =
             self.total_conserved_impulse(&p_n, &v_n, &self.state.ang, &l_lin_n, &l_ang_n);
 
+        if self.hamiltonian_coupled_solve {
+            let z0 = self.generalized_velocity_vector();
+            let z_mid = self.solve_coupled_endpoint_mid_velocity(
+                &start_state,
+                &z0,
+                target_ke,
+                &target_impulse,
+            );
+            self.state = self.endpoint_state_from_mid_velocity(&start_state, &z_mid);
+            self.solver.set_state(&self.state);
+            let _ = self.solver.impulse();
+            self.o_lab = self.orientation_to_marker_point();
+            return;
+        }
+
         let mut z_mid = self.generalized_velocity_vector();
         let mut end_state = self.endpoint_state_from_mid_velocity(&start_state, &z_mid);
 
@@ -995,6 +1028,134 @@ impl Rk4PCDM {
         self.solver.set_state(&self.state);
         let _ = self.solver.impulse();
         self.o_lab = self.orientation_to_marker_point();
+    }
+
+    fn solve_coupled_endpoint_mid_velocity(
+        &mut self,
+        start: &BodyState,
+        z0: &DVector<f64>,
+        target_ke: f64,
+        target_impulse: &DVector<f64>,
+    ) -> DVector<f64> {
+        let mut z = z0.clone();
+        let Some(mut residual) =
+            self.coupled_endpoint_residual(start, &z, target_ke, target_impulse)
+        else {
+            return z;
+        };
+        let mut residual_norm = residual.norm();
+        let dof = z.len();
+        let max_dz = if self.hamiltonian_coupled_max_shift > 0.0 {
+            self.hamiltonian_coupled_max_shift / self.step_size.max(1.0e-12)
+        } else {
+            f64::INFINITY
+        };
+
+        for _ in 0..self.hamiltonian_coupled_iters {
+            if residual_norm <= self.hamiltonian_floor_tol.max(1.0e-12) {
+                break;
+            }
+
+            let mut jac = DMatrix::zeros(residual.len(), dof);
+            for j in 0..dof {
+                let eps = self.hamiltonian_coupled_eps * (z[j].abs() + 1.0);
+                let mut zp = z.clone();
+                zp[j] += eps;
+                let Some(rp) =
+                    self.coupled_endpoint_residual(start, &zp, target_ke, target_impulse)
+                else {
+                    continue;
+                };
+                for row in 0..residual.len() {
+                    jac[(row, j)] = (rp[row] - residual[row]) / eps;
+                }
+            }
+
+            let mut gram = &jac * jac.transpose();
+            for i in 0..gram.nrows() {
+                gram[(i, i)] += 1.0e-10;
+            }
+            let Some(gram_inv) = gram.try_inverse() else {
+                break;
+            };
+            let mut dz = -jac.transpose() * (gram_inv * &residual);
+            let dz_norm = dz.norm();
+            if dz_norm.is_finite() && dz_norm > max_dz {
+                dz *= max_dz / dz_norm;
+            }
+
+            let mut accepted = false;
+            let mut alpha = 1.0;
+            for _ in 0..8 {
+                let z_trial = &z + alpha * &dz;
+                let Some(r_trial) =
+                    self.coupled_endpoint_residual(start, &z_trial, target_ke, target_impulse)
+                else {
+                    alpha *= 0.5;
+                    continue;
+                };
+                let trial_norm = r_trial.norm();
+                if trial_norm.is_finite() && trial_norm < residual_norm {
+                    z = z_trial;
+                    residual = r_trial;
+                    residual_norm = trial_norm;
+                    accepted = true;
+                    break;
+                }
+                alpha *= 0.5;
+            }
+
+            if !accepted {
+                break;
+            }
+        }
+
+        let impulse_resid = residual.rows(0, 6).norm();
+        let energy_err_rel = residual[6].abs() / target_ke.abs().sqrt().max(1.0);
+        self.coupled_max_residual_norm = self.coupled_max_residual_norm.max(residual_norm);
+        self.coupled_max_impulse_resid = self.coupled_max_impulse_resid.max(impulse_resid);
+        self.coupled_max_energy_err_rel = self.coupled_max_energy_err_rel.max(energy_err_rel);
+
+        z
+    }
+
+    fn coupled_endpoint_residual(
+        &mut self,
+        start: &BodyState,
+        z_mid: &DVector<f64>,
+        target_ke: f64,
+        target_impulse: &DVector<f64>,
+    ) -> Option<DVector<f64>> {
+        let saved_state = self.state.clone();
+        self.state = self.endpoint_state_from_mid_velocity(start, z_mid);
+        self.solver.set_state(&self.state);
+        let (l_lin, l_ang) = self.solver.impulse();
+        let conserved = self.total_conserved_impulse(
+            &self.state.lin.0,
+            &self.state.lin.1,
+            &self.state.ang,
+            &l_lin,
+            &l_ang,
+        );
+        let ke = self
+            .solid_kinetic_energy(&self.state.lin, &self.state.ang)
+            .total
+            + self.solver.fluid_kinetic_energy();
+
+        self.state = saved_state;
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+
+        if !ke.is_finite() {
+            return None;
+        }
+        let mut residual = DVector::zeros(7);
+        for c in 0..3 {
+            residual[c] = conserved[c] - target_impulse[c];
+            residual[3 + c] = conserved[3 + c] - target_impulse[3 + c];
+        }
+        residual[6] = (ke - target_ke) / target_ke.abs().sqrt().max(1.0);
+        Some(residual)
     }
 
     fn endpoint_state_from_mid_velocity(
