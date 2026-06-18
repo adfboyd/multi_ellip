@@ -50,6 +50,9 @@ studies/**/runs/
 /two_body_parameter_sweep_coupled_runs/
 /two_body_parameter_sweep_user_runs/
 /two_body_parameter_sweep_task_runs/
+/old_two_body_sweep_analysis/
+/old_two_body_sweep_analysis_smoke/
+/single_body_dynamics_check_after_two_body/
 /coupled_validation_runner.exe
 /coupled_dt_convergence_runner.exe
 /coupled_validation_runner.pdb
