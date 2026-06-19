@@ -40,6 +40,9 @@
 \date{\today}
 
 \begin{document}
+\pagenumbering{arabic}
+\setcounter{page}{1}
+\setcounter{section}{0}
 \maketitle
 
 \begin{abstract}
@@ -54,15 +57,41 @@ endpoint velocities that preserve total linear impulse, total angular impulse,
 and total kinetic energy.
 \end{abstract}
 
-\tableofcontents
+\section{Notation and dimensions}
+
+All bold lower- and upper-case symbols denote vectors or matrices.  There are
+$N$ rigid bodies.  Body-indexed vectors such as centre $\bX_b$, translational
+velocity $\bU_b$, angular velocity $\bOmega_b$, Lamb impulse $\bL_b$, angular
+Lamb impulse $\bLam_b$, solid angular momentum $\bh_{s,b}$, and unit normal
+$\bn$ all lie in $\R^3$ unless stated otherwise.  Unit quaternions
+$\quat{q}_b\in\mathbb{S}^3$ represent orientations.
+
+For the boundary-element discretisation, let $M$ be the total number of surface
+nodes and let $K$ be the total number of triangular elements over all bodies.
+The nodal potential vector is $\phiv\in\R^M$, the BEM matrix is
+$\bA\in\R^{M\times M}$, and the Neumann right-hand side is $\bm{r}\in\R^M$.
+The stacked endpoint generalized velocity is $\bz\in\R^{6N}$; for two bodies,
+$\bz\in\R^{12}$.  The conserved impulse vector combines linear and angular
+parts,
+\begin{equation}
+  \bC =
+  \begin{bmatrix}
+    \bP\\
+    \bH
+  \end{bmatrix}
+  \in\R^6,
+\end{equation}
+where $\bP\in\R^3$ is total linear impulse and $\bH\in\R^3$ is total angular
+impulse.  The nonlinear endpoint residual is $\bR:\R^{6N}\to\R^7$, so its
+finite-difference Jacobian is $\bJ\in\R^{7\times 6N}$.
 
 \section{Rigid-body state}
 
 \subsection{Continuous variables}
 
-There are $N$ ellipsoids in an unbounded ideal fluid of density $\rho_f$.  Body
-$b$ has centre $\bX_b(t)$, unit orientation quaternion $\quat{q}_b(t)$,
-semi-axes $(a_b,b_b,c_b)$, solid density $\rho_{s,b}$, and volume
+Body $b\in\{1,\ldots,N\}$ has centre $\bX_b(t)\in\R^3$, unit orientation
+quaternion $\quat{q}_b(t)\in\mathbb{S}^3$, semi-axes $(a_b,b_b,c_b)$, solid
+density $\rho_{s,b}$, and volume
 \begin{equation}
   V_b = \frac{4\pi}{3}a_b b_b c_b .
 \end{equation}
@@ -78,18 +107,18 @@ The solid mass and body-frame inertia tensor are
   \end{bmatrix}.
   \label{eq:mass-inertia}
 \end{equation}
-The lab-frame translational and angular velocities are
+The lab-frame translational and angular velocities are both vectors in $\R^3$:
 \begin{equation}
   \bU_b = \dot{\bX}_b,\qquad \bOmega_b \in \R^3 .
 \end{equation}
-The corresponding body-frame angular velocity is
+The corresponding body-frame angular velocity $\bomega_b\in\R^3$ is
 \begin{equation}
   (0,\bomega_b)
   =
   \quat{q}_b^{-1}(0,\bOmega_b)\quat{q}_b .
   \label{eq:body-omega}
 \end{equation}
-The solid angular momentum, expressed in the lab frame, is
+The solid angular momentum $\bh_{s,b}\in\R^3$, expressed in the lab frame, is
 \begin{equation}
   \bh_{s,b}
   =
@@ -110,7 +139,7 @@ The solid kinetic energy is
 
 \subsection{Discrete state vector}
 
-At time $t_n$ the code stores
+At time $t_n$ the code stores the mixed rigid-body state
 \begin{equation}
   y_n =
   \left(
@@ -139,7 +168,8 @@ The nonlinear solve uses the endpoint generalized velocity vector
 
 \subsection{Governing equations}
 
-The fluid is incompressible, inviscid, and irrotational.  Thus
+The fluid velocity $\bm{u}(\bx,t)\in\R^3$ is incompressible, inviscid, and
+irrotational.  Thus
 \begin{equation}
   \bm{u}=\nabla\phi,\qquad
   \nabla^2\phi=0
@@ -152,7 +182,8 @@ The far-field condition is
   \qquad\text{as}\qquad \|\bx\|\to\infty .
   \label{eq:far-field}
 \end{equation}
-On the surface $S_b$ of body $b$, the no-through-flow condition gives
+On the surface $S_b$ of body $b$, with outward unit normal $\bn(\bx)\in\R^3$,
+the no-through-flow condition gives
 \begin{equation}
   \frac{\partial\phi}{\partial n}(\bx)
   =
@@ -166,13 +197,13 @@ On the surface $S_b$ of body $b$, the no-through-flow condition gives
 
 \subsection{Boundary-integral equation}
 
-The free-space Green function is
+The source point is $\by\in S$, and the free-space Green function is
 \begin{equation}
   G(\bx,\by)=\frac{1}{4\pi\|\bx-\by\|}.
   \label{eq:green}
 \end{equation}
-For $\bx$ on the combined body surface $S=\cup_b S_b$, the direct boundary
-integral equation is
+For target point $\bx$ on the combined body surface $S=\cup_{b=1}^N S_b$, the
+direct boundary integral equation is
 \begin{equation}
   c(\bx)\phi(\bx)
   +
@@ -183,12 +214,13 @@ integral equation is
   G(\bx,\by)\frac{\partial\phi}{\partial n}(\by)\dd S_{\by}.
   \label{eq:continuous-bie}
 \end{equation}
-The right-hand side is linear in the rigid-body generalized velocities, but the
-operator depends on the current body configuration.
+Here $c(\bx)$ is the boundary solid-angle coefficient.  The right-hand side is
+linear in the rigid-body generalized velocities, but the operator depends on
+the current body configuration.
 
 \section{Continuous energy and impulse state functions}
 
-Given the instantaneous solution $\phi$, the fluid kinetic energy is computed
+Given the instantaneous solution $\phi:S\to\R$, the fluid kinetic energy is computed
 from Green's identity using the exterior-normal convention in the code:
 \begin{equation}
   T_f
@@ -198,7 +230,8 @@ from Green's identity using the exterior-normal convention in the code:
   \phi\frac{\partial\phi}{\partial n}\dd S .
   \label{eq:continuous-fluid-ke}
 \end{equation}
-The linear Lamb impulse and angular Lamb impulse of body $b$ are
+The linear Lamb impulse $\bL_b\in\R^3$ and angular Lamb impulse
+$\bLam_b\in\R^3$ of body $b$ are
 \begin{align}
   \bL_b
   &=
@@ -214,7 +247,8 @@ These quantities are treated as state functions: no time history of $\phi$ or
 finite-difference approximation to $\partial\phi/\partial t$ is used in the
 current method.
 
-The continuous conserved linear impulse, angular impulse, and Hamiltonian are
+The continuous conserved linear impulse $\bP\in\R^3$, angular impulse
+$\bH\in\R^3$, and Hamiltonian $E\in\R$ are
 \begin{align}
   \bP
   &=
@@ -240,9 +274,10 @@ The continuous conserved linear impulse, angular impulse, and Hamiltonian are
 
 \subsection{Surface discretisation}
 
-The combined surface is represented by six-node quadratic triangular elements.
-Let $\phi_i$ be the unknown nodal potential and let $N_i(\xi,\eta)$ be the
-quadratic element basis functions.  On element $e$,
+The combined surface is represented by $K$ six-node quadratic triangular
+elements.  Let $\phi_i$ be the unknown nodal potential at node
+$i\in\{1,\ldots,M\}$ and let $N_i(\xi,\eta)$ be the quadratic element basis
+functions.  On element $e$,
 \begin{equation}
   \bx_e(\xi,\eta)
   =
@@ -251,7 +286,7 @@ quadratic element basis functions.  On element $e$,
   =
   \sum_{i\in e}N_i(\xi,\eta)\phi_i .
 \end{equation}
-The oriented area vector at a quadrature point is
+The oriented area vector $\bn\,\dd S\in\R^3$ at a quadrature point is
 \begin{equation}
   \bn\,\dd S
   =
@@ -267,7 +302,7 @@ where $w_q$ is the triangle quadrature weight.
 
 \subsection{Discrete potential solve}
 
-The nodal Neumann data are
+The nodal Neumann data $g_i\in\R$ are
 \begin{equation}
   g_i
   =
@@ -287,15 +322,18 @@ where $b(i)$ is the body owning node $i$.  The BEM discretisation of
   \bm{r}(\{\bX_b,\quat{q}_b\},\{\bU_b,\bOmega_b\}),
   \label{eq:discrete-bem}
 \end{equation}
-where $\phiv=(\phi_1,\ldots,\phi_M)^\mathsf{T}$.  Because the right-hand side
-is assembled from \eqref{eq:discrete-neumann}, it is linear in the generalized
-velocity at fixed configuration.
+where $\bA\in\R^{M\times M}$,
+$\phiv=(\phi_1,\ldots,\phi_M)^\mathsf{T}\in\R^M$, and
+$\bm{r}\in\R^M$.  Because the right-hand side is assembled from
+\eqref{eq:discrete-neumann}, it is linear in the generalized velocity at fixed
+configuration.
 
 \subsection{Discrete fluid energy and impulses}
 
-Let $Q_b$ be the set of element quadrature points owned by body $b$.  At
-quadrature point $q$, let $\phi_q$ be the interpolated potential, $g_q$ the
-interpolated normal derivative, $\bx_q$ the interpolated position, and
+Let $Q_b$ be the set of element quadrature points owned by body $b$ and
+$Q=\cup_b Q_b$.  At quadrature point $q$, let $\phi_q\in\R$ be the interpolated
+potential, $g_q\in\R$ the interpolated normal derivative, $\bx_q\in\R^3$ the
+interpolated position, and
 \begin{equation}
   \bm{a}_q
   =
@@ -329,8 +367,8 @@ These are the quantities returned by the BEM impulse solve.
 
 \section{Discrete conserved quantities}
 
-After a BEM solve at a discrete state $y$, the discrete invariants are evaluated
-as
+After a BEM solve at a discrete state $y$, the discrete invariants
+$\bP_h(y)\in\R^3$, $\bH_h(y)\in\R^3$, and $E_h(y)\in\R$ are evaluated as
 \begin{align}
   \bP_h(y)
   &=
@@ -351,15 +389,15 @@ as
   \sum_{b=1}^N T_{s,b}+T_{f,h}.
   \label{eq:discrete-energy}
 \end{align}
-The output columns `pcon' and `hcon' are the per-body summands in
+The output columns `pcon' and `hcon' are three-component per-body summands in
 \eqref{eq:discrete-p} and \eqref{eq:discrete-h}.
 
 \section{Current time step: coupled endpoint-velocity Hamiltonian solve}
 
 \subsection{Start-of-step targets}
 
-At the beginning of substep $n$, the solver evaluates the BEM state functions
-at $y_n$ and defines the target invariant vector
+At the beginning of substep $n$, with step size $h>0$, the solver evaluates the
+BEM state functions at $y_n$ and defines the target invariant vector
 \begin{equation}
   \bC^\star
   =
@@ -370,7 +408,7 @@ at $y_n$ and defines the target invariant vector
   \in\R^6 .
   \label{eq:target-c}
 \end{equation}
-The energy target is the initial total kinetic energy of the run,
+The scalar energy target is the initial total kinetic energy of the run,
 \begin{equation}
   E^\star = E_h(y_0).
   \label{eq:target-energy}
@@ -380,7 +418,8 @@ long-time accumulated energy drift.
 
 \subsection{Endpoint state generated by endpoint velocities}
 
-For a candidate endpoint velocity vector $\bz$ in \eqref{eq:z-endpoint}, the
+For a candidate endpoint velocity vector $\bz\in\R^{6N}$ in
+\eqref{eq:z-endpoint}, the
 current method constructs the endpoint state by trapezoidal kinematics:
 \begin{align}
   \bX_b^{n+1}(\bz)
@@ -427,7 +466,7 @@ The candidate endpoint state $y_{n+1}(\bz)$ is pushed into the BEM solver,
   \end{bmatrix}.
   \label{eq:c-of-z}
 \end{equation}
-The seven-equation nonlinear residual is
+The seven-equation nonlinear residual $\bR(\bz)\in\R^7$ is
 \begin{equation}
   \bR(\bz)
   =
@@ -458,7 +497,8 @@ Newton correction is a minimum-norm correction of an underdetermined system.
 
 \subsection{Finite-difference Jacobian}
 
-At iteration $k$, the residual Jacobian is approximated by forward differences:
+At nonlinear iteration $k$, the residual Jacobian
+$\bJ_k\in\R^{7\times 6N}$ is approximated by forward differences:
 \begin{equation}
   \bJ_{ij}^{(k)}
   =
@@ -471,8 +511,9 @@ At iteration $k$, the residual Jacobian is approximated by forward differences:
   \epsilon_{\mathrm{fd}}\left(|z_{k,j}|+1\right).
   \label{eq:fd-jacobian}
 \end{equation}
-The current sweep uses $\epsilon_{\mathrm{fd}}=10^{-3}$ and rebuilds this
-Jacobian every six nonlinear iterations, with Broyden updates between rebuilds.
+Here $\be_j\in\R^{6N}$ is the $j$th coordinate vector.  The current sweep uses
+$\epsilon_{\mathrm{fd}}=10^{-3}$ and rebuilds this Jacobian every six nonlinear
+iterations, with Broyden updates between rebuilds.
 
 \subsection{Minimum-norm Newton correction}
 
@@ -489,6 +530,7 @@ The code solves the regularised normal equation in residual space:
   \qquad \lambda=10^{-10}.
   \label{eq:newton-correction}
 \end{equation}
+Here $\Delta\bz_k\in\R^{6N}$ and $I\in\R^{7\times 7}$.
 The correction is capped as
 \begin{equation}
   \Delta\bz_k
@@ -503,7 +545,7 @@ The correction is capped as
   \label{eq:step-cap}
 \end{equation}
 The current sweep uses $\delta_{\max}=0.2$.  Backtracking accepts the first
-$\alpha\in\{1,1/2,\ldots,1/2^7\}$ satisfying
+scalar $\alpha\in\{1,1/2,\ldots,1/2^7\}$ satisfying
 \begin{equation}
   \|\bR(\bz_k+\alpha\Delta\bz_k)\| < \|\bR(\bz_k)\|.
   \label{eq:line-search}
@@ -511,7 +553,8 @@ $\alpha\in\{1,1/2,\ldots,1/2^7\}$ satisfying
 
 \subsection{Broyden update}
 
-When enabled, the finite-difference Jacobian is updated after an accepted step
+When enabled, the finite-difference Jacobian $\bJ_k\in\R^{7\times 6N}$ is
+updated after an accepted step
 by
 \begin{equation}
   \bJ_{k+1}
@@ -532,8 +575,8 @@ This is the rank-one secant update used in the current sweep.
 
 \section{Adaptive substepping}
 
-The nominal step is $h=\Delta t$.  If the final coupled residual norm exceeds
-the tolerance
+The nominal step is $h=\Delta t$.  If the final coupled residual norm
+$\|\bR\|$ exceeds the scalar tolerance $\tau$
 \begin{equation}
   \|\bR\| > \tau,
   \qquad \tau=\texttt{hamiltonian\_floor\_tol},
@@ -551,6 +594,7 @@ t/n_{\mathrm{sub}}$.
 \section{Diagnostics}
 
 The code reports the physical conservation errors using the unscaled quantities
+$e_P,e_H,e_E\in\R$:
 \begin{align}
   e_P &= \|\bP_h(y_{n+1})-\bP^\star\|,\\
   e_H &= \|\bH_h(y_{n+1})-\bH^\star\|,\\
