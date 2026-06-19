@@ -44,10 +44,12 @@ impl Rk4PCDM {
         );
         if self.hamiltonian_coupled_solve {
             println!(
-                "  Coupled residual last/max {:.3e}/{:.3e} | true dE max {:.3e} | raw dP/dH max {:.3e}/{:.3e} | Jacobians {} | adaptive retries {} | max substeps {}",
+                "  Coupled residual last/max {:.3e}/{:.3e} | true dE max {:.3e} | corr rel {:.3e} ({:.3e} KE metric) | raw dP/dH max {:.3e}/{:.3e} | Jacobians {} | adaptive retries {} | max substeps {}",
                 self.coupled_last_step_residual_norm,
                 self.coupled_max_residual_norm,
                 self.coupled_max_true_energy_err_rel,
+                self.coupled_last_step_correction_rel,
+                self.coupled_last_step_correction_kinetic_rel,
                 self.coupled_max_raw_linear_impulse_resid,
                 self.coupled_max_raw_angular_impulse_resid,
                 self.coupled_jacobian_builds,

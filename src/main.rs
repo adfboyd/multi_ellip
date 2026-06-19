@@ -213,6 +213,7 @@ fn main() {
     let hamiltonian_coupled_broyden_update = get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
     let hamiltonian_coupled_endpoint_velocity =
         get("hamiltonian_coupled_endpoint_velocity", 0.0) > 0.5;
+    let hamiltonian_coupled_kinetic_metric = get("hamiltonian_coupled_kinetic_metric", 1.0) > 0.5;
 
     // Initial integrator state, stacked over bodies.
     let mut p0 = DVector::zeros(3 * nbody);
@@ -304,6 +305,7 @@ fn main() {
         hamiltonian_coupled_jacobian_interval,
         hamiltonian_coupled_broyden_update,
         hamiltonian_coupled_endpoint_velocity,
+        hamiltonian_coupled_kinetic_metric,
     );
 
     // Per body: an octahedron (8 faces) subdivided 4^ndiv times -> 8*4^ndiv
@@ -416,6 +418,14 @@ fn main() {
                 "  Coupled endpoint velocity: {}",
                 fmt_enabled(hamiltonian_coupled_endpoint_velocity)
             );
+            println!(
+                "  Coupled correction metric: {}",
+                if hamiltonian_coupled_kinetic_metric {
+                    "solid kinetic"
+                } else {
+                    "Euclidean"
+                }
+            );
         }
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
@@ -516,6 +526,29 @@ fn main() {
                         "  Coupled max true energy error rel: {:.6e}",
                         stepper.coupled_max_true_energy_err_rel
                     );
+                    println!(
+                        "  Coupled max correction rel: {:.6e}",
+                        stepper.coupled_max_correction_rel
+                    );
+                    println!(
+                        "  Coupled max kinetic correction rel: {:.6e}",
+                        stepper.coupled_max_correction_kinetic_rel
+                    );
+                    let min_rank = if stepper.coupled_min_jacobian_rank == usize::MAX {
+                        0
+                    } else {
+                        stepper.coupled_min_jacobian_rank
+                    };
+                    let min_sigma = if stepper.coupled_min_jacobian_sigma.is_finite() {
+                        stepper.coupled_min_jacobian_sigma
+                    } else {
+                        0.0
+                    };
+                    println!(
+                        "  Coupled Jacobian min rank / max nullity: {} / {}",
+                        min_rank, stepper.coupled_max_jacobian_nullity
+                    );
+                    println!("  Coupled Jacobian min singular value: {:.6e}", min_sigma);
                     println!(
                         "  Coupled Jacobian builds:        {}",
                         stepper.coupled_jacobian_builds

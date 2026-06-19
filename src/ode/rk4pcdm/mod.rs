@@ -103,6 +103,13 @@ pub struct Rk4PCDM {
     pub coupled_last_step_raw_linear_impulse_resid: f64,
     pub coupled_last_step_raw_angular_impulse_resid: f64,
     pub coupled_last_step_true_energy_err_rel: f64,
+    pub coupled_max_correction_rel: f64,
+    pub coupled_last_step_correction_rel: f64,
+    pub coupled_max_correction_kinetic_rel: f64,
+    pub coupled_last_step_correction_kinetic_rel: f64,
+    pub coupled_min_jacobian_rank: usize,
+    pub coupled_max_jacobian_nullity: usize,
+    pub coupled_min_jacobian_sigma: f64,
     pub coupled_jacobian_builds: usize,
     pub hamiltonian_adaptive_retry_count: usize,
     pub hamiltonian_max_substeps_used: usize,
@@ -134,6 +141,7 @@ pub struct Rk4PCDM {
     hamiltonian_coupled_jacobian_interval: usize,
     hamiltonian_coupled_broyden_update: bool,
     hamiltonian_coupled_endpoint_velocity: bool,
+    hamiltonian_coupled_kinetic_metric: bool,
     initial_total_ke: Option<f64>,
 }
 
@@ -172,6 +180,11 @@ struct CoupledDiagnosticsSnapshot {
     max_raw_linear_impulse_resid: f64,
     max_raw_angular_impulse_resid: f64,
     max_true_energy_err_rel: f64,
+    max_correction_rel: f64,
+    max_correction_kinetic_rel: f64,
+    min_jacobian_rank: usize,
+    max_jacobian_nullity: usize,
+    min_jacobian_sigma: f64,
 }
 
 struct CoupledResidualEval {
@@ -214,6 +227,7 @@ impl Rk4PCDM {
         hamiltonian_coupled_jacobian_interval: usize,
         hamiltonian_coupled_broyden_update: bool,
         hamiltonian_coupled_endpoint_velocity: bool,
+        hamiltonian_coupled_kinetic_metric: bool,
     ) -> Self {
         let nbody = orientations.len();
         let q: Vec<Quaternion<f64>> = orientations.iter().map(|o| o.0).collect();
@@ -278,6 +292,13 @@ impl Rk4PCDM {
             coupled_last_step_raw_linear_impulse_resid: 0.0,
             coupled_last_step_raw_angular_impulse_resid: 0.0,
             coupled_last_step_true_energy_err_rel: 0.0,
+            coupled_max_correction_rel: 0.0,
+            coupled_last_step_correction_rel: 0.0,
+            coupled_max_correction_kinetic_rel: 0.0,
+            coupled_last_step_correction_kinetic_rel: 0.0,
+            coupled_min_jacobian_rank: usize::MAX,
+            coupled_max_jacobian_nullity: 0,
+            coupled_min_jacobian_sigma: f64::INFINITY,
             coupled_jacobian_builds: 0,
             hamiltonian_adaptive_retry_count: 0,
             hamiltonian_max_substeps_used: hamiltonian_substeps.max(1),
@@ -300,6 +321,7 @@ impl Rk4PCDM {
             hamiltonian_coupled_jacobian_interval: hamiltonian_coupled_jacobian_interval.max(1),
             hamiltonian_coupled_broyden_update,
             hamiltonian_coupled_endpoint_velocity,
+            hamiltonian_coupled_kinetic_metric,
             initial_total_ke: None,
         }
     }
@@ -603,6 +625,11 @@ impl Rk4PCDM {
             max_raw_linear_impulse_resid: self.coupled_max_raw_linear_impulse_resid,
             max_raw_angular_impulse_resid: self.coupled_max_raw_angular_impulse_resid,
             max_true_energy_err_rel: self.coupled_max_true_energy_err_rel,
+            max_correction_rel: self.coupled_max_correction_rel,
+            max_correction_kinetic_rel: self.coupled_max_correction_kinetic_rel,
+            min_jacobian_rank: self.coupled_min_jacobian_rank,
+            max_jacobian_nullity: self.coupled_max_jacobian_nullity,
+            min_jacobian_sigma: self.coupled_min_jacobian_sigma,
         }
     }
 
@@ -613,12 +640,19 @@ impl Rk4PCDM {
         self.coupled_max_raw_linear_impulse_resid = snapshot.max_raw_linear_impulse_resid;
         self.coupled_max_raw_angular_impulse_resid = snapshot.max_raw_angular_impulse_resid;
         self.coupled_max_true_energy_err_rel = snapshot.max_true_energy_err_rel;
+        self.coupled_max_correction_rel = snapshot.max_correction_rel;
+        self.coupled_max_correction_kinetic_rel = snapshot.max_correction_kinetic_rel;
+        self.coupled_min_jacobian_rank = snapshot.min_jacobian_rank;
+        self.coupled_max_jacobian_nullity = snapshot.max_jacobian_nullity;
+        self.coupled_min_jacobian_sigma = snapshot.min_jacobian_sigma;
         self.coupled_last_step_residual_norm = 0.0;
         self.coupled_last_step_impulse_resid = 0.0;
         self.coupled_last_step_energy_err_rel = 0.0;
         self.coupled_last_step_raw_linear_impulse_resid = 0.0;
         self.coupled_last_step_raw_angular_impulse_resid = 0.0;
         self.coupled_last_step_true_energy_err_rel = 0.0;
+        self.coupled_last_step_correction_rel = 0.0;
+        self.coupled_last_step_correction_kinetic_rel = 0.0;
     }
 
     /// Explicit predictor-corrector (Verlet-like translation + PCDM rotation) step
@@ -1029,6 +1063,8 @@ impl Rk4PCDM {
         self.coupled_last_step_raw_linear_impulse_resid = 0.0;
         self.coupled_last_step_raw_angular_impulse_resid = 0.0;
         self.coupled_last_step_true_energy_err_rel = 0.0;
+        self.coupled_last_step_correction_rel = 0.0;
+        self.coupled_last_step_correction_kinetic_rel = 0.0;
         if substeps == 1 {
             self.advance_one_hamiltonian_midpoint_substep();
             return;
@@ -1156,7 +1192,7 @@ impl Rk4PCDM {
             let Some(jacobian) = reusable_jacobian.as_ref() else {
                 break;
             };
-            let Some(dz) = self.coupled_newton_step(jacobian, &residual, max_dz) else {
+            let Some(dz) = self.coupled_newton_step(start, jacobian, &residual, max_dz) else {
                 break;
             };
 
@@ -1210,7 +1246,7 @@ impl Rk4PCDM {
                 else {
                     break;
                 };
-                let Some(dz) = self.coupled_newton_step(&jacobian, &residual, max_dz) else {
+                let Some(dz) = self.coupled_newton_step(start, &jacobian, &residual, max_dz) else {
                     break;
                 };
 
@@ -1277,6 +1313,7 @@ impl Rk4PCDM {
             self.coupled_last_step_impulse_resid.max(impulse_resid);
         self.coupled_last_step_energy_err_rel =
             self.coupled_last_step_energy_err_rel.max(energy_err_rel);
+        self.record_coupled_correction_diagnostics(start, z0, &z);
 
         z
     }
@@ -1301,26 +1338,137 @@ impl Rk4PCDM {
             }
         }
         self.coupled_jacobian_builds += 1;
+        self.record_coupled_jacobian_diagnostics(&jac);
         Some(jac)
     }
 
     fn coupled_newton_step(
         &self,
+        start: &BodyState,
         jacobian: &DMatrix<f64>,
         residual: &DVector<f64>,
         max_dz: f64,
     ) -> Option<DVector<f64>> {
-        let mut gram = jacobian * jacobian.transpose();
+        let metric_inv = self.coupled_metric_inverse(start);
+        let mut gram = if let Some(metric_inv) = metric_inv.as_ref() {
+            jacobian * metric_inv * jacobian.transpose()
+        } else {
+            jacobian * jacobian.transpose()
+        };
         for i in 0..gram.nrows() {
             gram[(i, i)] += 1.0e-10;
         }
         let gram_inv = gram.try_inverse()?;
-        let mut dz = -jacobian.transpose() * (gram_inv * residual);
+        let y = gram_inv * residual;
+        let mut dz = if let Some(metric_inv) = metric_inv.as_ref() {
+            -(metric_inv * jacobian.transpose() * y)
+        } else {
+            -(jacobian.transpose() * y)
+        };
         let dz_norm = dz.norm();
         if dz_norm.is_finite() && dz_norm > max_dz {
             dz *= max_dz / dz_norm;
         }
         Some(dz)
+    }
+
+    fn coupled_metric_inverse(&self, state: &BodyState) -> Option<DMatrix<f64>> {
+        if !self.hamiltonian_coupled_kinetic_metric {
+            return None;
+        }
+
+        let dof = 6 * self.nbody;
+        let mut metric_inv = DMatrix::zeros(dof, dof);
+        let (q, _) = &state.ang;
+        let omega_offset = 3 * self.nbody;
+
+        for b in 0..self.nbody {
+            let mass = self.masses[b];
+            let inv_mass = if mass > 1.0e-14 { 1.0 / mass } else { 1.0 };
+            for c in 0..3 {
+                metric_inv[(3 * b + c, 3 * b + c)] = inv_mass;
+            }
+
+            let q_unit = UnitQuaternion::from_quaternion(q[b].normalize());
+            let rot = q_unit.to_rotation_matrix();
+            let r = rot.matrix();
+            let inertia_lab = r * self.inertias[b] * r.transpose();
+            let inertia_inv = inertia_lab.try_inverse().unwrap_or_else(Matrix3::identity);
+            for row in 0..3 {
+                for col in 0..3 {
+                    metric_inv[(omega_offset + 3 * b + row, omega_offset + 3 * b + col)] =
+                        inertia_inv[(row, col)];
+                }
+            }
+        }
+
+        Some(metric_inv)
+    }
+
+    fn velocity_metric_norm(&self, state: &BodyState, z: &DVector<f64>) -> f64 {
+        let (q, _) = &state.ang;
+        let mut qform = 0.0;
+        let omega_offset = 3 * self.nbody;
+        for b in 0..self.nbody {
+            let v = Vector3::new(z[3 * b], z[3 * b + 1], z[3 * b + 2]);
+            qform += self.masses[b].max(0.0) * v.dot(&v);
+
+            let omega_lab = Quaternion::from_imag(Vector3::new(
+                z[omega_offset + 3 * b],
+                z[omega_offset + 3 * b + 1],
+                z[omega_offset + 3 * b + 2],
+            ));
+            let omega_body = rotation::lab_to_body(&omega_lab, &q[b]).imag();
+            qform += omega_body.dot(&(self.inertias[b] * omega_body));
+        }
+        qform.max(0.0).sqrt()
+    }
+
+    fn record_coupled_correction_diagnostics(
+        &mut self,
+        start: &BodyState,
+        z0: &DVector<f64>,
+        z: &DVector<f64>,
+    ) {
+        let dz = z - z0;
+        let rel = dz.norm() / z0.norm().max(1.0);
+        let kinetic_rel =
+            self.velocity_metric_norm(start, &dz) / self.velocity_metric_norm(start, z0).max(1.0);
+
+        self.coupled_max_correction_rel = self.coupled_max_correction_rel.max(rel);
+        self.coupled_last_step_correction_rel = self.coupled_last_step_correction_rel.max(rel);
+        self.coupled_max_correction_kinetic_rel =
+            self.coupled_max_correction_kinetic_rel.max(kinetic_rel);
+        self.coupled_last_step_correction_kinetic_rel = self
+            .coupled_last_step_correction_kinetic_rel
+            .max(kinetic_rel);
+    }
+
+    fn record_coupled_jacobian_diagnostics(&mut self, jacobian: &DMatrix<f64>) {
+        let svd = jacobian.clone().svd(false, false);
+        let mut sigma_max: f64 = 0.0;
+        let mut sigma_min = f64::INFINITY;
+        for sigma in svd.singular_values.iter().copied() {
+            if sigma.is_finite() {
+                sigma_max = sigma_max.max(sigma);
+                sigma_min = sigma_min.min(sigma);
+            }
+        }
+        if !sigma_min.is_finite() {
+            return;
+        }
+
+        let tol = (1.0e-10 * sigma_max).max(1.0e-12);
+        let rank = svd
+            .singular_values
+            .iter()
+            .filter(|sigma| sigma.is_finite() && **sigma > tol)
+            .count();
+        let nullity = jacobian.ncols().saturating_sub(rank);
+
+        self.coupled_min_jacobian_rank = self.coupled_min_jacobian_rank.min(rank);
+        self.coupled_max_jacobian_nullity = self.coupled_max_jacobian_nullity.max(nullity);
+        self.coupled_min_jacobian_sigma = self.coupled_min_jacobian_sigma.min(sigma_min);
     }
 
     fn broyden_update_jacobian(
