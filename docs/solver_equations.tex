@@ -6,7 +6,6 @@
 \usepackage{microtype}
 \usepackage[a4paper,margin=1in]{geometry}
 \usepackage{amsmath,amssymb,mathtools,bm}
-\usepackage{booktabs}
 \usepackage[hidelinks]{hyperref}
 
 \newcommand{\R}{\mathbb{R}}
@@ -15,28 +14,28 @@
 \newcommand{\bx}{\bm{x}}
 \newcommand{\by}{\bm{y}}
 \newcommand{\bX}{\bm{X}}
-\newcommand{\bu}{\bm{u}}
 \newcommand{\bU}{\bm{U}}
+\newcommand{\bV}{\bm{V}}
 \newcommand{\bomega}{\bm{\omega}}
 \newcommand{\bOmega}{\bm{\Omega}}
+\newcommand{\bI}{\bm{I}}
 \newcommand{\bL}{\bm{L}}
 \newcommand{\bLam}{\bm{\Lambda}}
-\newcommand{\bF}{\bm{F}}
-\newcommand{\bG}{\bm{G}}
 \newcommand{\bp}{\bm{p}}
 \newcommand{\bh}{\bm{h}}
-\newcommand{\bI}{\bm{I}}
-\newcommand{\bM}{\bm{M}}
+\newcommand{\bP}{\bm{P}}
+\newcommand{\bH}{\bm{H}}
 \newcommand{\bC}{\bm{C}}
+\newcommand{\bR}{\bm{R}}
 \newcommand{\bz}{\bm{z}}
-\newcommand{\bd}{\bm{d}}
-\newcommand{\bc}{\bm{c}}
 \newcommand{\bA}{\bm{A}}
-\newcommand{\bK}{\bm{K}}
-\newcommand{\bq}{\bm{q}}
+\newcommand{\bJ}{\bm{J}}
+\newcommand{\be}{\bm{e}}
+\newcommand{\bzero}{\bm{0}}
 \newcommand{\quat}[1]{\mathbf{#1}}
+\newcommand{\phiv}{\bm{\phi}}
 
-\title{Equations Used by the Multi-Ellipsoid Boundary-Integral Solver}
+\title{Continuous and Discrete Equations for the Current Multi-Ellipsoid Solver}
 \author{}
 \date{\today}
 
@@ -44,454 +43,532 @@
 \maketitle
 
 \begin{abstract}
-This note records the mathematical model and discrete equations implemented in
-the current multi-ellipsoid solver.  The fluid is inviscid, incompressible and
-irrotational, so the hydrodynamic coupling is obtained from a Neumann
-boundary-integral solve for the velocity potential.  The preferred multibody
-time step is an impulse/Hamiltonian endpoint formulation: fluid impulse and
-total kinetic energy are treated as state functions of the rigid-body
-configuration and velocities, and the endpoint velocities are chosen to satisfy
-the global linear impulse, angular impulse and energy constraints.
+This document records only the equations required for the current production
+method used in the two-body sweep: an inviscid potential-flow boundary-element
+solve coupled to a Hamiltonian midpoint step with a coupled endpoint-velocity
+solve.  The method does not use the older pressure-force update, the standalone
+impulse-difference update, the optional fluid-energy gradient, or the algebraic
+energy projection.  Hydrodynamic energy and impulse are evaluated as state
+functions of the instantaneous rigid-body state, and each time step solves for
+endpoint velocities that preserve total linear impulse, total angular impulse,
+and total kinetic energy.
 \end{abstract}
 
 \tableofcontents
 
-\section{Rigid bodies and notation}
+\section{Rigid-body state}
 
-The system consists of $N$ rigid ellipsoids immersed in an unbounded ideal
-fluid of density $\rho_f$.  Body $b$ has centre $\bX_b$, orientation quaternion
-$\quat{q}_b$, semi-axes $(a_b,b_b,c_b)$, solid density $\rho_{s,b}$ and volume
+\subsection{Continuous variables}
+
+There are $N$ ellipsoids in an unbounded ideal fluid of density $\rho_f$.  Body
+$b$ has centre $\bX_b(t)$, unit orientation quaternion $\quat{q}_b(t)$,
+semi-axes $(a_b,b_b,c_b)$, solid density $\rho_{s,b}$, and volume
 \begin{equation}
   V_b = \frac{4\pi}{3}a_b b_b c_b .
 \end{equation}
 The solid mass and body-frame inertia tensor are
 \begin{equation}
-  m_b = \rho_{s,b} V_b,\qquad
-  \bI_{s,b} =
+  m_b = \rho_{s,b}V_b,\qquad
+  \bI_b =
   \frac{m_b}{5}
   \begin{bmatrix}
     b_b^2+c_b^2 & 0 & 0\\
     0 & a_b^2+c_b^2 & 0\\
     0 & 0 & a_b^2+b_b^2
   \end{bmatrix}.
-  \label{eq:solid-mass-inertia}
+  \label{eq:mass-inertia}
 \end{equation}
-The lab-frame linear velocity is $\bU_b=\dot{\bX}_b$.  The lab angular velocity
-is represented as the pure quaternion $(0,\bOmega_b)$; body-frame vectors are
-obtained by
+The lab-frame translational and angular velocities are
 \begin{equation}
-  (0,\bomega_b) = \quat{q}_b^{-1}(0,\bOmega_b)\quat{q}_b .
-  \label{eq:lab-body-rotation}
+  \bU_b = \dot{\bX}_b,\qquad \bOmega_b \in \R^3 .
 \end{equation}
-The solid angular momentum in the lab frame is therefore
+The corresponding body-frame angular velocity is
+\begin{equation}
+  (0,\bomega_b)
+  =
+  \quat{q}_b^{-1}(0,\bOmega_b)\quat{q}_b .
+  \label{eq:body-omega}
+\end{equation}
+The solid angular momentum, expressed in the lab frame, is
 \begin{equation}
   \bh_{s,b}
-  = \quat{q}_b\,(0,\bI_{s,b}\bomega_b)\,\quat{q}_b^{-1}.
+  =
+  \operatorname{vec}\!\left[
+    \quat{q}_b(0,\bI_b\bomega_b)\quat{q}_b^{-1}
+  \right].
   \label{eq:solid-angular-momentum}
 \end{equation}
 The solid kinetic energy is
 \begin{equation}
   T_{s,b}
-  = \frac{1}{2}m_b \|\bU_b\|^2
-  + \frac{1}{2}\bomega_b^\mathsf{T}\bI_{s,b}\bomega_b .
+  =
+  \frac{1}{2}m_b\|\bU_b\|^2
+  +
+  \frac{1}{2}\bomega_b^\mathsf{T}\bI_b\bomega_b .
   \label{eq:solid-ke}
 \end{equation}
 
-\section{Single-ellipsoid added-mass tensors}
+\subsection{Discrete state vector}
 
-For an isolated ellipsoid the solver also computes the classical added-mass
-reference tensors from the shape functions
+At time $t_n$ the code stores
 \begin{equation}
-  \alpha_i
-  = abc\int_0^\lambda
-  \frac{\dd s}{(a_i^2+s)
-  \sqrt{(a^2+s)(b^2+s)(c^2+s)}} ,
-  \qquad (a_1,a_2,a_3)=(a,b,c).
-  \label{eq:shape-functions}
-\end{equation}
-In the code this integral is evaluated with a large finite upper limit
-$\lambda=10^4$.  Writing $(\alpha_1,\alpha_2,\alpha_3)=(\alpha,\beta,\gamma)$,
-the translational added-mass tensor is
-\begin{equation}
-  \bM_f
-  = \rho_f V
-  \operatorname{diag}\left(
-    \frac{\alpha}{2-\alpha},
-    \frac{\beta}{2-\beta},
-    \frac{\gamma}{2-\gamma}
+  y_n =
+  \left(
+    \{\bX_b^n\}_{b=1}^N,
+    \{\bU_b^n\}_{b=1}^N,
+    \{\quat{q}_b^n\}_{b=1}^N,
+    \{\bOmega_b^n\}_{b=1}^N
   \right).
-  \label{eq:added-mass}
 \end{equation}
-The rotational fluid inertia reference used for diagnostics is
+The nonlinear solve uses the endpoint generalized velocity vector
 \begin{equation}
-  \bI_f
-  = \frac{\rho_f V}{5}
-  \operatorname{diag}(e_1,e_2,e_3),
-  \label{eq:fluid-inertia}
-\end{equation}
-where
-\begin{align}
- e_1 &=
- \frac{(b^2-c^2)^2(\gamma-\beta)}
- {2(b^2-c^2)+(\beta-\gamma)(b^2+c^2)},\\
- e_2 &=
- \frac{(a^2-c^2)^2(\gamma-\alpha)}
- {2(a^2-c^2)+(\alpha-\gamma)(a^2+c^2)},\\
- e_3 &=
- \frac{(a^2-b^2)^2(\beta-\alpha)}
- {2(a^2-b^2)+(\alpha-\beta)(a^2+b^2)}.
-\end{align}
-For a single isolated body the reference Hamiltonian is then
-\begin{equation}
-  H_{\mathrm{iso}}
-  = \frac{1}{2}\bU^\mathsf{T}(\bM_s+\bM_f)\bU
-  + \frac{1}{2}\bomega^\mathsf{T}(\bI_s+\bI_f)\bomega .
-  \label{eq:single-body-reference-hamiltonian}
+  \bz =
+  \begin{bmatrix}
+    \bU_1^{n+1}\\
+    \vdots\\
+    \bU_N^{n+1}\\
+    \bOmega_1^{n+1}\\
+    \vdots\\
+    \bOmega_N^{n+1}
+  \end{bmatrix}
+  \in\R^{6N}.
+  \label{eq:z-endpoint}
 \end{equation}
 
-\section{Potential-flow boundary integral}
+\section{Continuous potential-flow problem}
 
-The fluid velocity is $\bu=\nabla\phi$ and the potential satisfies
+\subsection{Governing equations}
+
+The fluid is incompressible, inviscid, and irrotational.  Thus
 \begin{equation}
-  \nabla^2\phi = 0
-  \quad\text{in the exterior fluid domain}, \qquad
-  \nabla\phi(\bx)\to 0\quad\text{as }\|\bx\|\to\infty .
+  \bm{u}=\nabla\phi,\qquad
+  \nabla^2\phi=0
+  \quad\text{in the exterior fluid domain}.
   \label{eq:laplace}
 \end{equation}
-On the surface $S_b$ of body $b$, the no-penetration condition gives the
-Neumann data
+The far-field condition is
+\begin{equation}
+  \nabla\phi(\bx)\to\bzero
+  \qquad\text{as}\qquad \|\bx\|\to\infty .
+  \label{eq:far-field}
+\end{equation}
+On the surface $S_b$ of body $b$, the no-through-flow condition gives
 \begin{equation}
   \frac{\partial\phi}{\partial n}(\bx)
-  = \bn(\bx)\cdot
-  \left[\bU_b+\bOmega_b\times(\bx-\bX_b)\right],
+  =
+  \bn(\bx)\cdot
+  \left[
+    \bU_b+\bOmega_b\times(\bx-\bX_b)
+  \right],
   \qquad \bx\in S_b .
-  \label{eq:neumann}
+  \label{eq:continuous-neumann}
 \end{equation}
-The free-space Green function and its gradient are
+
+\subsection{Boundary-integral equation}
+
+The free-space Green function is
 \begin{equation}
-  G(\bx,\by)=\frac{1}{4\pi\|\bx-\by\|},\qquad
-  \nabla_{\bx} G(\bx,\by)
-  =-\frac{\bx-\by}{4\pi\|\bx-\by\|^3}.
+  G(\bx,\by)=\frac{1}{4\pi\|\bx-\by\|}.
   \label{eq:green}
 \end{equation}
-The direct boundary-integral equation is assembled in the form
+For $\bx$ on the combined body surface $S=\cup_b S_b$, the direct boundary
+integral equation is
 \begin{equation}
   c(\bx)\phi(\bx)
-  + \int_S \phi(\by)
-    \frac{\partial G(\bx,\by)}{\partial n_{\by}}\,\dd S_{\by}
+  +
+  \int_S
+  \phi(\by)\frac{\partial G(\bx,\by)}{\partial n_{\by}}\dd S_{\by}
   =
-  \int_S G(\bx,\by)
-    \frac{\partial\phi}{\partial n}(\by)\,\dd S_{\by} ,
-  \qquad \bx\in S .
-  \label{eq:bem-continuous}
+  \int_S
+  G(\bx,\by)\frac{\partial\phi}{\partial n}(\by)\dd S_{\by}.
+  \label{eq:continuous-bie}
 \end{equation}
-After discretisation on quadratic triangular elements this becomes the dense
-linear system
-\begin{equation}
-  \bA(\bX,\quat{q})\,\bm{\phi}
-  =
-  \bm{b}(\bX,\quat{q},\bU,\bOmega),
-  \label{eq:bem-discrete}
-\end{equation}
-with $\bm{\phi}$ the nodal boundary potential.  Matrix entries are generated by
-double-layer quadrature and the right-hand side by the single-layer integral of
-the imposed Neumann data.  In the current multibody solve all bodies share one
-combined surface mesh, so cross-body hydrodynamic interactions are contained in
-the off-diagonal blocks of $\bA$.
+The right-hand side is linear in the rigid-body generalized velocities, but the
+operator depends on the current body configuration.
 
-\section{Surface state functions}
+\section{Continuous energy and impulse state functions}
 
-Once \eqref{eq:bem-discrete} has been solved, the fluid kinetic energy is
-computed by Green's identity as the surface integral
+Given the instantaneous solution $\phi$, the fluid kinetic energy is computed
+from Green's identity using the exterior-normal convention in the code:
 \begin{equation}
   T_f
   =
-  -\frac{\rho_f}{2}\int_S
-  \phi\,\frac{\partial\phi}{\partial n}\,\dd S .
-  \label{eq:fluid-ke}
+  -\frac{\rho_f}{2}
+  \int_S
+  \phi\frac{\partial\phi}{\partial n}\dd S .
+  \label{eq:continuous-fluid-ke}
 \end{equation}
-The minus sign follows the outward-normal convention of the exterior fluid
-problem used by the implementation.
-
-The per-body Lamb impulse and angular Lamb impulse are
+The linear Lamb impulse and angular Lamb impulse of body $b$ are
 \begin{align}
   \bL_b
-  &= \rho_f\int_{S_b}\phi\,\bn\,\dd S,\\
+  &=
+  \rho_f\int_{S_b}\phi\,\bn\,\dd S,
+  \label{eq:continuous-lin-lamb}\\
   \bLam_b
-  &= \rho_f\int_{S_b}
+  &=
+  \rho_f\int_{S_b}
   \phi\,(\bx-\bX_b)\times\bn\,\dd S .
-  \label{eq:lamb-impulse}
+  \label{eq:continuous-ang-lamb}
 \end{align}
-These are state functions of the instantaneous configuration and generalized
-velocity.  They are central to the impulse schemes because they do not require a
-history-dependent approximation to $\partial\phi/\partial t$.
+These quantities are treated as state functions: no time history of $\phi$ or
+finite-difference approximation to $\partial\phi/\partial t$ is used in the
+current method.
 
-For the pressure-force option, the unsteady potential term gives
+The continuous conserved linear impulse, angular impulse, and Hamiltonian are
 \begin{align}
-  \bF_b^{(\dot\phi)}
-  &= \rho_f\int_{S_b}\dot\phi\,\bn\,\dd S,\\
-  \bm{N}_b^{(\dot\phi)}
-  &= \rho_f\int_{S_b}
-  \dot\phi\,(\bx-\bX_b)\times\bn\,\dd S.
-  \label{eq:phidot-force}
-\end{align}
-When the surface is rotating, the full time derivative of the impulse also
-contains transport terms.  The implemented pressure-mode correction is
-\begin{align}
-  \bF_b &= \bF_b^{(\dot\phi)} + \bOmega_b\times\bL_b,\\
-  \bm{N}_b &= \bm{N}_b^{(\dot\phi)} + \bOmega_b\times\bLam_b .
-  \label{eq:transport}
-\end{align}
-The missing angular version of \eqref{eq:transport} was the source of the old
-single-body impulse energy error.
-
-\section{Conserved impulse and Hamiltonian}
-
-The solver monitors and, in the Hamiltonian endpoint scheme, enforces the total
-linear and angular conserved impulses
-\begin{align}
-  \bm{P}
+  \bP
   &=
   \sum_{b=1}^N
   \left(m_b\bU_b-\bL_b\right),
-  \label{eq:linear-impulse}\\
-  \bm{H}
+  \label{eq:continuous-p}\\
+  \bH
   &=
   \sum_{b=1}^N
   \left[
     \bX_b\times\left(m_b\bU_b-\bL_b\right)
-    + \bh_{s,b}
-    - \bLam_b
-  \right].
-  \label{eq:angular-impulse}
-\end{align}
-The total kinetic energy used by the energy-conserving schemes is
-\begin{equation}
-  H(\bX,\quat{q},\bU,\bOmega)
-  =
-  \sum_{b=1}^N T_{s,b}
-  + T_f .
-  \label{eq:total-hamiltonian}
-\end{equation}
-Equations \eqref{eq:linear-impulse}--\eqref{eq:total-hamiltonian} are evaluated
-from the same BEM solve, so all added-mass and body--body interaction terms are
-included implicitly.
-
-\section{Impulse-difference time step}
-
-Let $h$ be the time step and let $(\bL_b^n,\bLam_b^n)$ denote the BEM impulse
-at the start of the step.  The implicit impulse-difference update solves for
-the endpoint velocity and a step-averaged torque.  The translational equation is
-\begin{equation}
-  m_b\left(\bU_b^{n+1}-\bU_b^n\right)
-  =
-  \bL_b^{n+1}-\bL_b^n
-  + h\,\bG_{X,b},
-  \label{eq:impulse-linear-step}
-\end{equation}
-where $\bG_X$ is normally zero and is only nonzero when the experimental finite
-difference gradient of the fluid kinetic energy is enabled.  Positions use the
-midpoint velocity,
-\begin{equation}
-  \bX_b^{n+1}
-  =
-  \bX_b^n+\frac{h}{2}
-  \left(\bU_b^n+\bU_b^{n+1}\right).
-  \label{eq:impulse-position}
-\end{equation}
-The consistent torque uses the angular impulse difference about the translating
-body centre and the reference-point transport correction
-\begin{equation}
-  \bm{N}_b
-  =
-  \frac{\bLam_b^{n+1}-\bLam_b^n}{h}
-  - \bar{\bU}_b\times\bar{\bp}_b
-  + \bm{G}_{q,b},
-  \qquad
-  \bar{\bp}_b
-  =
-  \frac{1}{2}
-  \left[
-  m_b\bU_b^n-\bL_b^n
-  +m_b\bU_b^{n+1}-\bL_b^{n+1}
-  \right].
-  \label{eq:impulse-torque-step}
-\end{equation}
-The angular velocity is advanced with a Lie-group implicit midpoint rule in the
-body frame:
-\begin{align}
-  \bomega_{b,m}
-  &=
-  \bomega_b^n
-  + \frac{h}{2}\bI_{s,b}^{-1}
-  \left[
-    \bm{N}_{b,m}
-    -\bomega_{b,m}\times
-    \left(\bI_{s,b}\bomega_{b,m}\right)
+    +\bh_{s,b}
+    -\bLam_b
   \right],
-  \label{eq:angular-midpoint}\\
-  \quat{q}_b^{n+1}
+  \label{eq:continuous-h}\\
+  E
   &=
-  \exp\left(\frac{h}{2}(0,\bOmega_{b,m})\right)\quat{q}_b^n,
-  \label{eq:quat-step}\\
-  \bomega_b^{n+1}
-  &=2\bomega_{b,m}-\bomega_b^n .
-  \label{eq:omega-end}
+  \sum_{b=1}^N T_{s,b}+T_f .
+  \label{eq:continuous-energy}
 \end{align}
-Here $\bm{N}_{b,m}$ is the applied torque rotated into the midpoint body frame.
-The nonlinear fixed point stacks the unknown endpoint velocities and torques,
-and Anderson acceleration is applied to that stacked residual.
 
-\section{Hamiltonian midpoint endpoint solve}
+\section{Discrete boundary-element equations}
 
-The most conservative multibody option solves directly for generalized
-endpoint data.  Define the generalized velocity vector
+\subsection{Surface discretisation}
+
+The combined surface is represented by six-node quadratic triangular elements.
+Let $\phi_i$ be the unknown nodal potential and let $N_i(\xi,\eta)$ be the
+quadratic element basis functions.  On element $e$,
 \begin{equation}
-  \bz =
-  \left[
-  \bU_1,\ldots,\bU_N,
-  \bOmega_1,\ldots,\bOmega_N
-  \right]^\mathsf{T}\in\R^{6N}.
+  \bx_e(\xi,\eta)
+  =
+  \sum_{i\in e}N_i(\xi,\eta)\bx_i,\qquad
+  \phi_e(\xi,\eta)
+  =
+  \sum_{i\in e}N_i(\xi,\eta)\phi_i .
 \end{equation}
-For a midpoint-velocity version of the method, $\bz$ defines the endpoint
-configuration by
+The oriented area vector at a quadrature point is
+\begin{equation}
+  \bn\,\dd S
+  =
+  \left(
+    \frac{\partial\bx_e}{\partial\xi}
+    \times
+    \frac{\partial\bx_e}{\partial\eta}
+  \right)
+  \frac{w_q}{2},
+  \label{eq:discrete-normal-area}
+\end{equation}
+where $w_q$ is the triangle quadrature weight.
+
+\subsection{Discrete potential solve}
+
+The nodal Neumann data are
+\begin{equation}
+  g_i
+  =
+  \bn_i\cdot
+  \left[
+    \bU_{b(i)}
+    +
+    \bOmega_{b(i)}\times(\bx_i-\bX_{b(i)})
+  \right],
+  \label{eq:discrete-neumann}
+\end{equation}
+where $b(i)$ is the body owning node $i$.  The BEM discretisation of
+\eqref{eq:continuous-bie} gives
+\begin{equation}
+  \bA(\{\bX_b,\quat{q}_b\})\,\phiv
+  =
+  \bm{r}(\{\bX_b,\quat{q}_b\},\{\bU_b,\bOmega_b\}),
+  \label{eq:discrete-bem}
+\end{equation}
+where $\phiv=(\phi_1,\ldots,\phi_M)^\mathsf{T}$.  Because the right-hand side
+is assembled from \eqref{eq:discrete-neumann}, it is linear in the generalized
+velocity at fixed configuration.
+
+\subsection{Discrete fluid energy and impulses}
+
+Let $Q_b$ be the set of element quadrature points owned by body $b$.  At
+quadrature point $q$, let $\phi_q$ be the interpolated potential, $g_q$ the
+interpolated normal derivative, $\bx_q$ the interpolated position, and
+\begin{equation}
+  \bm{a}_q
+  =
+  \left(
+    \frac{\partial\bx}{\partial\xi}
+    \times
+    \frac{\partial\bx}{\partial\eta}
+  \right)_q
+  \frac{w_q}{2}
+\end{equation}
+the oriented area vector.  The discrete counterparts of
+\eqref{eq:continuous-fluid-ke}--\eqref{eq:continuous-ang-lamb} are
+\begin{align}
+  T_{f,h}
+  &=
+  -\frac{\rho_f}{2}
+  \sum_{q\in Q}
+  \phi_q g_q \|\bm{a}_q\|,
+  \label{eq:discrete-fluid-ke}\\
+  \bL_{b,h}
+  &=
+  \rho_f\sum_{q\in Q_b}\phi_q\bm{a}_q,
+  \label{eq:discrete-lin-lamb}\\
+  \bLam_{b,h}
+  &=
+  \rho_f\sum_{q\in Q_b}
+  \phi_q(\bx_q-\bX_b)\times\bm{a}_q .
+  \label{eq:discrete-ang-lamb}
+\end{align}
+These are the quantities returned by the BEM impulse solve.
+
+\section{Discrete conserved quantities}
+
+After a BEM solve at a discrete state $y$, the discrete invariants are evaluated
+as
+\begin{align}
+  \bP_h(y)
+  &=
+  \sum_{b=1}^N
+  \left(m_b\bU_b-\bL_{b,h}\right),
+  \label{eq:discrete-p}\\
+  \bH_h(y)
+  &=
+  \sum_{b=1}^N
+  \left[
+    \bX_b\times\left(m_b\bU_b-\bL_{b,h}\right)
+    +\bh_{s,b}
+    -\bLam_{b,h}
+  \right],
+  \label{eq:discrete-h}\\
+  E_h(y)
+  &=
+  \sum_{b=1}^N T_{s,b}+T_{f,h}.
+  \label{eq:discrete-energy}
+\end{align}
+The output columns `pcon' and `hcon' are the per-body summands in
+\eqref{eq:discrete-p} and \eqref{eq:discrete-h}.
+
+\section{Current time step: coupled endpoint-velocity Hamiltonian solve}
+
+\subsection{Start-of-step targets}
+
+At the beginning of substep $n$, the solver evaluates the BEM state functions
+at $y_n$ and defines the target invariant vector
+\begin{equation}
+  \bC^\star
+  =
+  \begin{bmatrix}
+    \bP_h(y_n)\\
+    \bH_h(y_n)
+  \end{bmatrix}
+  \in\R^6 .
+  \label{eq:target-c}
+\end{equation}
+The energy target is the initial total kinetic energy of the run,
+\begin{equation}
+  E^\star = E_h(y_0).
+  \label{eq:target-energy}
+\end{equation}
+Using the run initial energy rather than the previous-step energy suppresses
+long-time accumulated energy drift.
+
+\subsection{Endpoint state generated by endpoint velocities}
+
+For a candidate endpoint velocity vector $\bz$ in \eqref{eq:z-endpoint}, the
+current method constructs the endpoint state by trapezoidal kinematics:
 \begin{align}
   \bX_b^{n+1}(\bz)
-  &= \bX_b^n + h\,\bU_{b,m},\\
+  &=
+  \bX_b^n
+  +
+  \frac{h}{2}
+  \left(\bU_b^n+\bU_b^{n+1}\right),
+  \label{eq:endpoint-position}\\
+  \bOmega_{b,m}(\bz)
+  &=
+  \frac{1}{2}
+  \left(\bOmega_b^n+\bOmega_b^{n+1}\right),
+  \label{eq:endpoint-omega-mid}\\
   \quat{q}_b^{n+1}(\bz)
-  &= \exp\left(\frac{h}{2}(0,\bOmega_{b,m})\right)\quat{q}_b^n .
-  \label{eq:endpoint-from-mid}
+  &=
+  \exp\!\left[
+    \frac{h}{2}(0,\bOmega_{b,m})
+  \right]\quat{q}_b^n .
+  \label{eq:endpoint-quat}
 \end{align}
-The midpoint configuration used for the BEM solve is reconstructed from the
-start and endpoint states:
-\begin{align}
-  \bX_{b,m}
-  &=\frac{1}{2}\left(\bX_b^n+\bX_b^{n+1}\right),\\
-  \bOmega_{b,m}
-  &= \frac{1}{h}\log\left(\quat{q}_b^{n+1}(\quat{q}_b^n)^{-1}\right),\\
-  \quat{q}_{b,m}
-  &= \exp\left(\frac{h}{4}(0,\bOmega_{b,m})\right)\quat{q}_b^n .
-  \label{eq:midpoint-reconstruction}
-\end{align}
-The endpoint/coupled variant instead evaluates the conservation residual at
-the endpoint state generated by $\bz$.
-
-Let
-\begin{equation}
-  \bC(\bz)=
-  \begin{bmatrix}
-    \bm{P}(\bz)\\
-    \bm{H}(\bz)
-  \end{bmatrix},
-  \qquad
-  \bC^\star=\bC(\bz^n),
-  \qquad
-  H^\star=H(\bz^0),
-  \label{eq:target-invariants}
-\end{equation}
-where $H^\star$ is the initial total kinetic energy.  The seven-component
-nonlinear residual used by the coupled endpoint solve is
-\begin{equation}
-  \bm{R}(\bz)=
-  \begin{bmatrix}
-  \left(\bm{P}(\bz)-\bm{P}^\star\right)/s_P\\
-  \left(\bm{H}(\bz)-\bm{H}^\star\right)/s_H\\
-  \left(H(\bz)-H^\star\right)/s_E
-  \end{bmatrix},
-  \label{eq:coupled-residual}
-\end{equation}
-with scales
-\begin{equation}
-  s_P=\max(\|\bm{P}^\star\|,1),\qquad
-  s_H=\max(\|\bm{H}^\star\|,1),\qquad
-  s_E=\max(|H^\star|,1).
-\end{equation}
-The code solves \eqref{eq:coupled-residual} by finite-difference Newton steps,
-with optional Broyden rank-one Jacobian updates and a trust-style cap on the
-generalized velocity increment.
-
-\section{Energy and impulse projection}
-
-The projection used by the Hamiltonian experiments is algebraic.  At fixed
-configuration the conserved impulse is affine in generalized velocity,
-\begin{equation}
-  \bC(\bz)=\bA\bz+\bc_0,
-  \label{eq:affine-impulse}
-\end{equation}
-where $\bA$ is obtained by evaluating the BEM state function on basis velocity
-vectors.  A first correction projects the current velocity $\bz_c$ onto the
-linear impulse constraint:
-\begin{equation}
-  \bz_P
-  =
-  \bz_c
-  + \bA^\mathsf{T}(\bA\bA^\mathsf{T})^{-1}
-  \left(\bC^\star-\bC(\bz_c)\right).
-  \label{eq:linear-projection}
-\end{equation}
-A minimum-energy particular solution satisfying the same affine constraint is
-computed from the sampled energy quadratic
-\begin{equation}
-  H(\bz)=H(\bm{0})+\frac{1}{2}\bz^\mathsf{T}\bK\bz ,
-  \label{eq:energy-quadratic}
-\end{equation}
+Equation \eqref{eq:endpoint-quat} is the quaternion exponential map implemented
 as
 \begin{equation}
-  \bz_0
+  \exp\!\left[\frac{h}{2}(0,\bOmega)\right]
   =
-  \bK^{-1}\bA^\mathsf{T}
-  \left(\bA\bK^{-1}\bA^\mathsf{T}\right)^{-1}
-  \left(\bC^\star-\bc_0\right).
-  \label{eq:min-energy-particular}
+  \left(
+    \cos\frac{\|\bOmega\|h}{2},
+    \frac{\sin(\|\bOmega\|h/2)}{\|\bOmega\|}\bOmega
+  \right).
 \end{equation}
-The remaining correction is restricted to the null direction
+
+\subsection{Endpoint residual}
+
+The candidate endpoint state $y_{n+1}(\bz)$ is pushed into the BEM solver,
+\eqref{eq:discrete-bem} is solved, and the endpoint invariants
+\eqref{eq:discrete-p}--\eqref{eq:discrete-energy} are evaluated.  Define
 \begin{equation}
-  \bd = \bz_P-\bz_0,\qquad \bz(\alpha)=\bz_0+\alpha\bd .
+  \bC_h(\bz)
+  =
+  \begin{bmatrix}
+    \bP_h(y_{n+1}(\bz))\\
+    \bH_h(y_{n+1}(\bz))
+  \end{bmatrix}.
+  \label{eq:c-of-z}
 \end{equation}
-The scalar $\alpha$ is chosen from
+The seven-equation nonlinear residual is
 \begin{equation}
-  H(\bz_0+\alpha\bd)=H^\star .
-  \label{eq:scalar-energy-projection}
+  \bR(\bz)
+  =
+  \begin{bmatrix}
+    \left(\bP_h(y_{n+1}(\bz))-\bP^\star\right)/s_P\\
+    \left(\bH_h(y_{n+1}(\bz))-\bH^\star\right)/s_H\\
+    \left(E_h(y_{n+1}(\bz))-E^\star\right)/s_E
+  \end{bmatrix}
+  \in\R^7,
+  \label{eq:residual}
 \end{equation}
-In implementation the coefficients of this quadratic are evaluated by three
-BEM energy calls:
+where
+\begin{equation}
+  s_P=\max(\|\bP^\star\|,1),\qquad
+  s_H=\max(\|\bH^\star\|,1),\qquad
+  s_E=\max(|E^\star|,1).
+  \label{eq:residual-scales}
+\end{equation}
+The accepted endpoint velocity is the candidate returned after iterating toward
+\begin{equation}
+  \bR(\bz)=\bzero.
+  \label{eq:nonlinear-system}
+\end{equation}
+For two bodies $\bz\in\R^{12}$ and the residual has seven components, so the
+Newton correction is a minimum-norm correction of an underdetermined system.
+
+\section{Nonlinear algebraic solve}
+
+\subsection{Finite-difference Jacobian}
+
+At iteration $k$, the residual Jacobian is approximated by forward differences:
+\begin{equation}
+  \bJ_{ij}^{(k)}
+  =
+  \frac{
+    R_i(\bz_k+\epsilon_j\be_j)-R_i(\bz_k)
+  }{\epsilon_j},
+  \qquad
+  \epsilon_j
+  =
+  \epsilon_{\mathrm{fd}}\left(|z_{k,j}|+1\right).
+  \label{eq:fd-jacobian}
+\end{equation}
+The current sweep uses $\epsilon_{\mathrm{fd}}=10^{-3}$ and rebuilds this
+Jacobian every six nonlinear iterations, with Broyden updates between rebuilds.
+
+\subsection{Minimum-norm Newton correction}
+
+The code solves the regularised normal equation in residual space:
+\begin{equation}
+  \Delta\bz_k
+  =
+  -\bJ_k^\mathsf{T}
+  \left(
+    \bJ_k\bJ_k^\mathsf{T}
+    +\lambda I
+  \right)^{-1}
+  \bR(\bz_k),
+  \qquad \lambda=10^{-10}.
+  \label{eq:newton-correction}
+\end{equation}
+The correction is capped as
+\begin{equation}
+  \Delta\bz_k
+  \leftarrow
+  \Delta\bz_k
+  \min\left(
+    1,\,
+    \frac{\Delta z_{\max}}{\|\Delta\bz_k\|}
+  \right),
+  \qquad
+  \Delta z_{\max}=\frac{\delta_{\max}}{h}.
+  \label{eq:step-cap}
+\end{equation}
+The current sweep uses $\delta_{\max}=0.2$.  Backtracking accepts the first
+$\alpha\in\{1,1/2,\ldots,1/2^7\}$ satisfying
+\begin{equation}
+  \|\bR(\bz_k+\alpha\Delta\bz_k)\| < \|\bR(\bz_k)\|.
+  \label{eq:line-search}
+\end{equation}
+
+\subsection{Broyden update}
+
+When enabled, the finite-difference Jacobian is updated after an accepted step
+by
+\begin{equation}
+  \bJ_{k+1}
+  =
+  \bJ_k
+  +
+  \frac{
+    \left[
+      \bR(\bz_{k+1})-\bR(\bz_k)-\bJ_k\Delta\bz_k
+    \right]
+    \Delta\bz_k^\mathsf{T}
+  }{
+    \Delta\bz_k^\mathsf{T}\Delta\bz_k
+  }.
+  \label{eq:broyden}
+\end{equation}
+This is the rank-one secant update used in the current sweep.
+
+\section{Adaptive substepping}
+
+The nominal step is $h=\Delta t$.  If the final coupled residual norm exceeds
+the tolerance
+\begin{equation}
+  \|\bR\| > \tau,
+  \qquad \tau=\texttt{hamiltonian\_floor\_tol},
+  \label{eq:adaptive-test}
+\end{equation}
+the whole step is retried with twice as many equal substeps, up to
+\begin{equation}
+  n_{\mathrm{sub}}\le n_{\mathrm{sub,max}}.
+  \label{eq:max-substeps}
+\end{equation}
+In the current sweep, $\tau=10^{-4}$ and $n_{\mathrm{sub,max}}=8$.  Each
+substep applies the same endpoint-velocity solve above with $h=\Delta
+t/n_{\mathrm{sub}}$.
+
+\section{Diagnostics}
+
+The code reports the physical conservation errors using the unscaled quantities
 \begin{align}
-  q_a &= \frac{1}{2}\left[H(\bz_P)+H(\bz_0-\bd)\right]-H(\bz_0),\\
-  q_b &= \frac{1}{2}\left[H(\bz_P)-H(\bz_0-\bd)\right],\\
-  q_c &= H(\bz_0)-H^\star,
+  e_P &= \|\bP_h(y_{n+1})-\bP^\star\|,\\
+  e_H &= \|\bH_h(y_{n+1})-\bH^\star\|,\\
+  e_E &= \frac{|E_h(y_{n+1})-E^\star|}{\max(|E^\star|,\epsilon_{\mathrm{mach}})} .
 \end{align}
-and the root closest to $\alpha=1$ is selected.  If the energy floor
-$H(\bz_0)$ already exceeds the target, the exact energy projection is
-infeasible and the code falls back to $\bz_0$ while reporting the floor error.
-
-\section{Diagnostics written to output}
-
-The CSV output writes the total energy components
-\begin{equation}
-  H,\qquad T_f,\qquad \sum_b T_{s,b},
-\end{equation}
-and, for each body, the diagnostic vectors
+The CSV output also writes, for each body,
 \begin{align}
-  \bp_{\mathrm{con},b} &= m_b\bU_b-\bL_b,\\
-  \bh_{\mathrm{con},b} &=
+  \bp_{\mathrm{con},b}
+  &=m_b\bU_b-\bL_{b,h},\\
+  \bh_{\mathrm{con},b}
+  &=
   \bX_b\times\bp_{\mathrm{con},b}
-  +\bh_{s,b}-\bLam_b .
+  +\bh_{s,b}
+  -\bLam_{b,h}.
 \end{align}
-For a closed multibody system the sums of these vectors are the conserved
-quantities in \eqref{eq:linear-impulse} and \eqref{eq:angular-impulse}.  The
-study dashboards report kinetic-energy drift, separation, trajectories,
-orientation markers, and relative drift in the summed conserved linear and
-angular impulses.
-
-\section{Remarks on physical interpretation}
-
-The BEM solve makes the fluid energy and impulse depend on the entire multibody
-configuration, not on a pairwise approximation.  Low-density bodies therefore
-have small solid inertia relative to the configuration-dependent fluid inertia,
-which is precisely the regime in which explicit pressure-force updates drift
-or destabilise.  The impulse/Hamiltonian schemes instead enforce the global
-invariants \eqref{eq:linear-impulse}--\eqref{eq:total-hamiltonian} at the
-endpoint level, making the energy behaviour much closer to the conservative
-ideal-fluid dynamics.
+The sums of these per-body columns are exactly
+\eqref{eq:discrete-p} and \eqref{eq:discrete-h}.  The study plots use these
+columns for linear and angular impulse drift, while total kinetic-energy drift
+is computed from \eqref{eq:discrete-energy}.
 
 \end{document}
