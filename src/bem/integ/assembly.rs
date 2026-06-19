@@ -442,8 +442,33 @@ pub fn lslp_3d_integral_sing(
     asm = asm * cf;
     slp = slp * cf;
 
-    //If all works, asm = area.
-    (area, slp)
+    // If all works, asm = area. Return order matches `lslp_3d_integral`:
+    // (single-layer potential contribution, area).
+    (slp, area)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bem::geom::gauss_leg;
+
+    #[test]
+    fn singular_single_layer_returns_potential_then_area() {
+        let p1 = Vector3::new(0.0, 0.0, 0.0);
+        let p2 = Vector3::new(1.0, 0.0, 0.0);
+        let p3 = Vector3::new(0.0, 1.0, 0.0);
+        let (zz, ww) = gauss_leg(12);
+
+        let (slp_pos, area_pos) = lslp_3d_integral_sing(12, p1, p2, p3, 1.0, -0.3, 0.7, &zz, &ww);
+        let (slp_neg, area_neg) = lslp_3d_integral_sing(12, p1, p2, p3, -1.0, 0.3, -0.7, &zz, &ww);
+        let (slp_zero, area_zero) = lslp_3d_integral_sing(12, p1, p2, p3, 0.0, 0.0, 0.0, &zz, &ww);
+
+        assert!((area_pos - 0.5).abs() < 1.0e-14);
+        assert!((area_neg - area_pos).abs() < 1.0e-14);
+        assert!((area_zero - area_pos).abs() < 1.0e-14);
+        assert!((slp_pos + slp_neg).abs() < 1.0e-13);
+        assert!(slp_zero.abs() < 1.0e-14);
+    }
 }
 
 ///Polar-coordinate singular integration for the double-layer potential
