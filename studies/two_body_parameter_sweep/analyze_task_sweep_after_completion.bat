@@ -9,7 +9,7 @@ set ANALYSIS=%RUN_ROOT%\analysis
 
 cd /d "%ROOT%"
 
-echo [1/4] Refreshing per-case dashboards and recurrence files for completed cases
+echo [1/6] Refreshing per-case dashboards and recurrence files for completed cases
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\run_two_body_parameter_sweep.py" ^
   --manifest "%MANIFEST%" ^
@@ -17,7 +17,7 @@ echo [1/4] Refreshing per-case dashboards and recurrence files for completed cas
   --postprocess-only ^
   --rerun
 
-echo [2/4] Writing aggregate conservation/solver summaries
+echo [2/6] Writing aggregate conservation/solver summaries
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\analyze_two_body_sweep_results.py" ^
   --run-root "%RUN_ROOT%" ^
@@ -25,14 +25,14 @@ echo [2/4] Writing aggregate conservation/solver summaries
   --summary "%SUMMARY%" ^
   --out-dir "%ANALYSIS%"
 
-echo [3/5] Building per-run dashboard gallery
+echo [3/6] Building per-run dashboard gallery
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\build_dashboard_index.py" ^
   --run-root "%RUN_ROOT%" ^
   --summary "%SUMMARY%" ^
   --out "%ANALYSIS%\dashboard_index.html"
 
-echo [4/5] Classifying dynamics on the second half of each trajectory
+echo [4/6] Classifying dynamics on the second half of each trajectory
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\classify_two_body_dynamics.py" ^
   --manifest "%MANIFEST%" ^
@@ -40,12 +40,19 @@ echo [4/5] Classifying dynamics on the second half of each trajectory
   --suffix "_second_half" ^
   --transient-fraction 0.5
 
-echo [5/5] Classifying dynamics on full trajectories
+echo [5/6] Classifying dynamics on full trajectories
 "C:\Users\User\anaconda3\python.exe" ^
   "studies\two_body_parameter_sweep\classify_two_body_dynamics.py" ^
   --manifest "%MANIFEST%" ^
   --out-dir "%ANALYSIS%" ^
   --suffix "_full_run" ^
   --transient-fraction 0
+
+echo [6/6] Generating orbit animations for completed cases
+"C:\Users\User\anaconda3\python.exe" ^
+  "studies\two_body_parameter_sweep\animate_two_body_orbits.py" ^
+  --run-root "%RUN_ROOT%" ^
+  --summary "%SUMMARY%" ^
+  --missing-only
 
 echo Analysis complete: %ROOT%\%ANALYSIS%
