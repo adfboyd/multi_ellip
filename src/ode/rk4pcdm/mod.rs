@@ -1000,7 +1000,9 @@ impl Rk4PCDM {
             if self.impulse_pair_metric_correction {
                 gradient_force += self.impulse_pair_metric_linear_scale * &pair_metric_force;
                 gradient_torque += self.impulse_pair_metric_angular_scale * &pair_metric_torque;
-                let correction_norm = pair_metric_force.norm() + pair_metric_torque.norm();
+                let correction_norm = (self.impulse_pair_metric_linear_scale * &pair_metric_force)
+                    .norm()
+                    + (self.impulse_pair_metric_angular_scale * &pair_metric_torque).norm();
                 self.impulse_pair_metric_last_norm = correction_norm;
                 if correction_norm.is_finite() {
                     self.impulse_pair_metric_max_norm =

@@ -107,6 +107,29 @@ internal mode has the expected lower cost when several pairs are active and
 does not immediately damage the conservation diagnostics in short, mild
 three-body runs. A real accuracy claim needs a three-body variational reference.
 
+A tiny three-body variational reference was then run at `ndiv=2`, `dt=0.05`,
+`t=0.1` with the same `rho=1` three-body setup but with the initial triangle
+scaled inward to positions `(2,0,0)`, `(-1,1.732,0)`, `(-1,-1.732,0)`. The
+reference took about `30 s/step`, reached residual `4.04e-11`, and conserved
+discrete momentum to `2.66e-8`. Against that reference:
+
+| run | mean step | position RMS | velocity RMS | omega RMS | separation RMS | final KE error |
+|---|---:|---:|---:|---:|---:|---:|
+| uncorrected impulse | `0.301 s` | `2.197e-4` | `5.677e-4` | `1.498e-3` | `1.905e-4` | `-0.0198%` |
+| pairwise DG, scale 1 | `0.393 s` | `2.183e-4` | `5.553e-4` | `1.519e-3` | `1.875e-4` | `-0.0252%` |
+| global internal DG, scale 1 | `0.333 s` | `2.197e-4` | `5.729e-4` | `1.513e-3` | `1.905e-4` | `-0.0250%` |
+| global internal DG, scale 1.6 | `0.439 s` | `2.197e-4` | `5.761e-4` | `1.525e-3` | `1.905e-4` | `-0.0282%` |
+
+This close-reference test is still only two timesteps, but it is the first
+direct three-body variational comparison. It suggests:
+
+- pairwise mode 1 is the better accuracy closure in this short close case,
+  slightly reducing position, velocity, and separation errors;
+- global internal mode 2 is not a better accuracy closure here, even when
+  scaled up to match the order of the pairwise load;
+- mode 2 should therefore be treated as a cheaper many-body approximation for
+  larger active-pair counts, not as an accuracy replacement for pairwise mode 1.
+
 ## Initial close-contact tests
 
 Case: spheroids `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
