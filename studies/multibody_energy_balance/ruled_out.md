@@ -150,3 +150,25 @@ for this path, likely because the full impulse path keeps a more favourable
 warm-start sequence for the subsequent solves. The global correction remains a
 diagnostic and should not be switched to `EnergyOnly` unless a broader benchmark
 shows a real benefit.
+
+## Direct combined-array RHS boundary condition loop
+
+`BemSolver::solve` used to split the combined node normal matrix into per-body
+blocks before evaluating `dfdn = n . (u + omega x (x - c))`. A trial removed
+that allocation and computed `dfdn` directly from the combined point/normal
+arrays with per-body offsets. This is algebraically identical, but it was not
+faster in the measured pair-DG path.
+
+For the close pair-DG benchmark, `ndiv=2`, `dt=0.025`, `t=5`, the output hash
+matched the baseline exactly, but the measured mean step was noisy and not
+better (`0.0962 s` in that run). The clearer `ndiv=3`, `t=0.075` comparison was
+also slower:
+
+| RHS path | first-step setup | mean step | total wall time |
+|---|---:|---:|---:|
+| existing split/block RHS | `4.405 s` | `1.7689 s` | `7.94 s` |
+| direct combined-array RHS | `4.774 s` | `1.8431 s` | `8.46 s` |
+
+The likely reason is that the per-body block loop has better locality in the
+small dense matrices used by `dfdn_single`, while the copy cost is not dominant.
+The existing RHS path is kept.
