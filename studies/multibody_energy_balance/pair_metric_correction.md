@@ -115,6 +115,37 @@ the reduced pair term does not fully replace the global action formulation. The
 larger final separation is also a real dynamical change, not a harmless output
 diagnostic change.
 
+## Comparison against a variational reference
+
+To check whether the larger separation is plausible or just an over-correction,
+the close spheroid case was compared against the fully determined variational
+scheme at `ndiv=2`, `dt=0.025`. These short references are expensive but
+well-conditioned:
+
+- `t=0.25`: variational residual max `3.32e-9`, discrete momentum drift max
+  `4.52e-6`, mean step about `6.21 s`;
+- `t=0.50`: variational residual max `3.32e-9`, discrete momentum drift max
+  `5.72e-6`, mean step about `6.28 s`.
+
+Endpoint KE drift is shown for orientation only; at finite timestep, the
+variational method's correct invariant is the discrete Noether momentum, not
+the old endpoint continuous impulse/energy diagnostic.
+
+| t_end | run | max KE drift | final sep | position RMS error vs variational | final sep error vs variational | velocity RMS error vs variational |
+|---:|---|---:|---:|---:|---:|---:|
+| 0.25 | impulse | 1.71% | 3.039 | 3.73e-2 | -1.06e-1 | 3.44e-1 |
+| 0.25 | pair DG | 1.61% | 3.125 | 2.51e-2 | -2.01e-2 | 2.38e-1 |
+| 0.25 | variational | 0.76% | 3.145 | - | - | - |
+| 0.50 | impulse | 5.27% | 3.053 | 1.05e-1 | -3.64e-1 | 5.21e-1 |
+| 0.50 | pair DG | 4.59% | 3.287 | 6.32e-2 | -1.30e-1 | 3.43e-1 |
+| 0.50 | variational | 0.85% | 3.417 | - | - | - |
+
+This supports the sign and qualitative direction of the pair discrete-gradient
+correction: it moves the close-contact impulse trajectory toward the global
+action reference, rather than merely improving an energy number in isolation.
+It is still not a complete replacement for the variational method, because the
+separation error remains significant by `t=0.5`.
+
 ## Interpretation
 
 The translational pair metric force has the right sign: positive scale reduces
