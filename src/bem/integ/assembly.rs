@@ -8,6 +8,7 @@
     unused_imports
 )]
 use super::*;
+use crate::bem::exact_geometry::ExactEllipsoidSurface;
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3, Vector6};
 use rayon::prelude::*;
 use std::f64::consts::PI;
@@ -375,6 +376,49 @@ pub fn ldlp_3d_integral(
     (ptl, area)
 }
 
+fn ldlp_3d_integral_with_geom(
+    x0: Vector3<f64>,
+    k: usize,
+    mint: usize,
+    q: &DVector<f64>,
+    q0: f64,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> (f64, f64) {
+    if exact.is_none() {
+        return ldlp_3d_integral(
+            x0, k, mint, q, q0, p, n, vna, alpha, beta, gamma, xiq, etq, wq,
+        );
+    }
+
+    let eq = elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact);
+    let mut area = 0.0;
+    let mut ptl = 0.0;
+
+    for qi in 0..eq.x.len() {
+        let ph = &eq.ph[qi];
+        let qint = ph
+            .iter()
+            .enumerate()
+            .map(|(m, &phi)| phi * q[eq.nodes[m]])
+            .sum::<f64>();
+        let (_g, dg) = lgf_3d_fs(&eq.x[qi], &x0);
+
+        area += eq.cf[qi];
+        ptl += (qint - q0) * eq.v[qi].dot(&dg) * eq.cf[qi];
+    }
+
+    (ptl, area)
+}
+
 ///Integrates the singular potential over the triangle in the case that the integral is singular (ie x0 is part of element k).
 ///Compute the laplace single-layer potential over a flat triangle with points p1-3
 ///Integrate in local polar coordinates with origin at p1
@@ -442,6 +486,13 @@ pub fn lslp_3d_integral_sing(
     asm = asm * cf;
     slp = slp * cf;
 
+    if std::env::var_os("MULTI_ELLIP_LEGACY_SINGULAR_SLP").is_some() {
+        // Diagnostic-only compatibility path for reproducing pre-fix studies.
+        // The correct return order is (slp, area); the legacy order is not
+        // physically correct because callers interpret the first value as SLP.
+        return (area, slp);
+    }
+
     // If all works, asm = area. Return order matches `lslp_3d_integral`:
     // (single-layer potential contribution, area).
     (slp, area)
@@ -487,6 +538,7 @@ pub fn ldlp_3d_integral_sing(
     v3: Vector3<f64>,
     zz: &DVector<f64>,
     ww: &DVector<f64>,
+    desingularize: bool,
 ) -> f64 {
     let vn_flat = (p2 - p1).cross(&(p3 - p1));
     let hs = vn_flat.norm(); // = 2 * area_flat
@@ -524,13 +576,219 @@ pub fn ldlp_3d_integral_sing(
             // r from polar Jacobian regularises the O(1/r) near-singularity
             let cf = r * ww[j];
 
-            btl += (q_interp - q0) * v.dot(&dg) * cf;
+            let density = if desingularize {
+                q_interp - q0
+            } else {
+                q_interp
+            };
+            btl += density * v.dot(&dg) * cf;
         }
 
         dlp += btl * ww[i] * rmaxh;
     }
 
     dlp * (pi / 4.0) * hs
+}
+
+#[inline]
+fn local_param_nodes(al: f64, be: f64, ga: f64) -> [(f64, f64); 6] {
+    [
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (0.0, 1.0),
+        (al, 0.0),
+        (ga, 1.0 - ga),
+        (0.0, be),
+    ]
+}
+
+#[inline]
+fn param_det(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs()
+}
+
+fn singular_param_triangles(
+    al: f64,
+    be: f64,
+    ga: f64,
+    local_node: usize,
+) -> ([[(f64, f64); 3]; 4], usize) {
+    let p = local_param_nodes(al, be, ga);
+    let zero = [(0.0, 0.0); 3];
+    match local_node {
+        0 => ([[p[0], p[1], p[2]], zero, zero, zero], 1),
+        1 => ([[p[1], p[2], p[0]], zero, zero, zero], 1),
+        2 => ([[p[2], p[0], p[1]], zero, zero, zero], 1),
+        3 => (
+            [
+                [p[3], p[5], p[0]],
+                [p[3], p[2], p[5]],
+                [p[3], p[4], p[2]],
+                [p[3], p[1], p[4]],
+            ],
+            4,
+        ),
+        4 => (
+            [
+                [p[4], p[3], p[1]],
+                [p[4], p[0], p[3]],
+                [p[4], p[5], p[0]],
+                [p[4], p[2], p[5]],
+            ],
+            4,
+        ),
+        5 => (
+            [
+                [p[5], p[0], p[3]],
+                [p[5], p[3], p[1]],
+                [p[5], p[1], p[4]],
+                [p[5], p[4], p[2]],
+            ],
+            4,
+        ),
+        _ => panic!("invalid local node for singular element: {local_node}"),
+    }
+}
+
+fn exact_singular_single_layer(
+    ngl: usize,
+    element: usize,
+    local_node: usize,
+    f: &[f64; 6],
+    exact: &ExactEllipsoidSurface,
+    al: f64,
+    be: f64,
+    ga: f64,
+    zz: &DVector<f64>,
+    ww: &DVector<f64>,
+) -> (f64, f64) {
+    let nodes = local_param_nodes(al, be, ga);
+    let (xi0, eta0) = nodes[local_node];
+    let x0 = exact.evaluate(element, xi0, eta0).position;
+    let (tris, ntri) = singular_param_triangles(al, be, ga, local_node);
+
+    let mut area = 0.0;
+    let mut slp = 0.0;
+
+    for tri in tris.iter().take(ntri) {
+        let a = tri[0];
+        let b = tri[1];
+        let c = tri[2];
+        let det = param_det(a, b, c);
+        if det <= f64::EPSILON {
+            continue;
+        }
+
+        for i in 0..ngl {
+            let theta = (PI / 4.0) * (1.0 + zz[i]);
+            let ct = theta.cos();
+            let st = theta.sin();
+            let rmax = 1.0 / (ct + st);
+            let rmaxh = 0.5 * rmax;
+
+            let mut area_theta = 0.0;
+            let mut slp_theta = 0.0;
+
+            for j in 0..ngl {
+                let r = rmaxh * (1.0 + zz[j]);
+                let lam = r * ct;
+                let mu = r * st;
+                let xi = a.0 + lam * (b.0 - a.0) + mu * (c.0 - a.0);
+                let eta = a.1 + lam * (b.1 - a.1) + mu * (c.1 - a.1);
+
+                let point = exact.evaluate(element, xi, eta);
+                let shape = exact.shape_values(element, xi, eta);
+                let f_int = f[0] * shape[0]
+                    + f[1] * shape[1]
+                    + f[2] * shape[2]
+                    + f[3] * shape[3]
+                    + f[4] * shape[4]
+                    + f[5] * shape[5];
+                let (g, _dg) = lgf_3d_fs(&point.position, &x0);
+                let weight = point.jacobian * det * r * ww[j];
+
+                area_theta += weight;
+                slp_theta += f_int * g * weight;
+            }
+
+            let theta_weight = ww[i] * rmaxh * (PI / 4.0);
+            area += area_theta * theta_weight;
+            slp += slp_theta * theta_weight;
+        }
+    }
+
+    (slp, area)
+}
+
+fn exact_singular_double_layer(
+    ngl: usize,
+    element: usize,
+    local_node: usize,
+    q: &[f64; 6],
+    _q0: f64,
+    exact: &ExactEllipsoidSurface,
+    al: f64,
+    be: f64,
+    ga: f64,
+    zz: &DVector<f64>,
+    ww: &DVector<f64>,
+) -> f64 {
+    // Matrix assembly represents the exterior boundary operator K - 1/2 I.
+    // On singular self-elements we therefore integrate the raw basis density
+    // over its support and let the caller apply the global jump term once.
+    // Subtracting q0 here would remove an O(h) support contribution from the
+    // diagonal and gives first-order sphere convergence.
+    let nodes = local_param_nodes(al, be, ga);
+    let (xi0, eta0) = nodes[local_node];
+    let x0 = exact.evaluate(element, xi0, eta0).position;
+    let (tris, ntri) = singular_param_triangles(al, be, ga, local_node);
+
+    let mut dlp = 0.0;
+
+    for tri in tris.iter().take(ntri) {
+        let a = tri[0];
+        let b = tri[1];
+        let c = tri[2];
+        let det = param_det(a, b, c);
+        if det <= f64::EPSILON {
+            continue;
+        }
+
+        for i in 0..ngl {
+            let theta = (PI / 4.0) * (1.0 + zz[i]);
+            let ct = theta.cos();
+            let st = theta.sin();
+            let rmax = 1.0 / (ct + st);
+            let rmaxh = 0.5 * rmax;
+
+            let mut dlp_theta = 0.0;
+
+            for j in 0..ngl {
+                let r = rmaxh * (1.0 + zz[j]);
+                let lam = r * ct;
+                let mu = r * st;
+                let xi = a.0 + lam * (b.0 - a.0) + mu * (c.0 - a.0);
+                let eta = a.1 + lam * (b.1 - a.1) + mu * (c.1 - a.1);
+
+                let point = exact.evaluate(element, xi, eta);
+                let shape = exact.shape_values(element, xi, eta);
+                let q_int = q[0] * shape[0]
+                    + q[1] * shape[1]
+                    + q[2] * shape[2]
+                    + q[3] * shape[3]
+                    + q[4] * shape[4]
+                    + q[5] * shape[5];
+                let (_g, dg) = lgf_3d_fs(&point.position, &x0);
+                let weight = point.jacobian * det * r * ww[j];
+
+                dlp_theta += q_int * point.normal.dot(&dg) * weight;
+            }
+
+            dlp += dlp_theta * ww[i] * rmaxh * (PI / 4.0);
+        }
+    }
+
+    dlp
 }
 
 ///Computes the double-layer potential for a given initial condition q = phi(p)
@@ -583,8 +841,9 @@ pub fn ldlp_3d(
                     let va = Vector3::new(vna[(i1, 0)], vna[(i1, 1)], vna[(i1, 2)]);
                     let vb = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
                     let vc = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
-                    ptl +=
-                        ldlp_3d_integral_sing(nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww);
+                    ptl += ldlp_3d_integral_sing(
+                        nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww, true,
+                    );
                 } else if i == i2 {
                     let (ia, ib, ic) = (i2, i3, i1);
                     let pa = Vector3::new(p[(ia, 0)], p[(ia, 1)], p[(ia, 2)]);
@@ -594,7 +853,7 @@ pub fn ldlp_3d(
                     let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                     let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                     ptl += ldlp_3d_integral_sing(
-                        nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                        nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                     );
                 } else if i == i3 {
                     let (ia, ib, ic) = (i3, i1, i2);
@@ -605,7 +864,7 @@ pub fn ldlp_3d(
                     let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                     let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                     ptl += ldlp_3d_integral_sing(
-                        nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                        nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                     );
                 } else if i == i4 {
                     for &(ia, ib, ic) in &[(i4, i6, i1), (i4, i3, i6), (i4, i5, i3), (i4, i2, i5)] {
@@ -616,7 +875,7 @@ pub fn ldlp_3d(
                         let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                         let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                         );
                     }
                 } else if i == i5 {
@@ -628,7 +887,7 @@ pub fn ldlp_3d(
                         let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                         let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                         );
                     }
                 } else if i == i6 {
@@ -640,7 +899,7 @@ pub fn ldlp_3d(
                         let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                         let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                         );
                     }
                 } else {
@@ -683,6 +942,30 @@ pub fn ldlp_3d_assemble(
     zz: &DVector<f64>,
     ww: &DVector<f64>,
 ) -> DMatrix<f64> {
+    ldlp_3d_assemble_with_geom(
+        npts, nelm, mint, nq, p, n, vna, alpha, beta, gamma, xiq, etq, wq, zz, ww, None, false,
+    )
+}
+
+pub fn ldlp_3d_assemble_with_geom(
+    npts: usize,
+    nelm: usize,
+    mint: usize,
+    nq: usize,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    zz: &DVector<f64>,
+    ww: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+    exact_singular: bool,
+) -> DMatrix<f64> {
     // node -> elements containing it
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); npts];
     for k in 0..nelm {
@@ -717,6 +1000,18 @@ pub fn ldlp_3d_assemble(
                     let i6 = n[(k, 5)];
 
                     let (q1, q2, q3) = (q[i1], q[i2], q[i3]);
+                    let local_i = [i1, i2, i3, i4, i5, i6].iter().position(|&node| node == i);
+
+                    if exact_singular {
+                        if let (Some(local_node), Some(exact)) = (local_i, exact) {
+                            let q_values = [q[i1], q[i2], q[i3], q[i4], q[i5], q[i6]];
+                            ptl += exact_singular_double_layer(
+                                nq, k, local_node, &q_values, q0, exact, alpha[k], beta[k],
+                                gamma[k], zz, ww,
+                            );
+                            continue;
+                        }
+                    }
 
                     if i == i1 {
                         let pa = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);
@@ -726,7 +1021,7 @@ pub fn ldlp_3d_assemble(
                         let vb = Vector3::new(vna[(i2, 0)], vna[(i2, 1)], vna[(i2, 2)]);
                         let vc = Vector3::new(vna[(i3, 0)], vna[(i3, 1)], vna[(i3, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q1, q2, q3, q0, va, vb, vc, zz, ww, true,
                         );
                     } else if i == i2 {
                         let (ia, ib, ic) = (i2, i3, i1);
@@ -737,7 +1032,7 @@ pub fn ldlp_3d_assemble(
                         let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                         let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                         );
                     } else if i == i3 {
                         let (ia, ib, ic) = (i3, i1, i2);
@@ -748,7 +1043,7 @@ pub fn ldlp_3d_assemble(
                         let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                         let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                         ptl += ldlp_3d_integral_sing(
-                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                            nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                         );
                     } else if i == i4 {
                         for &(ia, ib, ic) in
@@ -761,7 +1056,7 @@ pub fn ldlp_3d_assemble(
                             let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                             let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                             ptl += ldlp_3d_integral_sing(
-                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                             );
                         }
                     } else if i == i5 {
@@ -775,7 +1070,7 @@ pub fn ldlp_3d_assemble(
                             let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                             let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                             ptl += ldlp_3d_integral_sing(
-                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                             );
                         }
                     } else if i == i6 {
@@ -789,12 +1084,12 @@ pub fn ldlp_3d_assemble(
                             let vb = Vector3::new(vna[(ib, 0)], vna[(ib, 1)], vna[(ib, 2)]);
                             let vc = Vector3::new(vna[(ic, 0)], vna[(ic, 1)], vna[(ic, 2)]);
                             ptl += ldlp_3d_integral_sing(
-                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww,
+                                nq, pa, pb, pc, q[ia], q[ib], q[ic], q0, va, vb, vc, zz, ww, true,
                             );
                         }
                     } else {
-                        let (pptl, _arelm) = ldlp_3d_integral(
-                            p0, k, mint, &q, q0, p, n, vna, alpha, beta, gamma, xiq, etq, wq,
+                        let (pptl, _arelm) = ldlp_3d_integral_with_geom(
+                            p0, k, mint, &q, q0, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact,
                         );
                         ptl += pptl;
                     }
@@ -871,6 +1166,7 @@ fn elem_quad(
     xiq: &DVector<f64>,
     etq: &DVector<f64>,
     wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
 ) -> ElemQuad {
     let nodes = [
         n[(k, 0)],
@@ -896,21 +1192,28 @@ fn elem_quad(
         let (xi, eta) = (xiq[qi], etq[qi]);
         let (ph, dph, pph) = ldlp_3d_shape(al, be, ga, xi, eta);
 
-        let mut xvec = Vector3::zeros();
-        let mut vvec = Vector3::zeros();
-        let mut ddxi = Vector3::zeros();
-        let mut ddet = Vector3::zeros();
-        for m in 0..6 {
-            xvec += ph[m] * pv[m];
-            vvec += ph[m] * vv[m];
-            ddxi += dph[m] * pv[m];
-            ddet += pph[m] * pv[m];
-        }
-        let hs = ddxi.cross(&ddet).norm();
+        if let Some(exact) = exact {
+            let point = exact.evaluate(k, xi, eta);
+            x.push(point.position);
+            v.push(point.normal);
+            cf.push(0.5 * point.jacobian * wq[qi]);
+        } else {
+            let mut xvec = Vector3::zeros();
+            let mut vvec = Vector3::zeros();
+            let mut ddxi = Vector3::zeros();
+            let mut ddet = Vector3::zeros();
+            for m in 0..6 {
+                xvec += ph[m] * pv[m];
+                vvec += ph[m] * vv[m];
+                ddxi += dph[m] * pv[m];
+                ddet += pph[m] * pv[m];
+            }
+            let hs = ddxi.cross(&ddet).norm();
 
-        x.push(xvec);
-        v.push(vvec);
-        cf.push(0.5 * hs * wq[qi]);
+            x.push(xvec);
+            v.push(vvec);
+            cf.push(0.5 * hs * wq[qi]);
+        }
         ph_all.push(ph);
     }
 
@@ -938,6 +1241,196 @@ fn elem_basis_row(eq: &ElemQuad, x0: &Vector3<f64>) -> [f64; 6] {
         }
     }
     g
+}
+
+/// Assemble exact-singular self single-layer blocks for each body.
+///
+/// These blocks map nodal Neumann data on a body to the same body's
+/// single-layer RHS contribution. They are invariant under rigid-body motion,
+/// so the O(N^2) singular self work can be cached while cross-body interactions
+/// are still recomputed every solve.
+pub fn lslp_3d_assemble_self_blocks_exact_singular(
+    npts: usize,
+    nelm: usize,
+    mint: usize,
+    nptss: &[usize],
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    zz: &DVector<f64>,
+    ww: &DVector<f64>,
+    exact: &ExactEllipsoidSurface,
+) -> Vec<DMatrix<f64>> {
+    let mut node_body = vec![0_usize; npts];
+    let mut offsets = Vec::with_capacity(nptss.len());
+    let mut off = 0;
+    for (b, &np) in nptss.iter().enumerate() {
+        offsets.push(off);
+        for t in 0..np {
+            node_body[off + t] = b;
+        }
+        off += np;
+    }
+
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); npts];
+    for k in 0..nelm {
+        for c in 0..6 {
+            adj[n[(k, c)]].push(k);
+        }
+    }
+
+    let eqs: Vec<ElemQuad> = (0..nelm)
+        .into_par_iter()
+        .map(|k| {
+            elem_quad(
+                k,
+                mint,
+                p,
+                n,
+                vna,
+                alpha,
+                beta,
+                gamma,
+                xiq,
+                etq,
+                wq,
+                Some(exact),
+            )
+        })
+        .collect();
+
+    (0..nptss.len())
+        .into_par_iter()
+        .map(|b| {
+            let np = nptss[b];
+            let off = offsets[b];
+            let mut block = DMatrix::zeros(np, np);
+
+            block
+                .as_mut_slice()
+                .par_chunks_mut(np)
+                .enumerate()
+                .for_each(|(j_local, col)| {
+                    let j = off + j_local;
+                    for i_local in 0..np {
+                        let i = off + i_local;
+                        let x0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+                        let mut ptl = 0.0;
+
+                        for &k in &adj[j] {
+                            debug_assert_eq!(node_body[n[(k, 0)]], b);
+                            let eq = &eqs[k];
+                            let source_local = eq.nodes.iter().position(|&node| node == j).unwrap();
+                            let field_local = eq.nodes.iter().position(|&node| node == i);
+
+                            if let Some(local_node) = field_local {
+                                let mut f_values = [0.0_f64; 6];
+                                f_values[source_local] = 1.0;
+                                let (pptl, _arelm) = exact_singular_single_layer(
+                                    ww.len(),
+                                    k,
+                                    local_node,
+                                    &f_values,
+                                    exact,
+                                    alpha[k],
+                                    beta[k],
+                                    gamma[k],
+                                    zz,
+                                    ww,
+                                );
+                                ptl += pptl;
+                            } else {
+                                for q in 0..eq.x.len() {
+                                    let (g, _dg) = lgf_3d_fs(&eq.x[q], &x0);
+                                    ptl += g * eq.ph[q][source_local] * eq.cf[q];
+                                }
+                            }
+                        }
+
+                        col[i_local] = ptl;
+                    }
+                });
+
+            block
+        })
+        .collect()
+}
+
+/// Compute only cross-body single-layer RHS contributions.
+///
+/// Same-body blocks are omitted so callers can add cached self blocks. Cross
+/// terms are smooth (no singular collocation), but change with relative body
+/// motion and therefore remain freshly evaluated.
+pub fn lslp_3d_interactions_with_geom(
+    npts: usize,
+    nelm: usize,
+    mint: usize,
+    nptss: &[usize],
+    f: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> DVector<f64> {
+    let mut node_body = vec![0_usize; npts];
+    {
+        let mut off = 0;
+        for (b, &np) in nptss.iter().enumerate() {
+            for t in 0..np {
+                node_body[off + t] = b;
+            }
+            off += np;
+        }
+    }
+    let elem_body: Vec<usize> = (0..nelm).map(|k| node_body[n[(k, 0)]]).collect();
+
+    let eqs: Vec<ElemQuad> = (0..nelm)
+        .into_par_iter()
+        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact))
+        .collect();
+
+    let rhs_vals: Vec<f64> = (0..npts)
+        .into_par_iter()
+        .map(|i| {
+            let ibody = node_body[i];
+            let x0 = Vector3::new(p[(i, 0)], p[(i, 1)], p[(i, 2)]);
+            let mut ptl = 0.0;
+
+            for k in 0..nelm {
+                if elem_body[k] == ibody {
+                    continue;
+                }
+                let eq = &eqs[k];
+                for q in 0..mint {
+                    let (g, _dg) = lgf_3d_fs(&eq.x[q], &x0);
+                    let ph = &eq.ph[q];
+                    let f_int = f[eq.nodes[0]] * ph[0]
+                        + f[eq.nodes[1]] * ph[1]
+                        + f[eq.nodes[2]] * ph[2]
+                        + f[eq.nodes[3]] * ph[3]
+                        + f[eq.nodes[4]] * ph[4]
+                        + f[eq.nodes[5]] * ph[5];
+                    ptl += g * f_int * eq.cf[q];
+                }
+            }
+
+            ptl
+        })
+        .collect();
+
+    DVector::from_vec(rhs_vals)
 }
 
 /// Assembles only the *interaction* (off-diagonal-block) part of the influence
@@ -968,6 +1461,27 @@ pub fn ldlp_3d_assemble_interactions(
     etq: &DVector<f64>,
     wq: &DVector<f64>,
 ) -> DMatrix<f64> {
+    ldlp_3d_assemble_interactions_with_geom(
+        npts, nelm, mint, nptss, p, n, vna, alpha, beta, gamma, xiq, etq, wq, None,
+    )
+}
+
+pub fn ldlp_3d_assemble_interactions_with_geom(
+    npts: usize,
+    nelm: usize,
+    mint: usize,
+    nptss: &[usize],
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> DMatrix<f64> {
     // node -> body index
     let mut node_body = vec![0_usize; npts];
     {
@@ -986,7 +1500,7 @@ pub fn ldlp_3d_assemble_interactions(
     // Precompute each element's quadrature geometry once.
     let eqs: Vec<ElemQuad> = (0..nelm)
         .into_par_iter()
-        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq))
+        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact))
         .collect();
 
     // Build A^T column-major (column i of A^T = row i of A), parallel over field
@@ -1034,6 +1548,31 @@ pub fn lslp_3d(
     zz: &DVector<f64>,
     ww: &DVector<f64>,
 ) -> DVector<f64> {
+    lslp_3d_with_geom(
+        npts, nelm, mint, nq, f, p, n, vna, alpha, beta, gamma, xiq, etq, wq, zz, ww, None, false,
+    )
+}
+
+pub fn lslp_3d_with_geom(
+    npts: usize,
+    nelm: usize,
+    mint: usize,
+    nq: usize,
+    f: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    zz: &DVector<f64>,
+    ww: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+    exact_singular: bool,
+) -> DVector<f64> {
     let tol = 1e-8;
 
     // Precompute each element's quadrature geometry once, reused across all
@@ -1041,7 +1580,7 @@ pub fn lslp_3d(
     // and shape functions; the cached normal is simply unused here).
     let eqs: Vec<ElemQuad> = (0..nelm)
         .into_par_iter()
-        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq))
+        .map(|k| elem_quad(k, mint, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact))
         .collect();
 
     let slp_vals: Vec<f64> = (0..npts)
@@ -1066,6 +1605,21 @@ pub fn lslp_3d(
                     Vector6::new(f1.abs(), f2.abs(), f3.abs(), f4.abs(), f5.abs(), f6.abs()).sum();
 
                 if test > tol {
+                    let local_i = [i1, i2, i3, i4, i5, i6].iter().position(|&node| node == i);
+
+                    if exact_singular {
+                        if let (Some(local_node), Some(exact)) = (local_i, exact) {
+                            let f_values = [f1, f2, f3, f4, f5, f6];
+                            let (pptl, arelm) = exact_singular_single_layer(
+                                nq, k, local_node, &f_values, exact, alpha[k], beta[k], gamma[k],
+                                zz, ww,
+                            );
+                            ptl += pptl;
+                            srf_area += arelm;
+                            continue;
+                        }
+                    }
+
                     //Check if singular point is one of the corner nodes i1, i2, i3
                     if i == i1 {
                         let p1 = Vector3::new(p[(i1, 0)], p[(i1, 1)], p[(i1, 2)]);

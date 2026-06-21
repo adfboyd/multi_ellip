@@ -6,13 +6,15 @@
 //! evaluates quadrature points by interpolating on the reference sphere,
 //! re-projecting to the sphere, and then applying the exact ellipsoid map.
 
-use nalgebra::{Matrix3, UnitQuaternion, Vector3};
+use nalgebra::{DMatrix, DVector, Matrix3, UnitQuaternion, Vector3};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SurfacePoint {
     pub position: Vector3<f64>,
     pub normal: Vector3<f64>,
     pub jacobian: f64,
+    pub tangent_xi: Vector3<f64>,
+    pub tangent_eta: Vector3<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +51,7 @@ impl ExactEllipsoidPatch {
     }
 
     pub fn evaluate(&self, xi: f64, eta: f64) -> SurfacePoint {
-        let (phi, dxi, deta) = quadratic_shape(self.alpha, self.beta, self.gamma, xi, eta);
+        let (phi, dxi, deta) = self.shape(xi, eta);
 
         let mut raw = Vector3::zeros();
         let mut raw_xi = Vector3::zeros();
@@ -93,6 +95,8 @@ impl ExactEllipsoidPatch {
             position,
             normal: area_vec / jacobian,
             jacobian,
+            tangent_xi,
+            tangent_eta,
         }
     }
 
@@ -106,6 +110,66 @@ impl ExactEllipsoidPatch {
 
     pub fn orientation(&self) -> &UnitQuaternion<f64> {
         &self.orient
+    }
+
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    pub fn gamma(&self) -> f64 {
+        self.gamma
+    }
+
+    pub fn shape(&self, xi: f64, eta: f64) -> ([f64; 6], [f64; 6], [f64; 6]) {
+        quadratic_shape(self.alpha, self.beta, self.gamma, xi, eta)
+    }
+
+    pub fn shape_values(&self, xi: f64, eta: f64) -> [f64; 6] {
+        self.shape(xi, eta).0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExactEllipsoidSurface {
+    patches: Vec<ExactEllipsoidPatch>,
+    node_normals: DMatrix<f64>,
+}
+
+impl ExactEllipsoidSurface {
+    pub fn new(patches: Vec<ExactEllipsoidPatch>, node_normals: DMatrix<f64>) -> Self {
+        Self {
+            patches,
+            node_normals,
+        }
+    }
+
+    pub fn evaluate(&self, element: usize, xi: f64, eta: f64) -> SurfacePoint {
+        self.patches[element].evaluate(xi, eta)
+    }
+
+    pub fn shape_values(&self, element: usize, xi: f64, eta: f64) -> [f64; 6] {
+        self.patches[element].shape_values(xi, eta)
+    }
+
+    pub fn node_normals(&self) -> &DMatrix<f64> {
+        &self.node_normals
+    }
+
+    pub fn abc_vectors(&self) -> (DVector<f64>, DVector<f64>, DVector<f64>) {
+        let nelm = self.patches.len();
+        let mut alpha = DVector::zeros(nelm);
+        let mut beta = DVector::zeros(nelm);
+        let mut gamma = DVector::zeros(nelm);
+        for (i, patch) in self.patches.iter().enumerate() {
+            alpha[i] = patch.alpha();
+            beta[i] = patch.beta();
+            gamma[i] = patch.gamma();
+        }
+        (alpha, beta, gamma)
     }
 }
 

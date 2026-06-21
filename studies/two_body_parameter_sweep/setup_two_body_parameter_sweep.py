@@ -32,7 +32,7 @@ RHO_F = 1.0
 NBODY = 2
 DEFAULT_SOLVER_MODE = "coupled_endpoint"
 
-SOLVER_MODES = ("impulse_projection", "coupled_endpoint")
+SOLVER_MODES = ("impulse_projection", "impulse_noproj", "coupled_endpoint")
 
 ROTATIONS_OVER_RUN = 100.0
 ORIENTATIONS = [
@@ -171,6 +171,11 @@ def solver_values(solver_mode: str) -> Dict[str, Any]:
         return {
             "impulse_scheme": 1,
             "energy_projection": 1,
+        }
+    if solver_mode == "impulse_noproj":
+        return {
+            "impulse_scheme": 1,
+            "energy_projection": 0,
         }
     if solver_mode == "coupled_endpoint":
         return {
@@ -359,6 +364,8 @@ def print_plan(
     print(f"  Solver mode:     {solver_mode}")
     if solver_mode == "impulse_projection":
         print("  Coupling:        impulse_scheme=1, energy_projection=1")
+    elif solver_mode == "impulse_noproj":
+        print("  Coupling:        impulse_scheme=1, energy_projection=0")
     else:
         print("  Coupling:        Hamiltonian midpoint + coupled endpoint velocity")
     print("  Initial v:       both bodies parallel, deterministic-random direction; speed set by E")
@@ -385,7 +392,8 @@ def main() -> None:
         help=(
             "solver settings to write. coupled_endpoint uses the energy-conserving "
             "Hamiltonian midpoint endpoint-velocity mode; impulse_projection writes "
-            "the older impulse+energy_projection inputs"
+            "the older impulse+energy_projection inputs; impulse_noproj writes "
+            "impulse inputs without post-step projection"
         ),
     )
     parser.add_argument(

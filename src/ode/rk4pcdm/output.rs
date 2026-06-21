@@ -1,5 +1,5 @@
 //! Console and CSV reporting for the impulse/PCDM integrator.
-use super::Rk4PCDM;
+use super::{CouplingScheme, Rk4PCDM};
 use crate::bem::bem_for_ode::{AngularState, LinearState};
 use nalgebra::{DVector, Quaternion, Vector3};
 use std::io::Write;
@@ -55,6 +55,30 @@ impl Rk4PCDM {
                 self.coupled_jacobian_builds,
                 self.hamiltonian_adaptive_retry_count,
                 self.hamiltonian_max_substeps_used
+            );
+        }
+        if self.scheme == CouplingScheme::Impulse && self.impulse_fp_steps > 0 {
+            let mean_iters = self.impulse_fp_iter_sum as f64 / self.impulse_fp_steps as f64;
+            println!(
+                "  Impulse FP iterations last/mean/max {}/{:.2}/{}",
+                self.impulse_fp_last_iter, mean_iters, self.impulse_fp_max_iter
+            );
+        }
+        if self.scheme == CouplingScheme::Variational && self.variational_momentum_diagnostic {
+            println!(
+                "  Discrete momentum drift last/max {:.3e}/{:.3e}",
+                self.variational_discrete_momentum_last_drift,
+                self.variational_discrete_momentum_max_drift
+            );
+        }
+        if self.impulse_variational_defect_probe {
+            println!(
+                "  Impulse variational defect {:.3e} | metric cos/scale {:.3e}/{:.3e} | pressure cos/scale {:.3e}/{:.3e}",
+                self.impulse_variational_defect_last_norm,
+                self.impulse_variational_defect_last_metric_cos,
+                self.impulse_variational_defect_last_metric_scale,
+                self.impulse_variational_defect_last_pressure_cos,
+                self.impulse_variational_defect_last_pressure_scale
             );
         }
     }
@@ -160,6 +184,10 @@ impl Rk4PCDM {
                 b = b
             )?;
         }
+        write!(
+            writer,
+            ",jdisc_px,jdisc_py,jdisc_pz,jdisc_hx,jdisc_hy,jdisc_hz,jdisc_drift,impulse_var_defect_norm,impulse_var_metric_cos,impulse_var_metric_scale,impulse_var_pressure_cos,impulse_var_pressure_scale"
+        )?;
         writeln!(writer)
     }
 
@@ -230,6 +258,31 @@ impl Rk4PCDM {
             for val in h_con.iter() {
                 write!(writer, ", {}", val)?;
             }
+        }
+        if let Some(momentum) = &self.variational_discrete_momentum_out {
+            for c in 0..6 {
+                write!(writer, ", {}", momentum[c])?;
+            }
+            write!(
+                writer,
+                ", {}",
+                self.variational_discrete_momentum_last_drift
+            )?;
+        } else {
+            write!(writer, ", NaN, NaN, NaN, NaN, NaN, NaN, NaN")?;
+        }
+        if self.impulse_variational_defect_out {
+            write!(
+                writer,
+                ", {}, {}, {}, {}, {}",
+                self.impulse_variational_defect_last_norm,
+                self.impulse_variational_defect_last_metric_cos,
+                self.impulse_variational_defect_last_metric_scale,
+                self.impulse_variational_defect_last_pressure_cos,
+                self.impulse_variational_defect_last_pressure_scale
+            )?;
+        } else {
+            write!(writer, ", NaN, NaN, NaN, NaN, NaN")?;
         }
         writeln!(writer)
     }

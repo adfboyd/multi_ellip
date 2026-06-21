@@ -75,6 +75,13 @@ fn main() {
     }
 
     let get = |name: &str, default: f64| -> f64 { *values.get(name).unwrap_or(&default) };
+    let get_alias = |primary: &str, legacy: &str, default: f64| -> f64 {
+        if values.contains_key(primary) {
+            get(primary, default)
+        } else {
+            get(legacy, default)
+        }
+    };
 
     let rho_f = get("rhof", 1.0);
     let ndiv = get("ndiv", 2.0) as usize;
@@ -172,19 +179,46 @@ fn main() {
 
     let mut sys = Simulation::new(fluid, bodies, ndiv as u32);
     sys.step_dt = dt;
-    // Lamb impulse-transport term (ω × L). Required for the correct force/torque
-    // on a rotating body: F = dL/dt = ρ∮(∂φ/∂t)n̂dA + ω×L. Default ON; set
-    // `impulse_transport=0` to drop it (reproduces the old, incomplete force).
-    sys.impulse_transport = get("impulse_transport", 1.0) > 0.5;
     sys.added_mass_stab = get("added_mass_stab", 0.0) > 0.5;
+    let exact_ellipsoid_geometry = get("exact_ellipsoid_geometry", 0.0) > 0.5;
+    sys.exact_ellipsoid_geometry = exact_ellipsoid_geometry;
+    let exact_singular_geometry =
+        exact_ellipsoid_geometry && get("exact_singular_geometry", 0.0) > 0.5;
+    sys.exact_singular_geometry = exact_singular_geometry;
     sys.phidot_blend = get("phidot_blend", 0.0);
     let strong_couple = get("strong_couple", 0.0) > 0.5;
     let impulse_scheme = get("impulse_scheme", 0.0) > 0.5;
     let energy_projection = get("energy_projection", 0.0) > 0.5;
+    let projection_kinetic_metric = get("projection_kinetic_metric", 0.0) > 0.5;
     let fluid_energy_gradient = get("fluid_energy_gradient", 0.0) > 0.5;
+    let impulse_metric_correction = get("impulse_metric_correction", 0.0) > 0.5;
+    let fluid_energy_discrete_gradient =
+        get("fluid_energy_discrete_gradient", 0.0) > 0.5 || impulse_metric_correction;
     let fluid_energy_gradient_eps = get("fluid_energy_gradient_eps", 1.0e-3);
     let fluid_energy_gradient_scale = get("fluid_energy_gradient_scale", 1.0);
+    let fluid_energy_gradient_linear_scale = get(
+        "fluid_energy_gradient_linear_scale",
+        fluid_energy_gradient_scale,
+    );
+    let fluid_energy_gradient_angular_scale = get(
+        "fluid_energy_gradient_angular_scale",
+        fluid_energy_gradient_scale,
+    );
+    let impulse_quadratic_pressure = get("impulse_quadratic_pressure", 0.0) > 0.5;
+    let impulse_quadratic_pressure_scale = get("impulse_quadratic_pressure_scale", 1.0);
+    let default_internal_load_constraint =
+        if impulse_metric_correction || impulse_quadratic_pressure {
+            1.0
+        } else {
+            0.0
+        };
+    let impulse_internal_load_constraint = get(
+        "impulse_internal_load_constraint",
+        default_internal_load_constraint,
+    ) > 0.5;
+    let impulse_variational_defect_probe = get("impulse_variational_defect_probe", 0.0) > 0.5;
     let phidot_blend = sys.phidot_blend;
+    let variational_scheme = get("variational_scheme", 0.0) > 0.5;
     let hamiltonian_scheme = get("hamiltonian_scheme", 0.0) > 0.5;
     let hamiltonian_midpoint_scheme = get("hamiltonian_midpoint_scheme", 0.0) > 0.5;
     let hamiltonian_substeps = get("hamiltonian_substeps", 1.0).max(1.0) as usize;
@@ -194,23 +228,86 @@ fn main() {
         (hamiltonian_substeps.max(1) * 4) as f64,
     )
     .max(hamiltonian_substeps.max(1) as f64) as usize;
-    let hamiltonian_floor_tol = get("hamiltonian_floor_tol", 1.0e-3);
-    let hamiltonian_coupled_solve = get("hamiltonian_coupled_solve", 0.0) > 0.5;
-    let hamiltonian_coupled_iters = get("hamiltonian_coupled_iters", 4.0).max(1.0) as usize;
-    let hamiltonian_coupled_eps = get("hamiltonian_coupled_eps", 1.0e-3);
-    let hamiltonian_coupled_max_shift = get("hamiltonian_coupled_max_shift", 5.0e-2);
+    let mut hamiltonian_floor_tol = get("hamiltonian_floor_tol", 1.0e-3);
+    let hamiltonian_coupled_solve =
+        !variational_scheme && get("hamiltonian_coupled_solve", 0.0) > 0.5;
+    let mut hamiltonian_coupled_iters = get("hamiltonian_coupled_iters", 4.0).max(1.0) as usize;
+    let mut hamiltonian_coupled_eps = get("hamiltonian_coupled_eps", 1.0e-3);
+    let mut hamiltonian_coupled_max_shift = get("hamiltonian_coupled_max_shift", 5.0e-2);
+    if variational_scheme {
+        hamiltonian_floor_tol = get_alias(
+            "variational_tol",
+            "hamiltonian_floor_tol",
+            hamiltonian_floor_tol,
+        );
+        hamiltonian_coupled_iters = get_alias(
+            "variational_iters",
+            "hamiltonian_coupled_iters",
+            hamiltonian_coupled_iters as f64,
+        )
+        .max(1.0) as usize;
+        hamiltonian_coupled_eps = get_alias(
+            "variational_eps",
+            "hamiltonian_coupled_eps",
+            hamiltonian_coupled_eps,
+        );
+        hamiltonian_coupled_max_shift = get_alias(
+            "variational_max_shift",
+            "hamiltonian_coupled_max_shift",
+            hamiltonian_coupled_max_shift,
+        );
+    }
     let hamiltonian_coupled_reuse_jacobian = get("hamiltonian_coupled_reuse_jacobian", 0.0) > 0.5;
     let default_jacobian_interval = if hamiltonian_coupled_reuse_jacobian {
         hamiltonian_coupled_iters
     } else {
         1
     };
-    let hamiltonian_coupled_jacobian_interval = get(
+    let mut hamiltonian_coupled_jacobian_interval = get(
         "hamiltonian_coupled_jacobian_interval",
         default_jacobian_interval as f64,
     )
     .max(1.0) as usize;
-    let hamiltonian_coupled_broyden_update = get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
+    let mut hamiltonian_coupled_broyden_update =
+        get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
+    if variational_scheme {
+        let variational_reuse_jacobian = get(
+            "variational_reuse_jacobian",
+            if hamiltonian_coupled_reuse_jacobian {
+                1.0
+            } else {
+                0.0
+            },
+        ) > 0.5;
+        let variational_default_interval = if variational_reuse_jacobian {
+            hamiltonian_coupled_iters
+        } else {
+            hamiltonian_coupled_jacobian_interval
+        };
+        hamiltonian_coupled_jacobian_interval = get(
+            "variational_jacobian_interval",
+            variational_default_interval as f64,
+        )
+        .max(1.0) as usize;
+        hamiltonian_coupled_broyden_update = get(
+            "variational_broyden_update",
+            if hamiltonian_coupled_broyden_update {
+                1.0
+            } else {
+                0.0
+            },
+        ) > 0.5;
+    }
+    let variational_momentum_diagnostic = get("variational_momentum_diagnostic", 1.0) > 0.5;
+    let variational_reuse_step_jacobian =
+        variational_scheme && get("variational_reuse_step_jacobian", 0.0) > 0.5;
+    let variational_energy_only_lagrangian =
+        variational_scheme && get("variational_energy_only_lagrangian", 0.0) > 0.5;
+    if variational_reuse_step_jacobian {
+        hamiltonian_coupled_broyden_update = true;
+        hamiltonian_coupled_jacobian_interval =
+            hamiltonian_coupled_jacobian_interval.max(hamiltonian_coupled_iters);
+    }
     let hamiltonian_coupled_endpoint_velocity =
         get("hamiltonian_coupled_endpoint_velocity", 0.0) > 0.5;
     let hamiltonian_coupled_kinetic_metric = get("hamiltonian_coupled_kinetic_metric", 1.0) > 0.5;
@@ -261,9 +358,11 @@ fn main() {
 
     let solver = bem_for_ode::BemSolver::new(sys);
 
-    // Hamiltonian takes precedence over impulse, then strong, then the explicit
-    // default (keeps the former boolean precedence under the new option).
-    let scheme = if hamiltonian_midpoint_scheme {
+    // Variational/Hamiltonian modes take precedence over impulse, then strong,
+    // then the explicit default.
+    let scheme = if variational_scheme {
+        rk4pcdm::CouplingScheme::Variational
+    } else if hamiltonian_midpoint_scheme {
         rk4pcdm::CouplingScheme::HamiltonianMidpoint
     } else if hamiltonian_scheme {
         rk4pcdm::CouplingScheme::Hamiltonian
@@ -291,9 +390,19 @@ fn main() {
         logevery, // print_rate: console progress every logevery steps
         scheme,
         energy_projection,
+        projection_kinetic_metric,
         fluid_energy_gradient,
+        fluid_energy_discrete_gradient,
         fluid_energy_gradient_eps,
-        fluid_energy_gradient_scale,
+        fluid_energy_gradient_linear_scale,
+        fluid_energy_gradient_angular_scale,
+        impulse_quadratic_pressure,
+        impulse_quadratic_pressure_scale,
+        impulse_internal_load_constraint,
+        impulse_variational_defect_probe,
+        variational_momentum_diagnostic,
+        variational_reuse_step_jacobian,
+        variational_energy_only_lagrangian,
         hamiltonian_substeps,
         hamiltonian_adaptive_substeps,
         hamiltonian_max_substeps,
@@ -344,6 +453,7 @@ fn main() {
     let output_rows = estimated_output_rows(estimated_steps, tprint as usize);
     let available_cores = available_parallelism();
     let rayon_threads = rayon::current_num_threads();
+    let legacy_singular_slp = env::var_os("MULTI_ELLIP_LEGACY_SINGULAR_SLP").is_some();
     println!();
     if !input_warnings.is_empty() {
         println!("Input warnings:");
@@ -381,6 +491,33 @@ fn main() {
         "  Hamiltonian midpt: {}",
         fmt_enabled(hamiltonian_midpoint_scheme)
     );
+    println!("  Variational step:  {}", fmt_enabled(variational_scheme));
+    if variational_scheme {
+        println!(
+            "  Variational iters/eps/max shift: {} / {:.6e} / {:.6e}",
+            hamiltonian_coupled_iters, hamiltonian_coupled_eps, hamiltonian_coupled_max_shift
+        );
+        println!(
+            "  Variational Jacobian interval: {}",
+            hamiltonian_coupled_jacobian_interval
+        );
+        println!(
+            "  Variational Broyden update: {}",
+            fmt_enabled(hamiltonian_coupled_broyden_update)
+        );
+        println!(
+            "  Variational momentum diagnostic: {}",
+            fmt_enabled(variational_momentum_diagnostic)
+        );
+        println!(
+            "  Variational step-Jacobian reuse: {}",
+            fmt_enabled(variational_reuse_step_jacobian)
+        );
+        println!(
+            "  Variational KE-only action eval: {}",
+            fmt_enabled(variational_energy_only_lagrangian)
+        );
+    }
     if hamiltonian_scheme || hamiltonian_midpoint_scheme {
         println!("  Hamiltonian substeps: {}", hamiltonian_substeps);
         println!(
@@ -430,10 +567,38 @@ fn main() {
     }
     println!("  Energy projection: {}", fmt_enabled(energy_projection));
     println!(
-        "  Fluid KE gradient: {}  (eps = {}, scale = {})",
+        "  Projection particular metric: {}",
+        if projection_kinetic_metric {
+            "kinetic"
+        } else {
+            "Euclidean"
+        }
+    );
+    println!(
+        "  Fluid KE gradient: {}  (eps = {}, scale = {}, linear = {}, angular = {})",
         fmt_enabled(fluid_energy_gradient),
         fluid_energy_gradient_eps,
-        fluid_energy_gradient_scale
+        fluid_energy_gradient_scale,
+        fluid_energy_gradient_linear_scale,
+        fluid_energy_gradient_angular_scale
+    );
+    println!(
+        "  Fluid KE discrete gradient: {}",
+        fmt_enabled(fluid_energy_discrete_gradient)
+    );
+    println!(
+        "  Impulse metric correction: {}  (internal load constraint = {})",
+        fmt_enabled(impulse_metric_correction),
+        fmt_enabled(impulse_internal_load_constraint)
+    );
+    println!(
+        "  Impulse variational defect probe: {}",
+        fmt_enabled(impulse_variational_defect_probe)
+    );
+    println!(
+        "  Impulse quadratic pressure: {}  (scale = {})",
+        fmt_enabled(impulse_quadratic_pressure),
+        impulse_quadratic_pressure_scale
     );
     if added_mass_stab {
         println!(
@@ -443,6 +608,18 @@ fn main() {
     } else {
         println!("  Added-mass stab:   disabled");
     }
+    println!(
+        "  Exact BEM geometry: {}",
+        fmt_enabled(exact_ellipsoid_geometry)
+    );
+    println!(
+        "  Exact singular BEM: {}",
+        fmt_enabled(exact_singular_geometry)
+    );
+    println!(
+        "  Legacy singular SLP diagnostic: {}",
+        fmt_enabled(legacy_singular_slp)
+    );
     println!("  Phi-dot blend:     {}", fmt_phidot_blend(phidot_blend));
     print_solver_guidance();
     println!("================================================");
@@ -476,6 +653,15 @@ fn main() {
                 stepper.run_steady_per_step
             );
             println!("  Total wall time:   {}", fmt_hms(stepper.run_wall_secs));
+            if impulse_scheme && stepper.impulse_fp_steps > 0 {
+                let mean_iters =
+                    stepper.impulse_fp_iter_sum as f64 / stepper.impulse_fp_steps as f64;
+                println!(
+                    "  Impulse FP iters last/mean/max: {} / {:.3} / {}",
+                    stepper.impulse_fp_last_iter, mean_iters, stepper.impulse_fp_max_iter
+                );
+                println!("  Approx impulse solves/step:     {:.3}", mean_iters + 1.0);
+            }
             if energy_projection || hamiltonian_scheme || hamiltonian_midpoint_scheme {
                 println!(
                     "  Projection max |dz|/|z|:        {:.6e}",
@@ -563,6 +749,63 @@ fn main() {
                     );
                 }
             }
+            if variational_scheme {
+                let min_rank = if stepper.coupled_min_jacobian_rank == usize::MAX {
+                    0
+                } else {
+                    stepper.coupled_min_jacobian_rank
+                };
+                let min_sigma = if stepper.coupled_min_jacobian_sigma.is_finite() {
+                    stepper.coupled_min_jacobian_sigma
+                } else {
+                    0.0
+                };
+                println!(
+                    "  Variational max residual norm:  {:.6e}",
+                    stepper.coupled_max_residual_norm
+                );
+                println!(
+                    "  Variational Jacobian builds:    {}",
+                    stepper.coupled_jacobian_builds
+                );
+                println!(
+                    "  Variational Jacobian min rank / max nullity: {} / {}",
+                    min_rank, stepper.coupled_max_jacobian_nullity
+                );
+                println!(
+                    "  Variational Jacobian min singular value: {:.6e}",
+                    min_sigma
+                );
+                println!(
+                    "  Variational discrete momentum drift max: {}",
+                    if variational_momentum_diagnostic {
+                        format!("{:.6e}", stepper.variational_discrete_momentum_max_drift)
+                    } else {
+                        "disabled".to_string()
+                    }
+                );
+            }
+            if impulse_variational_defect_probe {
+                println!(
+                    "  Impulse variational defect probes: {}",
+                    stepper.impulse_variational_defect_probe_count
+                );
+                println!(
+                    "  Impulse variational defect last/max: {:.6e} / {:.6e}",
+                    stepper.impulse_variational_defect_last_norm,
+                    stepper.impulse_variational_defect_max_norm
+                );
+                println!(
+                    "  Defect vs metric-gradient cos/scale: {:.6e} / {:.6e}",
+                    stepper.impulse_variational_defect_last_metric_cos,
+                    stepper.impulse_variational_defect_last_metric_scale
+                );
+                println!(
+                    "  Defect vs pressure-load cos/scale:  {:.6e} / {:.6e}",
+                    stepper.impulse_variational_defect_last_pressure_cos,
+                    stepper.impulse_variational_defect_last_pressure_scale
+                );
+            }
             println!(
                 "  CPU cores:         {} available, {} Rayon worker thread(s)",
                 available_cores, rayon_threads
@@ -644,7 +887,7 @@ fn fmt_hms(secs: f64) -> String {
 }
 
 fn parse_assignment(input: &str) -> IResult<&str, (&str, f64)> {
-    // Keys are alphanumeric plus underscore (e.g. impulse_transport); plain
+    // Keys are alphanumeric plus underscore (e.g. exact_singular_geometry); plain
     // alphanumeric1 silently rejected underscore keys and, via many0, dropped
     // every key after the first such line.
     let key = take_while1(|c: char| c.is_alphanumeric() || c == '_');

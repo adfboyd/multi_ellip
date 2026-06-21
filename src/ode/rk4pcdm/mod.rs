@@ -41,6 +41,9 @@ pub enum CouplingScheme {
     /// Experimental midpoint Hamiltonian scheme: solve endpoint configuration
     /// from a BEM/projection evaluated at the midpoint configuration.
     HamiltonianMidpoint,
+    /// Experimental discrete-Lagrangian midpoint variational integrator. Solves
+    /// the fully determined discrete Euler-Lagrange equations for q_{n+1}.
+    Variational,
 }
 
 pub struct Rk4PCDM {
@@ -50,6 +53,9 @@ pub struct Rk4PCDM {
     /// The single owned rigid-body state (positions/velocities + orientations/
     /// angular velocities) handed to the solver each step.
     state: BodyState,
+    /// Previous accepted configuration for the two-point discrete Lagrangian
+    /// update. Velocities stored in this state are ignored.
+    prev_variational_state: Option<BodyState>,
     o_lab: DVector<f64>,
     nbody: usize,
     inertias: Vec<Matrix3<f64>>,
@@ -113,6 +119,22 @@ pub struct Rk4PCDM {
     pub coupled_jacobian_builds: usize,
     pub hamiltonian_adaptive_retry_count: usize,
     pub hamiltonian_max_substeps_used: usize,
+    pub impulse_fp_steps: usize,
+    pub impulse_fp_iter_sum: usize,
+    pub impulse_fp_last_iter: usize,
+    pub impulse_fp_max_iter: usize,
+    pub variational_discrete_momentum_last_drift: f64,
+    pub variational_discrete_momentum_max_drift: f64,
+    pub impulse_variational_defect_probe_count: usize,
+    pub impulse_variational_defect_last_norm: f64,
+    pub impulse_variational_defect_max_norm: f64,
+    pub impulse_variational_defect_last_metric_cos: f64,
+    pub impulse_variational_defect_last_metric_scale: f64,
+    pub impulse_variational_defect_last_pressure_cos: f64,
+    pub impulse_variational_defect_last_pressure_scale: f64,
+    impulse_variational_defect_out: bool,
+    variational_discrete_momentum_out: Option<DVector<f64>>,
+    variational_discrete_momentum_initial: Option<DVector<f64>>,
     /// Fluid KE captured at the start of the current step (stage-A force call,
     /// evaluated at exactly z_n), used to write the row sampled at time t_n.
     fluid_ke_step_start: f64,
@@ -124,12 +146,32 @@ pub struct Rk4PCDM {
     /// Experimental impulse-mode post-step projection: adjusts generalized
     /// velocities to restore step-start KE while preserving total impulse.
     energy_projection: bool,
+    /// Use the full kinetic-energy metric when choosing the particular
+    /// impulse-conserving velocity in the energy projection. This is much more
+    /// expensive because the metric is assembled from BEM energy evaluations,
+    /// so the default production projection uses the Euclidean minimum-norm
+    /// particular solution and leaves this as a diagnostic option.
+    projection_kinetic_metric: bool,
     /// Experimental impulse-mode configuration-gradient correction. This is a
     /// deliberately slow finite-difference diagnostic for the multibody
     /// added-mass metric force.
     fluid_energy_gradient: bool,
+    /// Experimental impulse-mode coordinate discrete-gradient correction. This
+    /// estimates the configuration work over the proposed step at fixed
+    /// midpoint velocity so the impulse update can carry the fluid KE metric
+    /// force without a post-step energy projection.
+    fluid_energy_discrete_gradient: bool,
     fluid_energy_gradient_eps: f64,
-    fluid_energy_gradient_scale: f64,
+    fluid_energy_gradient_linear_scale: f64,
+    fluid_energy_gradient_angular_scale: f64,
+    impulse_quadratic_pressure: bool,
+    impulse_quadratic_pressure_scale: f64,
+    impulse_internal_load_constraint: bool,
+    impulse_variational_defect_probe: bool,
+    variational_momentum_diagnostic: bool,
+    variational_reuse_step_jacobian: bool,
+    variational_energy_only_lagrangian: bool,
+    variational_step_jacobian: Option<DMatrix<f64>>,
     hamiltonian_substeps: usize,
     hamiltonian_adaptive_substeps: bool,
     hamiltonian_max_substeps: usize,
@@ -198,7 +240,7 @@ impl Rk4PCDM {
     //Function for creating new solver
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        solver: BemSolver,
+        mut solver: BemSolver,
         t_begin: f64,
         x: LinearState, // (positions, velocities) stacked over bodies
         orientations: Vec<(Quaternion<f64>, Quaternion<f64>)>, // (orientation, angular velocity) per body
@@ -213,9 +255,19 @@ impl Rk4PCDM {
         print_rate: u32,
         scheme: CouplingScheme,
         energy_projection: bool,
+        projection_kinetic_metric: bool,
         fluid_energy_gradient: bool,
+        fluid_energy_discrete_gradient: bool,
         fluid_energy_gradient_eps: f64,
-        fluid_energy_gradient_scale: f64,
+        fluid_energy_gradient_linear_scale: f64,
+        fluid_energy_gradient_angular_scale: f64,
+        impulse_quadratic_pressure: bool,
+        impulse_quadratic_pressure_scale: f64,
+        impulse_internal_load_constraint: bool,
+        impulse_variational_defect_probe: bool,
+        variational_momentum_diagnostic: bool,
+        variational_reuse_step_jacobian: bool,
+        variational_energy_only_lagrangian: bool,
         hamiltonian_substeps: usize,
         hamiltonian_adaptive_substeps: bool,
         hamiltonian_max_substeps: usize,
@@ -238,6 +290,9 @@ impl Rk4PCDM {
         // effective added mass for stability of the Robin update and does not
         // change the fixed point (a_stab = a_expl).
         let added_mass_safe: Vec<Matrix3<f64>> = added_mass_tensors;
+        solver.set_compute_quadratic_pressure(
+            impulse_quadratic_pressure || impulse_variational_defect_probe,
+        );
 
         Rk4PCDM {
             solver,
@@ -246,6 +301,7 @@ impl Rk4PCDM {
                 lin: x,
                 ang: (q, omega),
             },
+            prev_variational_state: None,
             o_lab: DVector::zeros(3 * nbody),
             nbody,
             inertias,
@@ -302,14 +358,41 @@ impl Rk4PCDM {
             coupled_jacobian_builds: 0,
             hamiltonian_adaptive_retry_count: 0,
             hamiltonian_max_substeps_used: hamiltonian_substeps.max(1),
+            impulse_fp_steps: 0,
+            impulse_fp_iter_sum: 0,
+            impulse_fp_last_iter: 0,
+            impulse_fp_max_iter: 0,
+            variational_discrete_momentum_last_drift: f64::NAN,
+            variational_discrete_momentum_max_drift: 0.0,
+            impulse_variational_defect_probe_count: 0,
+            impulse_variational_defect_last_norm: f64::NAN,
+            impulse_variational_defect_max_norm: 0.0,
+            impulse_variational_defect_last_metric_cos: f64::NAN,
+            impulse_variational_defect_last_metric_scale: f64::NAN,
+            impulse_variational_defect_last_pressure_cos: f64::NAN,
+            impulse_variational_defect_last_pressure_scale: f64::NAN,
+            impulse_variational_defect_out: false,
+            variational_discrete_momentum_out: None,
+            variational_discrete_momentum_initial: None,
             fluid_ke_step_start: 0.0,
             fluid_impulse_lin_step_start: None,
             fluid_impulse_ang_step_start: None,
             scheme,
             energy_projection,
+            projection_kinetic_metric,
             fluid_energy_gradient,
+            fluid_energy_discrete_gradient,
             fluid_energy_gradient_eps,
-            fluid_energy_gradient_scale,
+            fluid_energy_gradient_linear_scale,
+            fluid_energy_gradient_angular_scale,
+            impulse_quadratic_pressure,
+            impulse_quadratic_pressure_scale,
+            impulse_internal_load_constraint,
+            impulse_variational_defect_probe,
+            variational_momentum_diagnostic,
+            variational_reuse_step_jacobian,
+            variational_energy_only_lagrangian,
+            variational_step_jacobian: None,
             hamiltonian_substeps: hamiltonian_substeps.max(1),
             hamiltonian_adaptive_substeps,
             hamiltonian_max_substeps: hamiltonian_max_substeps.max(hamiltonian_substeps.max(1)),
@@ -452,14 +535,14 @@ impl Rk4PCDM {
         }
 
         // Flush the final pending row. Its state is the end state, whose fluid KE
-        // has not yet been computed, so run one extra BEM solve to obtain it (the
-        // side effects — φ history push, fluid KE update — are harmless).
+        // has not yet been written, so run one extra BEM solve to obtain it.
         if let Some((tp, xp, op, olp)) = pending.take() {
             if matches!(
                 self.scheme,
                 CouplingScheme::Impulse
                     | CouplingScheme::Hamiltonian
                     | CouplingScheme::HamiltonianMidpoint
+                    | CouplingScheme::Variational
             ) {
                 let (l_lin, l_ang) = self.solver.impulse();
                 self.fluid_impulse_lin_step_start = Some(l_lin);
@@ -468,6 +551,10 @@ impl Rk4PCDM {
                 let _ = self.solver.force();
             }
             let kef = self.solver.fluid_kinetic_energy();
+            if self.scheme == CouplingScheme::Variational {
+                self.variational_discrete_momentum_out = None;
+            }
+            self.impulse_variational_defect_out = false;
             self.write_row(writer, tp, &xp, &op, &olp, kef)?;
         }
 
@@ -579,6 +666,7 @@ impl Rk4PCDM {
     fn advance_one_step(&mut self) {
         self.reset_projection_step_diagnostics();
         match self.scheme {
+            CouplingScheme::Variational => self.advance_one_step_variational(),
             CouplingScheme::HamiltonianMidpoint => self.advance_one_step_hamiltonian_midpoint(),
             CouplingScheme::Hamiltonian => self.advance_one_step_hamiltonian(),
             CouplingScheme::Impulse => self.advance_one_step_impulse(),
@@ -734,6 +822,7 @@ impl Rk4PCDM {
             .total
             + self.fluid_ke_step_start;
 
+        let start_state = self.state.clone();
         let (p_n, v_n) = self.state.lin.clone();
         let conserved_step_start =
             self.total_conserved_impulse(&p_n, &v_n, &self.state.ang, &l_lin_n, &l_ang_n);
@@ -747,7 +836,9 @@ impl Rk4PCDM {
         let mut f_hist: Vec<DVector<f64>> = Vec::new();
 
         let tol = 1e-9 * (v_n.norm() + 1.0);
-        for _it in 0..STRONG_MAXITER {
+        let mut fp_iters = 0usize;
+        for it in 0..STRONG_MAXITER {
+            fp_iters = it + 1;
             // Angular: implicit-midpoint Lie-group update driven by the current
             // step-averaged torque. Symplectic-flavoured (energy drift no longer
             // grows with the added-mass stiffness that the mesh resolves), unlike
@@ -764,7 +855,21 @@ impl Rk4PCDM {
             });
 
             let (l_lin_np1, l_ang_np1) = self.solver.impulse();
-            let (gradient_force, gradient_torque) = if self.fluid_energy_gradient {
+            let (mut pressure_force, mut pressure_torque) = if self.impulse_quadratic_pressure {
+                self.solver.quadratic_pressure_load()
+            } else {
+                (
+                    DVector::zeros(3 * self.nbody),
+                    DVector::zeros(3 * self.nbody),
+                )
+            };
+            let end_state = BodyState {
+                lin: (p_new.clone(), v_new.clone()),
+                ang: o_new.clone(),
+            };
+            let (mut gradient_force, mut gradient_torque) = if self.fluid_energy_discrete_gradient {
+                self.fluid_energy_configuration_discrete_gradient(&start_state, &end_state)
+            } else if self.fluid_energy_gradient {
                 self.fluid_energy_configuration_gradient(&BodyState {
                     lin: (p_new.clone(), v_new.clone()),
                     ang: o_new.clone(),
@@ -775,6 +880,19 @@ impl Rk4PCDM {
                     DVector::zeros(3 * self.nbody),
                 )
             };
+            if self.impulse_internal_load_constraint {
+                let p_mid = 0.5 * (&p_n + &p_new);
+                self.enforce_internal_load_constraint(
+                    &p_mid,
+                    &mut gradient_force,
+                    &mut gradient_torque,
+                );
+                self.enforce_internal_load_constraint(
+                    &p_mid,
+                    &mut pressure_force,
+                    &mut pressure_torque,
+                );
+            }
 
             // The fluid force/torque on the body is F = +dL/dt (validated sign;
             // L = ρ∮φn̂dA is negative for positive velocity, so the body conserves
@@ -798,8 +916,11 @@ impl Rk4PCDM {
                     r_lin[3 * b + c] = ms * (v_new[3 * b + c] - v_n[3 * b + c])
                         - (l_lin_np1[3 * b + c] - l_lin_n[3 * b + c])
                         - self.step_size
-                            * self.fluid_energy_gradient_scale
-                            * gradient_force[3 * b + c];
+                            * self.fluid_energy_gradient_linear_scale
+                            * gradient_force[3 * b + c]
+                        - self.step_size
+                            * self.impulse_quadratic_pressure_scale
+                            * pressure_force[3 * b + c];
                 }
 
                 // Λ_b is taken about body b's translating centre, so the
@@ -813,7 +934,8 @@ impl Rk4PCDM {
                     (lambda_end - lambda_old) / self.step_size - v_mid.cross(&p_total_mid);
                 for c in 0..3 {
                     new_torque[3 * b + c] = torque_vec[c]
-                        + self.fluid_energy_gradient_scale * gradient_torque[3 * b + c];
+                        + self.fluid_energy_gradient_angular_scale * gradient_torque[3 * b + c]
+                        + self.impulse_quadratic_pressure_scale * pressure_torque[3 * b + c];
                 }
             }
             // Base-map corrections. Linear: preconditioned Newton step
@@ -857,6 +979,10 @@ impl Rk4PCDM {
                 torque[i] = w_next[nb3 + i];
             }
         }
+        self.impulse_fp_steps += 1;
+        self.impulse_fp_iter_sum += fp_iters;
+        self.impulse_fp_last_iter = fp_iters;
+        self.impulse_fp_max_iter = self.impulse_fp_max_iter.max(fp_iters);
 
         let v_mid = 0.5 * (&v_n + &v_new);
         let p_new = &p_n + &v_mid * self.step_size;
@@ -872,8 +998,611 @@ impl Rk4PCDM {
         self.state.ang = o_new;
         self.o_lab = o_lab_new;
 
+        if self.impulse_variational_defect_probe {
+            let end_state = self.state.clone();
+            self.record_impulse_variational_defect_probe(&start_state, &end_state);
+            self.prev_variational_state = Some(start_state);
+        }
+
         if self.energy_projection {
             self.project_step_energy_preserving_impulse(ke_step_start, &conserved_step_start);
+        }
+    }
+
+    fn advance_one_step_variational(&mut self) {
+        self.solver.set_state(&self.state);
+        let (l_lin_n, l_ang_n) = self.solver.impulse();
+        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.fluid_impulse_lin_step_start = Some(l_lin_n);
+        self.fluid_impulse_ang_step_start = Some(l_ang_n);
+        self.capture_initial_total_ke();
+
+        let current = self.state.clone();
+        let previous = self
+            .prev_variational_state
+            .clone()
+            .unwrap_or_else(|| self.backward_state_from_current_velocity(&current));
+        let z0 = self.generalized_velocity_vector();
+        let z_mid = self.solve_variational_mid_velocity(&previous, &current, &z0);
+        let end_state = self.endpoint_state_from_mid_velocity(&current, &z_mid);
+        if self.variational_momentum_diagnostic {
+            if let Some(momentum) = self.discrete_noether_momentum(&current, &end_state) {
+                self.record_variational_discrete_momentum(momentum);
+            } else {
+                self.variational_discrete_momentum_out = None;
+                self.variational_discrete_momentum_last_drift = f64::NAN;
+            }
+        } else {
+            self.variational_discrete_momentum_out = None;
+            self.variational_discrete_momentum_last_drift = f64::NAN;
+        }
+
+        self.prev_variational_state = Some(current);
+        self.state = end_state;
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+        self.o_lab = self.orientation_to_marker_point();
+    }
+
+    fn backward_state_from_current_velocity(&self, current: &BodyState) -> BodyState {
+        let (pos, vel) = &current.lin;
+        let (q, omega) = &current.ang;
+
+        let mut pos_prev = DVector::zeros(3 * self.nbody);
+        for i in 0..3 * self.nbody {
+            pos_prev[i] = pos[i] - self.step_size * vel[i];
+        }
+
+        let mut q_prev = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            q_prev.push(
+                self.orientation_stepper(&q[b], &(-omega[b]), self.step_size)
+                    .normalize(),
+            );
+        }
+
+        BodyState {
+            lin: (pos_prev, vel.clone()),
+            ang: (q_prev, omega.clone()),
+        }
+    }
+
+    fn solve_variational_mid_velocity(
+        &mut self,
+        previous: &BodyState,
+        current: &BodyState,
+        z0: &DVector<f64>,
+    ) -> DVector<f64> {
+        let mut z = z0.clone();
+        let Some(first_leg_gradient) = self.variational_first_leg_gradient(previous, current)
+        else {
+            return z;
+        };
+        let Some(mut residual) =
+            self.variational_residual_from_first_leg(current, &z, &first_leg_gradient)
+        else {
+            return z;
+        };
+        let mut residual_norm = residual.norm();
+        let residual_tol = self.hamiltonian_floor_tol.max(1.0e-10);
+        let max_dz = if self.hamiltonian_coupled_max_shift > 0.0 {
+            self.hamiltonian_coupled_max_shift / self.step_size.max(1.0e-12)
+        } else {
+            f64::INFINITY
+        };
+        let dof = z.len();
+        let mut reusable_jacobian: Option<DMatrix<f64>> = if self.variational_reuse_step_jacobian {
+            self.variational_step_jacobian
+                .take()
+                .filter(|jacobian| jacobian.nrows() == residual.len() && jacobian.ncols() == dof)
+        } else {
+            None
+        };
+        let mut used_full_fallback = false;
+
+        for iter in 0..self.hamiltonian_coupled_iters {
+            if residual_norm <= residual_tol {
+                break;
+            }
+
+            let interval = self.hamiltonian_coupled_jacobian_interval.max(1);
+            let has_step_seed =
+                self.variational_reuse_step_jacobian && iter == 0 && reusable_jacobian.is_some();
+            if reusable_jacobian.is_none() || (!has_step_seed && iter % interval == 0) {
+                reusable_jacobian =
+                    self.variational_jacobian(current, &z, &residual, &first_leg_gradient);
+            }
+
+            let Some(jacobian) = reusable_jacobian.as_ref() else {
+                break;
+            };
+            let rhs = -&residual;
+            let mut dz = if let Some(step) = jacobian.clone().lu().solve(&rhs) {
+                step
+            } else if let Some(step) = jacobian.clone().qr().solve(&rhs) {
+                step
+            } else {
+                break;
+            };
+
+            let dz_norm = dz.norm();
+            if dz_norm.is_finite() && dz_norm > max_dz {
+                dz *= max_dz / dz_norm;
+            }
+
+            let mut accepted = false;
+            let mut alpha = 1.0;
+            let z_before = z.clone();
+            let residual_before = residual.clone();
+            for _ in 0..8 {
+                let z_trial = &z + alpha * &dz;
+                let Some(r_trial) = self.variational_residual_from_first_leg(
+                    current,
+                    &z_trial,
+                    &first_leg_gradient,
+                ) else {
+                    alpha *= 0.5;
+                    continue;
+                };
+                let trial_norm = r_trial.norm();
+                if trial_norm.is_finite() && trial_norm < residual_norm {
+                    z = z_trial;
+                    residual = r_trial;
+                    residual_norm = trial_norm;
+                    accepted = true;
+                    break;
+                }
+                alpha *= 0.5;
+            }
+
+            if !accepted {
+                break;
+            }
+
+            if self.hamiltonian_coupled_broyden_update {
+                if let Some(jacobian) = reusable_jacobian.as_mut() {
+                    let step = &z - &z_before;
+                    let residual_delta = &residual - &residual_before;
+                    Self::broyden_update_jacobian(jacobian, &step, &residual_delta);
+                }
+            }
+        }
+
+        if residual_norm > residual_tol
+            && (self.hamiltonian_coupled_broyden_update
+                || self.hamiltonian_coupled_jacobian_interval > 1)
+        {
+            used_full_fallback = true;
+            reusable_jacobian = None;
+            for _ in 0..self.hamiltonian_coupled_iters {
+                if residual_norm <= residual_tol {
+                    break;
+                }
+
+                let Some(mut jacobian) =
+                    self.variational_jacobian(current, &z, &residual, &first_leg_gradient)
+                else {
+                    break;
+                };
+                let rhs = -&residual;
+                let mut dz = if let Some(step) = jacobian.clone().lu().solve(&rhs) {
+                    step
+                } else if let Some(step) = jacobian.clone().qr().solve(&rhs) {
+                    step
+                } else {
+                    break;
+                };
+
+                let dz_norm = dz.norm();
+                if dz_norm.is_finite() && dz_norm > max_dz {
+                    dz *= max_dz / dz_norm;
+                }
+
+                let mut accepted = false;
+                let mut alpha = 1.0;
+                for _ in 0..8 {
+                    let z_trial = &z + alpha * &dz;
+                    let Some(r_trial) = self.variational_residual_from_first_leg(
+                        current,
+                        &z_trial,
+                        &first_leg_gradient,
+                    ) else {
+                        alpha *= 0.5;
+                        continue;
+                    };
+                    let trial_norm = r_trial.norm();
+                    if trial_norm.is_finite() && trial_norm < residual_norm {
+                        let z_before = z.clone();
+                        let residual_before = residual.clone();
+                        z = z_trial;
+                        residual = r_trial;
+                        residual_norm = trial_norm;
+                        if self.hamiltonian_coupled_broyden_update {
+                            let step = &z - &z_before;
+                            let residual_delta = &residual - &residual_before;
+                            Self::broyden_update_jacobian(&mut jacobian, &step, &residual_delta);
+                        }
+                        reusable_jacobian = Some(jacobian);
+                        accepted = true;
+                        break;
+                    }
+                    alpha *= 0.5;
+                }
+
+                if !accepted {
+                    break;
+                }
+            }
+        }
+
+        if self.variational_reuse_step_jacobian
+            && residual_norm <= residual_tol
+            && !used_full_fallback
+        {
+            self.variational_step_jacobian = reusable_jacobian;
+        } else if !self.variational_reuse_step_jacobian || residual_norm > residual_tol {
+            self.variational_step_jacobian = None;
+        }
+
+        self.coupled_max_residual_norm = self.coupled_max_residual_norm.max(residual_norm);
+        self.coupled_last_step_residual_norm =
+            self.coupled_last_step_residual_norm.max(residual_norm);
+        self.record_coupled_correction_diagnostics(current, z0, &z);
+        z
+    }
+
+    fn variational_jacobian(
+        &mut self,
+        current: &BodyState,
+        z: &DVector<f64>,
+        residual: &DVector<f64>,
+        first_leg_gradient: &DVector<f64>,
+    ) -> Option<DMatrix<f64>> {
+        let dof = z.len();
+        let mut jac = DMatrix::zeros(residual.len(), dof);
+        let eps_base = self.hamiltonian_coupled_eps.abs().max(1.0e-8);
+        for j in 0..dof {
+            let eps = eps_base * (z[j].abs() + 1.0);
+            let mut zp = z.clone();
+            zp[j] += eps;
+            let rp = self.variational_residual_from_first_leg(current, &zp, first_leg_gradient)?;
+            for row in 0..residual.len() {
+                jac[(row, j)] = (rp[row] - residual[row]) / eps;
+            }
+        }
+        self.coupled_jacobian_builds += 1;
+        self.record_coupled_jacobian_diagnostics(&jac);
+        Some(jac)
+    }
+
+    fn variational_residual(
+        &mut self,
+        previous: &BodyState,
+        current: &BodyState,
+        z_mid: &DVector<f64>,
+    ) -> Option<DVector<f64>> {
+        let first_leg_gradient = self.variational_first_leg_gradient(previous, current)?;
+        self.variational_residual_from_first_leg(current, z_mid, &first_leg_gradient)
+    }
+
+    fn variational_first_leg_gradient(
+        &mut self,
+        previous: &BodyState,
+        current: &BodyState,
+    ) -> Option<DVector<f64>> {
+        let saved_state = self.state.clone();
+        let dof = 6 * self.nbody;
+        let mut gradient = DVector::zeros(dof);
+
+        for j in 0..dof {
+            let eps = self.variational_configuration_eps(current, j);
+            let current_plus = self.perturb_configuration(current, j, eps);
+            let current_minus = self.perturb_configuration(current, j, -eps);
+            let action_plus = self.discrete_lagrangian(previous, &current_plus);
+            let action_minus = self.discrete_lagrangian(previous, &current_minus);
+            gradient[j] = (action_plus - action_minus) / (2.0 * eps);
+            if !gradient[j].is_finite() {
+                self.restore_variational_probe_state(&saved_state);
+                return None;
+            }
+        }
+
+        self.restore_variational_probe_state(&saved_state);
+        Some(gradient)
+    }
+
+    fn variational_residual_from_first_leg(
+        &mut self,
+        current: &BodyState,
+        z_mid: &DVector<f64>,
+        first_leg_gradient: &DVector<f64>,
+    ) -> Option<DVector<f64>> {
+        let saved_state = self.state.clone();
+        let endpoint = self.endpoint_state_from_mid_velocity(current, z_mid);
+        let dof = 6 * self.nbody;
+        let mut residual = first_leg_gradient.clone();
+
+        for j in 0..dof {
+            let eps = self.variational_configuration_eps(current, j);
+            let current_plus = self.perturb_configuration(current, j, eps);
+            let current_minus = self.perturb_configuration(current, j, -eps);
+            let action_plus = self.discrete_lagrangian(&current_plus, &endpoint);
+            let action_minus = self.discrete_lagrangian(&current_minus, &endpoint);
+            residual[j] += (action_plus - action_minus) / (2.0 * eps);
+            if !residual[j].is_finite() {
+                self.restore_variational_probe_state(&saved_state);
+                return None;
+            }
+        }
+
+        self.restore_variational_probe_state(&saved_state);
+        Some(residual)
+    }
+
+    fn variational_configuration_eps(&self, state: &BodyState, dof: usize) -> f64 {
+        let base = self.hamiltonian_coupled_eps.abs().max(1.0e-6);
+        if dof < 3 * self.nbody {
+            base * (state.lin.0[dof].abs() + 1.0)
+        } else {
+            base
+        }
+    }
+
+    fn perturb_configuration(&self, state: &BodyState, dof: usize, eps: f64) -> BodyState {
+        let mut out = state.clone();
+        if dof < 3 * self.nbody {
+            out.lin.0[dof] += eps;
+            return out;
+        }
+
+        let local = dof - 3 * self.nbody;
+        let b = local / 3;
+        let c = local % 3;
+        let mut axis = Vector3::zeros();
+        axis[c] = eps;
+        let dq = UnitQuaternion::from_scaled_axis(axis);
+        let q = UnitQuaternion::from_quaternion(out.ang.0[b].normalize());
+        out.ang.0[b] = (dq * q).into_inner().normalize();
+        out
+    }
+
+    fn discrete_lagrangian(&mut self, a: &BodyState, b: &BodyState) -> f64 {
+        let midpoint = self.midpoint_state_from_endpoint(a, b);
+        self.solver.set_state(&midpoint);
+        let fluid_ke = if self.variational_energy_only_lagrangian {
+            self.solver.kinetic_energy_only()
+        } else {
+            let _ = self.solver.impulse();
+            self.solver.fluid_kinetic_energy()
+        };
+        let ke = self
+            .solid_kinetic_energy(&midpoint.lin, &midpoint.ang)
+            .total
+            + fluid_ke;
+        self.step_size * ke
+    }
+
+    fn restore_variational_probe_state(&mut self, saved_state: &BodyState) {
+        self.state = saved_state.clone();
+        self.solver.set_state(&self.state);
+        let _ = self.solver.impulse();
+    }
+
+    fn record_variational_discrete_momentum(&mut self, momentum: DVector<f64>) {
+        if self.variational_discrete_momentum_initial.is_none() {
+            self.variational_discrete_momentum_initial = Some(momentum.clone());
+        }
+        let drift = self
+            .variational_discrete_momentum_initial
+            .as_ref()
+            .map(|initial| (&momentum - initial).norm())
+            .unwrap_or(f64::NAN);
+        if drift.is_finite() {
+            self.variational_discrete_momentum_max_drift =
+                self.variational_discrete_momentum_max_drift.max(drift);
+        }
+        self.variational_discrete_momentum_last_drift = drift;
+        self.variational_discrete_momentum_out = Some(momentum);
+    }
+
+    fn discrete_noether_momentum(&mut self, a: &BodyState, b: &BodyState) -> Option<DVector<f64>> {
+        let saved_state = self.state.clone();
+        let eps = self.hamiltonian_coupled_eps.abs().max(1.0e-6);
+        let mut out = DVector::zeros(6);
+
+        for axis in 0..3 {
+            let plus = self.discrete_lagrangian(
+                a,
+                &self.perturb_second_endpoint_by_translation(b, axis, eps),
+            );
+            let minus = self.discrete_lagrangian(
+                a,
+                &self.perturb_second_endpoint_by_translation(b, axis, -eps),
+            );
+            out[axis] = (plus - minus) / (2.0 * eps);
+        }
+
+        for axis in 0..3 {
+            let plus = self
+                .discrete_lagrangian(a, &self.perturb_second_endpoint_by_rotation(b, axis, eps));
+            let minus = self
+                .discrete_lagrangian(a, &self.perturb_second_endpoint_by_rotation(b, axis, -eps));
+            out[3 + axis] = (plus - minus) / (2.0 * eps);
+        }
+
+        self.restore_variational_probe_state(&saved_state);
+
+        if out.iter().all(|v| v.is_finite()) {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
+    fn perturb_second_endpoint_by_translation(
+        &self,
+        state: &BodyState,
+        axis: usize,
+        eps: f64,
+    ) -> BodyState {
+        let mut out = state.clone();
+        for b in 0..self.nbody {
+            out.lin.0[3 * b + axis] += eps;
+        }
+        out
+    }
+
+    fn perturb_second_endpoint_by_rotation(
+        &self,
+        state: &BodyState,
+        axis: usize,
+        eps: f64,
+    ) -> BodyState {
+        let mut out = state.clone();
+        let mut scaled_axis = Vector3::zeros();
+        scaled_axis[axis] = eps;
+        let dq = UnitQuaternion::from_scaled_axis(scaled_axis);
+        let rot = dq.to_rotation_matrix();
+
+        for b in 0..self.nbody {
+            let p = Vector3::new(out.lin.0[3 * b], out.lin.0[3 * b + 1], out.lin.0[3 * b + 2]);
+            let p_rot = rot * p;
+            for c in 0..3 {
+                out.lin.0[3 * b + c] = p_rot[c];
+            }
+
+            let q = UnitQuaternion::from_quaternion(out.ang.0[b].normalize());
+            out.ang.0[b] = (dq * q).into_inner().normalize();
+        }
+
+        out
+    }
+
+    fn record_impulse_variational_defect_probe(&mut self, start: &BodyState, end: &BodyState) {
+        let previous = self
+            .prev_variational_state
+            .clone()
+            .unwrap_or_else(|| self.backward_state_from_current_velocity(start));
+        let midpoint = self.midpoint_state_from_endpoint(start, end);
+        let z_mid = self.generalized_velocity_vector_from_state(&midpoint);
+        let Some(residual) = self.variational_residual(&previous, start, &z_mid) else {
+            self.impulse_variational_defect_out = false;
+            self.impulse_variational_defect_last_norm = f64::NAN;
+            self.impulse_variational_defect_last_metric_cos = f64::NAN;
+            self.impulse_variational_defect_last_metric_scale = f64::NAN;
+            self.impulse_variational_defect_last_pressure_cos = f64::NAN;
+            self.impulse_variational_defect_last_pressure_scale = f64::NAN;
+            return;
+        };
+
+        // Forced DEL would be R + dt Q = 0, so this is the generalized
+        // configuration force that would make the accepted impulse endpoint
+        // variationally balanced for this step.
+        let target = -residual / self.step_size.max(1.0e-12);
+        let target_norm = target.norm();
+
+        let (mut metric_force, mut metric_torque) =
+            self.fluid_energy_configuration_discrete_gradient(start, end);
+        self.solver.set_state(end);
+        let _ = self.solver.impulse();
+        let (mut pressure_force, mut pressure_torque) = self.solver.quadratic_pressure_load();
+
+        if self.impulse_internal_load_constraint {
+            self.enforce_internal_load_constraint(
+                &midpoint.lin.0,
+                &mut metric_force,
+                &mut metric_torque,
+            );
+            self.enforce_internal_load_constraint(
+                &midpoint.lin.0,
+                &mut pressure_force,
+                &mut pressure_torque,
+            );
+        }
+
+        let metric = self.generalized_load_vector(&metric_force, &metric_torque);
+        let pressure = self.generalized_load_vector(&pressure_force, &pressure_torque);
+        let (metric_cos, metric_scale) = Self::vector_alignment(&target, &metric);
+        let (pressure_cos, pressure_scale) = Self::vector_alignment(&target, &pressure);
+
+        self.impulse_variational_defect_probe_count += 1;
+        self.impulse_variational_defect_last_norm = target_norm;
+        if target_norm.is_finite() {
+            self.impulse_variational_defect_max_norm =
+                self.impulse_variational_defect_max_norm.max(target_norm);
+        }
+        self.impulse_variational_defect_last_metric_cos = metric_cos;
+        self.impulse_variational_defect_last_metric_scale = metric_scale;
+        self.impulse_variational_defect_last_pressure_cos = pressure_cos;
+        self.impulse_variational_defect_last_pressure_scale = pressure_scale;
+        self.impulse_variational_defect_out = true;
+
+        self.solver.set_state(end);
+        let _ = self.solver.impulse();
+    }
+
+    fn generalized_load_vector(&self, force: &DVector<f64>, torque: &DVector<f64>) -> DVector<f64> {
+        let mut out = DVector::zeros(6 * self.nbody);
+        for i in 0..(3 * self.nbody) {
+            out[i] = force[i];
+            out[3 * self.nbody + i] = torque[i];
+        }
+        out
+    }
+
+    fn vector_alignment(target: &DVector<f64>, candidate: &DVector<f64>) -> (f64, f64) {
+        let target_norm = target.norm();
+        let candidate_norm = candidate.norm();
+        if target_norm <= 1.0e-14 || candidate_norm <= 1.0e-14 {
+            return (f64::NAN, f64::NAN);
+        }
+        let dot = target.dot(candidate);
+        let cos = dot / (target_norm * candidate_norm);
+        let scale = dot / candidate.norm_squared();
+        (cos, scale)
+    }
+
+    fn enforce_internal_load_constraint(
+        &self,
+        pos: &DVector<f64>,
+        force: &mut DVector<f64>,
+        torque: &mut DVector<f64>,
+    ) {
+        if self.nbody == 0 {
+            return;
+        }
+
+        // Enforce Noether consistency on a candidate internal fluid load:
+        // global translations and rotations of the whole system must do no
+        // generalized work. This is a constrained least-change correction to a
+        // force covector, not a post-step energy projection.
+        let dof = 6 * self.nbody;
+        let mut load = self.generalized_load_vector(force, torque);
+        let mut constraint = DMatrix::zeros(6, dof);
+        for b in 0..self.nbody {
+            let x = Vector3::new(pos[3 * b], pos[3 * b + 1], pos[3 * b + 2]);
+            for c in 0..3 {
+                constraint[(c, 3 * b + c)] = 1.0;
+                constraint[(3 + c, 3 * self.nbody + 3 * b + c)] = 1.0;
+            }
+            constraint[(3, 3 * b + 1)] = -x[2];
+            constraint[(3, 3 * b + 2)] = x[1];
+            constraint[(4, 3 * b)] = x[2];
+            constraint[(4, 3 * b + 2)] = -x[0];
+            constraint[(5, 3 * b)] = -x[1];
+            constraint[(5, 3 * b + 1)] = x[0];
+        }
+
+        let rhs = &constraint * &load;
+        let gram = &constraint * constraint.transpose();
+        let Some(lambda) = gram.lu().solve(&rhs) else {
+            return;
+        };
+        load -= constraint.transpose() * lambda;
+
+        for i in 0..(3 * self.nbody) {
+            force[i] = load[i];
+            torque[i] = load[3 * self.nbody + i];
         }
     }
 
@@ -1666,6 +2395,135 @@ impl Rk4PCDM {
         pos_dist + rot_dist2.sqrt()
     }
 
+    fn fluid_ke_for_state(&mut self, state: &BodyState) -> f64 {
+        self.solver.set_state(state);
+        let _ = self.solver.impulse();
+        self.solver.fluid_kinetic_energy()
+    }
+
+    fn state_on_config_path(
+        &self,
+        start: &BodyState,
+        pos: &DVector<f64>,
+        eta: &[Vector3<f64>],
+        vel_mid: &DVector<f64>,
+        omega_mid: &[Quaternion<f64>],
+    ) -> BodyState {
+        let q_start = &start.ang.0;
+        let mut q = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            let q0 = UnitQuaternion::from_quaternion(q_start[b].normalize());
+            let dq = UnitQuaternion::from_scaled_axis(eta[b]);
+            q.push((dq * q0).into_inner());
+        }
+
+        BodyState {
+            lin: (pos.clone(), vel_mid.clone()),
+            ang: (q, omega_mid.to_vec()),
+        }
+    }
+
+    fn fluid_energy_configuration_discrete_gradient(
+        &mut self,
+        start: &BodyState,
+        end: &BodyState,
+    ) -> (DVector<f64>, DVector<f64>) {
+        let (pos_start, vel_start) = &start.lin;
+        let (pos_end, vel_end) = &end.lin;
+        let (q_start, omega_start) = &start.ang;
+        let (q_end, omega_end) = &end.ang;
+
+        let vel_mid = 0.5 * (vel_start + vel_end);
+        let mut omega_mid = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            omega_mid.push(Quaternion::from_imag(
+                0.5 * (omega_start[b].imag() + omega_end[b].imag()),
+            ));
+        }
+
+        let mut eta_total = Vec::with_capacity(self.nbody);
+        for b in 0..self.nbody {
+            let q0 = UnitQuaternion::from_quaternion(q_start[b].normalize());
+            let q1 = UnitQuaternion::from_quaternion(q_end[b].normalize());
+            eta_total.push((q1 * q0.inverse()).scaled_axis());
+        }
+
+        let eps = self.fluid_energy_gradient_eps.abs().max(1.0e-6);
+        let ndof = 6 * self.nbody;
+        let mut delta = DVector::zeros(ndof);
+        let mut pos_mid = DVector::zeros(3 * self.nbody);
+        let mut eta_mid = vec![Vector3::zeros(); self.nbody];
+        for i in 0..(3 * self.nbody) {
+            delta[i] = pos_end[i] - pos_start[i];
+            pos_mid[i] = 0.5 * (pos_start[i] + pos_end[i]);
+        }
+        for b in 0..self.nbody {
+            eta_mid[b] = 0.5 * eta_total[b];
+            for c in 0..3 {
+                delta[3 * self.nbody + 3 * b + c] = eta_total[b][c];
+            }
+        }
+
+        let eta_zero = vec![Vector3::zeros(); self.nbody];
+        let state_a = self.state_on_config_path(start, pos_start, &eta_zero, &vel_mid, &omega_mid);
+        let state_b = self.state_on_config_path(start, pos_end, &eta_total, &vel_mid, &omega_mid);
+        let ke_a = self.fluid_ke_for_state(&state_a);
+        let ke_b = self.fluid_ke_for_state(&state_b);
+
+        let mut grad_mid = DVector::zeros(ndof);
+        for dof in 0..(3 * self.nbody) {
+            let mut p_plus = pos_mid.clone();
+            p_plus[dof] += eps;
+            let state_plus =
+                self.state_on_config_path(start, &p_plus, &eta_mid, &vel_mid, &omega_mid);
+            let ke_plus = self.fluid_ke_for_state(&state_plus);
+
+            let mut p_minus = pos_mid.clone();
+            p_minus[dof] -= eps;
+            let state_minus =
+                self.state_on_config_path(start, &p_minus, &eta_mid, &vel_mid, &omega_mid);
+            let ke_minus = self.fluid_ke_for_state(&state_minus);
+            grad_mid[dof] = (ke_plus - ke_minus) / (2.0 * eps);
+        }
+
+        for b in 0..self.nbody {
+            for c in 0..3 {
+                let idx = 3 * self.nbody + 3 * b + c;
+                let mut eta_plus = eta_mid.clone();
+                eta_plus[b][c] += eps;
+                let state_plus =
+                    self.state_on_config_path(start, &pos_mid, &eta_plus, &vel_mid, &omega_mid);
+                let ke_plus = self.fluid_ke_for_state(&state_plus);
+
+                let mut eta_minus = eta_mid.clone();
+                eta_minus[b][c] -= eps;
+                let state_minus =
+                    self.state_on_config_path(start, &pos_mid, &eta_minus, &vel_mid, &omega_mid);
+                let ke_minus = self.fluid_ke_for_state(&state_minus);
+                grad_mid[idx] = (ke_plus - ke_minus) / (2.0 * eps);
+            }
+        }
+
+        let denom = delta.dot(&delta);
+        let grad = if denom > 1.0e-24 {
+            let defect = (ke_b - ke_a) - grad_mid.dot(&delta);
+            grad_mid + delta * (defect / denom)
+        } else {
+            grad_mid
+        };
+
+        let mut force = DVector::zeros(3 * self.nbody);
+        let mut torque = DVector::zeros(3 * self.nbody);
+        for i in 0..(3 * self.nbody) {
+            force[i] = grad[i];
+            torque[i] = grad[3 * self.nbody + i];
+        }
+
+        self.solver.set_state(end);
+        let _ = self.solver.impulse();
+        (force, torque)
+    }
+
     fn fluid_energy_configuration_gradient(
         &mut self,
         state: &BodyState,
@@ -1812,9 +2670,12 @@ impl Rk4PCDM {
         let delta_p = a.transpose() * (&gram_inv * (target - c_current));
         let z_pcon = z_current + delta_p;
 
-        let mut z_particular = self
-            .minimum_energy_impulse_solution(&a, &c_zero, target)
-            .unwrap_or_else(|| a.transpose() * (&gram_inv * (target - c_zero.clone())));
+        let mut z_particular = if self.projection_kinetic_metric {
+            self.minimum_energy_impulse_solution(&a, &c_zero, target)
+                .unwrap_or_else(|| a.transpose() * (&gram_inv * (target - c_zero.clone())))
+        } else {
+            a.transpose() * (&gram_inv * (target - c_zero.clone()))
+        };
         let impulse_resid = target - (&a * &z_particular + &c_zero);
         z_particular += a.transpose() * (&gram_inv * impulse_resid);
         let z_null = &z_pcon - &z_particular;
@@ -1916,8 +2777,12 @@ impl Rk4PCDM {
     }
 
     fn generalized_velocity_vector(&self) -> DVector<f64> {
-        let (_, vel) = &self.state.lin;
-        let (_, omega) = &self.state.ang;
+        self.generalized_velocity_vector_from_state(&self.state)
+    }
+
+    fn generalized_velocity_vector_from_state(&self, state: &BodyState) -> DVector<f64> {
+        let (_, vel) = &state.lin;
+        let (_, omega) = &state.ang;
         let mut out = DVector::zeros(6 * self.nbody);
         for i in 0..3 * self.nbody {
             out[i] = vel[i];

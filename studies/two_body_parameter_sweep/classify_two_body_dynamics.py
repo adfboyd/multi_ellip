@@ -19,6 +19,7 @@ MANIFEST = STUDY / "two_body_parameter_sweep_manifest.csv"
 OUT_CSV = STUDY / "two_body_dynamics_classification.csv"
 OUT_SUMMARY = STUDY / "two_body_dynamics_classification_summary.csv"
 OUT_PNG = STUDY / "two_body_dynamics_classification.png"
+OUT_BROADBAND_PNG = STUDY / "two_body_dynamics_broadband_score.png"
 
 DEFAULT_TRANSIENT_FRACTION = 0.5
 RECURRENCE_DIM = 3
@@ -32,6 +33,9 @@ DIVERGENCE_HORIZON = 35
 CLASS_ORDER = [
     "periodic",
     "quasi-periodic",
+    "sensitive-regular",
+    "complex-regular",
+    "chaotic-like",
     "chaotic",
     "chaotic-candidate",
     "ambiguous",
@@ -41,6 +45,9 @@ CLASS_ORDER = [
 CLASS_COLOR = {
     "periodic": "#2ca02c",
     "quasi-periodic": "#1f77b4",
+    "sensitive-regular": "#9467bd",
+    "complex-regular": "#17becf",
+    "chaotic-like": "#d62728",
     "chaotic": "#d62728",
     "chaotic-candidate": "#ff7f0e",
     "ambiguous": "#ffbf00",
@@ -50,6 +57,9 @@ CLASS_COLOR = {
 CLASS_CODE = {
     "periodic": "P",
     "quasi-periodic": "Q",
+    "sensitive-regular": "S",
+    "complex-regular": "R",
+    "chaotic-like": "C",
     "chaotic": "C",
     "chaotic-candidate": "c",
     "ambiguous": "A",
@@ -319,6 +329,35 @@ def harmonicity_score(power: np.ndarray) -> float:
     return float(best)
 
 
+def broadband_chaos_score(metrics: dict[str, float]) -> float:
+    lmax = metrics["lmax_fraction"]
+    sent = metrics["spectral_entropy"]
+    peak = metrics["peak_fraction"]
+    short_diagonal = max(0.0, min(1.0, (0.32 - lmax) / 0.32))
+    broad_spectrum = max(0.0, min(1.0, (0.985 - peak) / 0.45))
+    entropy_score = max(0.0, min(1.0, sent / 0.60))
+    return float(0.40 * broad_spectrum + 0.35 * entropy_score + 0.25 * short_diagonal)
+
+
+def chaos_score(metrics: dict[str, float]) -> float:
+    broad = broadband_chaos_score(metrics)
+    div = max(0.0, metrics["divergence_slope"])
+    gain = max(0.0, metrics["divergence_gain"])
+    divergence_score = max(0.0, min(1.0, div / 0.018))
+    gain_score = max(0.0, min(1.0, gain / 0.25))
+    return float(0.75 * broad + 0.15 * divergence_score + 0.10 * gain_score)
+
+
+def behaviour_family(label: str) -> str:
+    if label == "periodic":
+        return "periodic"
+    if label in {"quasi-periodic", "sensitive-regular", "complex-regular"}:
+        return "regular"
+    if label in {"chaotic-like", "chaotic", "chaotic-candidate"}:
+        return "chaotic-candidate"
+    return label
+
+
 def classify(metrics: dict[str, float]) -> str:
     det = metrics["determinism"]
     lmax = metrics["lmax_fraction"]
@@ -329,14 +368,19 @@ def classify(metrics: dict[str, float]) -> str:
     gain = metrics["divergence_gain"]
     harmonicity = metrics["harmonicity"]
     dominant = metrics["dominant_fraction"]
+    broad_score = metrics["broadband_chaos_score"]
+    full_score = metrics["chaos_score"]
 
     strong_divergence = div > 0.018 and gain > 0.25
     weak_divergence = div > 0.010 and gain > 0.18
+    narrow_regular_spectrum = peak > 0.94 and sent < 0.32
 
-    if strong_divergence and (sent > 0.34 or peak < 0.86 or det < 0.90):
-        return "chaotic"
-    if weak_divergence and (sent > 0.42 or peak < 0.78 or det < 0.82):
-        return "chaotic-candidate"
+    if lmax < 0.25 and (broad_score >= 0.42 or peak < 0.78 or sent > 0.42):
+        return "chaotic-like"
+    if det < 0.78 and lmax < 0.22 and sent > 0.42 and peak < 0.68:
+        return "chaotic-like"
+    if sent > 0.62 and peak < 0.50:
+        return "chaotic-like"
 
     if det > 0.90 and lmax > 0.35 and sent < 0.30 and peak > 0.82 and harmonicity > 0.78:
         return "periodic"
@@ -344,18 +388,21 @@ def classify(metrics: dict[str, float]) -> str:
         if harmonicity > 0.82 and dominant > 0.28 and sent < 0.38:
             return "periodic"
         return "quasi-periodic"
-    if weak_divergence:
-        return "chaotic-candidate"
-    if det < 0.78 and lmax < 0.22 and sent > 0.42 and peak < 0.68:
-        return "chaotic"
-    if sent > 0.62 and peak < 0.50:
-        return "chaotic"
+    if full_score >= 0.50 and lmax < 0.32:
+        return "sensitive-regular" if narrow_regular_spectrum else "chaotic-like"
+    if weak_divergence and narrow_regular_spectrum:
+        return "sensitive-regular"
+    if det > 0.80 or peak > 0.72:
+        return "complex-regular"
     return "ambiguous"
 
 
 def analyze_series(series: np.ndarray) -> dict[str, object]:
     metrics = {**rqa_metrics(series), **spectral_metrics(series)}
+    metrics["broadband_chaos_score"] = broadband_chaos_score(metrics)
+    metrics["chaos_score"] = chaos_score(metrics)
     metrics["class"] = classify(metrics)
+    metrics["behaviour_family"] = behaviour_family(str(metrics["class"]))
     return metrics
 
 
@@ -367,8 +414,11 @@ def consensus(classes: list[str]) -> str:
     top, n_top = counts.most_common(1)[0]
     if n_top == len(useful):
         return top
-    if counts["chaotic"] > 0 and counts["periodic"] > 0:
+    chaotic_votes = sum(counts[name] for name in ("chaotic-like", "chaotic", "chaotic-candidate"))
+    if chaotic_votes > 0 and counts["periodic"] > 0:
         return "mixed"
+    if chaotic_votes >= math.ceil(len(useful) / 2):
+        return "chaotic-like"
     if n_top >= math.ceil(len(useful) / 2):
         return top
     return "mixed"
@@ -410,13 +460,15 @@ def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, obj
         "combined": analyze_series(combined_state(data)),
     }
     classes = [str(analyses[key]["class"]) for key in ("body1", "body2", "combined")]
+    body_classes = [str(analyses[key]["class"]) for key in ("body1", "body2")]
     out: dict[str, object] = {
         **base,
         "status": "ok",
         "class_body1": classes[0],
         "class_body2": classes[1],
         "class_combined": classes[2],
-        "class_consensus": consensus(classes),
+        "class_consensus": consensus(body_classes),
+        "class_consensus_with_combined": consensus(classes),
     }
     for label, metrics in analyses.items():
         for key, value in metrics.items():
@@ -449,8 +501,39 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
     out = []
     for (shape, rho, energy, sep), group in sorted(grouped.items()):
-        classes = [str(row.get("class_consensus", "incomplete")) for row in group]
+        classes: list[str] = []
+        for row in group:
+            if row.get("status") == "ok":
+                classes.extend([str(row.get("class_body1", "incomplete")), str(row.get("class_body2", "incomplete"))])
+            else:
+                classes.append(str(row.get("class_consensus", "incomplete")))
         counts = Counter(classes)
+        ok_group = [row for row in group if row.get("status") == "ok"]
+
+        def mean_metric(name: str) -> float:
+            values: list[float] = []
+            for row in ok_group:
+                for body in ("body1", "body2"):
+                    value = row.get(f"{body}_{name}")
+                    try:
+                        fvalue = float(value)  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isfinite(fvalue):
+                        values.append(fvalue)
+            return float(np.mean(values)) if values else float("nan")
+
+        chaotic_like_count = sum(counts[name] for name in ("chaotic-like", "chaotic", "chaotic-candidate"))
+        n_body_observations = len(classes)
+        chaotic_like_fraction = chaotic_like_count / n_body_observations if n_body_observations else 0.0
+        group_class = consensus(classes)
+        broadband_mean = mean_metric("broadband_chaos_score")
+        chaos_mean = mean_metric("chaos_score")
+        regime = (
+            "chaotic-regime"
+            if chaotic_like_fraction >= 0.5 or broadband_mean >= 0.42 or chaos_mean >= 0.50
+            else "regular-regime"
+        )
         out.append(
             {
                 "shape_name": shape,
@@ -458,9 +541,18 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
                 "energy_ratio": energy,
                 "separation": sep,
                 "n_repeats": len(group),
-                "n_ok": sum(1 for row in group if row.get("status") == "ok"),
+                "n_ok": len(ok_group),
+                "n_body_observations": n_body_observations,
                 "repeat_classes": ";".join(classes),
-                "group_class": consensus(classes),
+                "group_class": group_class,
+                "regime": regime,
+                "chaotic_like_count": chaotic_like_count,
+                "chaotic_like_fraction": chaotic_like_fraction,
+                "body_broadband_chaos_score_mean": broadband_mean,
+                "body_chaos_score_mean": chaos_mean,
+                "body_spectral_entropy_mean": mean_metric("spectral_entropy"),
+                "body_peak_fraction_mean": mean_metric("peak_fraction"),
+                "body_lmax_fraction_mean": mean_metric("lmax_fraction"),
                 **{f"n_{name}": counts.get(name, 0) for name in CLASS_ORDER},
                 "n_mixed": counts.get("mixed", 0),
             }
@@ -498,6 +590,12 @@ def plot_summary(summary_rows: list[dict[str, object]], out_png: Path, title_suf
             text_color = "black" if base_class(cls) in {"ambiguous", "incomplete"} else "white"
             ax.text(x, y, label, ha="center", va="center", fontsize=10, color=text_color, weight="bold")
 
+    present_classes = {
+        base_class(piece)
+        for row in summary_rows
+        for piece in str(row.get("repeat_classes", "")).split(";") + [str(row.get("group_class", ""))]
+        if piece
+    }
     handles = [
         plt.Line2D(
             [0],
@@ -509,9 +607,61 @@ def plot_summary(summary_rows: list[dict[str, object]], out_png: Path, title_suf
             markersize=12,
         )
         for cls, color in CLASS_COLOR.items()
+        if cls in present_classes
     ]
-    fig.legend(handles=handles, loc="outside lower center", ncol=len(handles))
+    fig.legend(handles=handles, loc="outside lower center", ncol=min(5, max(1, len(handles))), fontsize=9)
     fig.suptitle(f"Two-body dynamics classification from {title_suffix} trajectories", fontsize=14)
+    fig.savefig(out_png, dpi=170)
+    plt.close(fig)
+
+
+def plot_broadband_score(summary_rows: list[dict[str, object]], out_png: Path, title_suffix: str) -> None:
+    shapes = sorted({str(row["shape_name"]) for row in summary_rows})
+    fig, axes = plt.subplots(len(shapes), 1, figsize=(13, 4.8 * len(shapes)), constrained_layout=True)
+    if len(shapes) == 1:
+        axes = [axes]
+
+    last_mesh = None
+    for ax, shape in zip(axes, shapes):
+        rows = [row for row in summary_rows if row["shape_name"] == shape]
+        ys = sorted({(float(row["rho"]), float(row["separation"])) for row in rows}, reverse=True)
+        xs = sorted({float(row["energy_ratio"]) for row in rows})
+        grid = np.full((len(ys), len(xs)), np.nan)
+        labels = [["" for _ in xs] for _ in ys]
+        y_index = {key: i for i, key in enumerate(ys)}
+        x_index = {key: i for i, key in enumerate(xs)}
+
+        for row in rows:
+            y = y_index[(float(row["rho"]), float(row["separation"]))]
+            x = x_index[float(row["energy_ratio"])]
+            try:
+                score = float(row["body_broadband_chaos_score_mean"])
+            except (KeyError, TypeError, ValueError):
+                score = float("nan")
+            grid[y, x] = score
+            labels[y][x] = f"{score:.2f}" if math.isfinite(score) else "NA"
+
+        last_mesh = ax.imshow(grid, vmin=0.0, vmax=1.0, cmap="inferno", aspect="auto")
+        ax.set_title(shape)
+        ax.set_xticks(range(len(xs)), [f"E={x:g}" for x in xs])
+        ax.set_yticks(range(len(ys)), [f"rho={rho:g}, sep={sep:g}" for rho, sep in ys])
+        ax.set_xlim(-0.5, len(xs) - 0.5)
+        ax.set_ylim(len(ys) - 0.5, -0.5)
+        ax.set_xticks(np.arange(-0.5, len(xs), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(ys), 1), minor=True)
+        ax.grid(which="minor", color="white", lw=1.2)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        for y in range(len(ys)):
+            for x in range(len(xs)):
+                value = grid[y, x]
+                color = "white" if math.isfinite(value) and value > 0.45 else "black"
+                ax.text(x, y, labels[y][x], ha="center", va="center", fontsize=10, color=color, weight="bold")
+
+    if last_mesh is not None:
+        cbar = fig.colorbar(last_mesh, ax=axes, shrink=0.88, pad=0.015)
+        cbar.set_label("mean body broadband recurrence chaos score")
+    fig.suptitle(f"Two-body broadband recurrence score from {title_suffix} trajectories", fontsize=14)
     fig.savefig(out_png, dpi=170)
     plt.close(fig)
 
@@ -548,6 +698,7 @@ def main() -> None:
     out_csv = out_dir / f"{OUT_CSV.stem}{args.suffix}{OUT_CSV.suffix}"
     out_summary = out_dir / f"{OUT_SUMMARY.stem}{args.suffix}{OUT_SUMMARY.suffix}"
     out_png = out_dir / f"{OUT_PNG.stem}{args.suffix}{OUT_PNG.suffix}"
+    out_broadband_png = out_dir / f"{OUT_BROADBAND_PNG.stem}{args.suffix}{OUT_BROADBAND_PNG.suffix}"
     title_suffix = "full-run" if args.transient_fraction == 0.0 else f"post-transient ({args.transient_fraction:g} tend)"
 
     results = []
@@ -559,9 +710,11 @@ def main() -> None:
     write_rows(out_csv, results)
     write_rows(out_summary, summary)
     plot_summary(summary, out_png, title_suffix)
+    plot_broadband_score(summary, out_broadband_png, title_suffix)
     print(f"Wrote {out_csv}")
     print(f"Wrote {out_summary}")
     print(f"Wrote {out_png}")
+    print(f"Wrote {out_broadband_png}")
 
 
 if __name__ == "__main__":

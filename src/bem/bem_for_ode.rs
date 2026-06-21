@@ -1,3 +1,6 @@
+use crate::bem::exact_geometry::{
+    ellipsoid_normal_body, semi_axes_from_solver_shape, ExactEllipsoidPatch, ExactEllipsoidSurface,
+};
 use crate::bem::geom::*;
 use crate::bem::gmres::gmres;
 use crate::bem::integ::*;
@@ -63,6 +66,7 @@ pub struct BodyState {
 enum SolveMode {
     Force,
     Impulse,
+    EnergyOnly,
 }
 
 /// Owns the BEM coupling: pushes the rigid-body state into its
@@ -78,12 +82,21 @@ pub struct BemSolver {
     /// the full LU (Direct). Multi-body: cache the self-block LUs as a GMRES
     /// preconditioner (BlockDiag). Built once on the first force evaluation.
     cache: Option<SolveCache>,
+    /// Cached exact-singular self single-layer blocks for RHS assembly. These
+    /// same-body SLP blocks are invariant under rigid-body motion; only
+    /// cross-body SLP interactions need fresh quadrature each solve.
+    rhs_self_cache: Option<Vec<DMatrix<f64>>>,
     /// Most recent multi-body GMRES solution φ, reused as the warm-start initial
     /// guess for the next solve. Consecutive solves (across fixed-point iterations
     /// and across steps) have nearly identical φ, so this cuts GMRES iterations
     /// sharply. Warm-starting only changes the iteration path, not the converged
     /// solution (still satisfies the same residual tolerance).
     last_phi: Option<DVector<f64>>,
+    /// Quadratic Bernoulli pressure load from the most recent solve. In impulse
+    /// mode this is the configuration-force term complementary to dL/dt.
+    last_quadratic_force: Option<DVector<f64>>,
+    last_quadratic_torque: Option<DVector<f64>>,
+    compute_quadratic_pressure: bool,
 }
 
 impl BemSolver {
@@ -91,7 +104,11 @@ impl BemSolver {
         Self {
             system,
             cache: None,
+            rhs_self_cache: None,
             last_phi: None,
+            last_quadratic_force: None,
+            last_quadratic_torque: None,
+            compute_quadratic_pressure: false,
         }
     }
 
@@ -132,15 +149,42 @@ impl BemSolver {
         self.solve(SolveMode::Force)
     }
 
+    /// Solve the boundary-value problem and update the stored fluid kinetic
+    /// energy without doing the extra force/impulse surface quadratures.
+    pub fn kinetic_energy_only(&mut self) -> f64 {
+        let _ = self.solve(SolveMode::EnergyOnly);
+        self.fluid_kinetic_energy()
+    }
+
     /// Toggle `freeze_phi_history` so strong-coupling trial
     /// evaluations don't push provisional φ into the committed history.
     pub fn set_freeze(&mut self, freeze: bool) {
         self.system.freeze_phi_history = freeze;
     }
 
+    pub fn set_compute_quadratic_pressure(&mut self, enabled: bool) {
+        self.compute_quadratic_pressure = enabled;
+        if !enabled {
+            self.last_quadratic_force = None;
+            self.last_quadratic_torque = None;
+        }
+    }
+
     /// Fluid kinetic energy recorded by the most recent solve.
     pub fn fluid_kinetic_energy(&self) -> f64 {
         self.system.fluid.kinetic_energy
+    }
+
+    pub fn quadratic_pressure_load(&self) -> (DVector<f64>, DVector<f64>) {
+        let n = 3 * self.system.nbody;
+        (
+            self.last_quadratic_force
+                .clone()
+                .unwrap_or_else(|| DVector::zeros(n)),
+            self.last_quadratic_torque
+                .clone()
+                .unwrap_or_else(|| DVector::zeros(n)),
+        )
     }
 }
 
@@ -157,6 +201,7 @@ fn grid_all_bodies(
     Vec<usize>,
     Vec<usize>,
     Vec<DMatrix<f64>>,
+    Option<ExactEllipsoidSurface>,
 ) {
     let ndiv = sys.ndiv;
 
@@ -164,6 +209,8 @@ fn grid_all_bodies(
     let mut nptss = Vec::with_capacity(sys.nbody);
     let mut ps = Vec::with_capacity(sys.nbody);
     let mut ns = Vec::with_capacity(sys.nbody);
+    let mut exact_patches = sys.exact_ellipsoid_geometry.then(Vec::new);
+    let mut exact_vnas = sys.exact_ellipsoid_geometry.then(Vec::new);
 
     for b in &sys.bodies {
         let s = b.shape;
@@ -172,6 +219,49 @@ fn grid_all_bodies(
         let req = (s[0] * s[1] * s[2]).powf(1.0 / 3.0);
         let orient = UnitQuaternion::from_quaternion(b.orientation);
         let (nelm_i, npts_i, p_i, n_i) = ellip_gridder(ndiv, req, &b.shape, &b.position, &orient);
+
+        if let (Some(patches), Some(vnas)) = (&mut exact_patches, &mut exact_vnas) {
+            let (unit_nelm, unit_npts, unit_p, unit_n) = ellip_gridder_no_rotation(ndiv);
+            debug_assert_eq!(unit_nelm, nelm_i);
+            debug_assert_eq!(unit_npts, npts_i);
+
+            let axes = semi_axes_from_solver_shape(req, &b.shape);
+            let mut vna_i = DMatrix::zeros(npts_i, 3);
+            for node in 0..npts_i {
+                let point = Vector3::new(p_i[(node, 0)], p_i[(node, 1)], p_i[(node, 2)]);
+                let body_point = orient.inverse_transform_vector(&(point - b.position));
+                let normal = orient.transform_vector(&ellipsoid_normal_body(&body_point, &axes));
+                for c in 0..3 {
+                    vna_i[(node, c)] = normal[c];
+                }
+            }
+            vnas.push(vna_i);
+
+            for k in 0..nelm_i {
+                let unit_nodes: [Vector3<f64>; 6] = std::array::from_fn(|m| {
+                    let idx = unit_n[(k, m)];
+                    Vector3::new(unit_p[(idx, 0)], unit_p[(idx, 1)], unit_p[(idx, 2)])
+                });
+                let (al, be, ga) = abc(
+                    unit_nodes[0],
+                    unit_nodes[1],
+                    unit_nodes[2],
+                    unit_nodes[3],
+                    unit_nodes[4],
+                    unit_nodes[5],
+                );
+                patches.push(ExactEllipsoidPatch::new(
+                    unit_nodes,
+                    axes.clone(),
+                    b.position,
+                    orient.clone(),
+                    al,
+                    be,
+                    ga,
+                ));
+            }
+        }
+
         nelms.push(nelm_i);
         nptss.push(npts_i);
         ps.push(p_i);
@@ -187,7 +277,24 @@ fn grid_all_bodies(
         n = nn;
     }
 
-    (nelm, npts, p, n, nelms, nptss, ps)
+    let exact_surface = match (exact_patches, exact_vnas) {
+        (Some(patches), Some(vnas)) => {
+            let mut vna = DMatrix::zeros(npts, 3);
+            let mut off = 0;
+            for (b, &np) in nptss.iter().enumerate() {
+                for i in 0..np {
+                    for c in 0..3 {
+                        vna[(off + i, c)] = vnas[b][(i, c)];
+                    }
+                }
+                off += np;
+            }
+            Some(ExactEllipsoidSurface::new(patches, vna))
+        }
+        _ => None,
+    };
+
+    (nelm, npts, p, n, nelms, nptss, ps, exact_surface)
 }
 
 /// Split a combined per-node quantity (npts x 3) into per-body blocks using the
@@ -215,22 +322,37 @@ impl BemSolver {
     fn solve(&mut self, mode: SolveMode) -> LinearState {
         let sys_ref = &mut self.system;
 
-        let (nq, mint) = (12_usize, 13_usize);
         let nbody = sys_ref.nbody;
         let rho_f = sys_ref.fluid.density;
 
         #[cfg(feature = "timing")]
         let t_geom = Instant::now();
-        let (nelm, npts, p, n, nelms, nptss, ps) = grid_all_bodies(&sys_ref);
+        let (nelm, npts, p, n, nelms, nptss, ps, exact_surface) = grid_all_bodies(&sys_ref);
+        let exact_geom = exact_surface.as_ref();
+        let exact_singular_geometry = exact_geom.is_some() && sys_ref.exact_singular_geometry;
+        let nq = if exact_singular_geometry {
+            24_usize
+        } else {
+            12_usize
+        };
+        let mint = 13_usize;
 
         let (zz, ww) = gauss_leg(nq);
         let (xiq, etq, wq) = gauss_trgl(mint);
 
-        let (alpha, beta, gamma) = abc_vec(nelm, &p, &n);
+        let (alpha, beta, gamma) = if let Some(exact) = exact_geom {
+            exact.abc_vectors()
+        } else {
+            abc_vec(nelm, &p, &n)
+        };
 
-        let (vna, _vlm, _sa) = elm_geom(
-            npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
-        );
+        let (vna, _vlm, _sa) = if let Some(exact) = exact_geom {
+            (exact.node_normals().clone(), 0.0, 0.0)
+        } else {
+            elm_geom(
+                npts, nelm, mint, &p, &n, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+            )
+        };
         #[cfg(feature = "timing")]
         println!("Force geom setup: {:.3}s", t_geom.elapsed().as_secs_f64());
 
@@ -256,10 +378,56 @@ impl BemSolver {
             off += nptss[i];
         }
 
-        let rhs = lslp_3d(
-            npts, nelm, mint, nq, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq, &zz,
-            &ww,
-        );
+        let rhs = if exact_singular_geometry {
+            if self.rhs_self_cache.is_none() {
+                let exact = exact_geom.expect("exact singular geometry requires exact surface");
+                self.rhs_self_cache = Some(lslp_3d_assemble_self_blocks_exact_singular(
+                    npts, nelm, mint, &nptss, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                    &zz, &ww, exact,
+                ));
+            }
+
+            let mut rhs = DVector::zeros(npts);
+            let self_blocks = self.rhs_self_cache.as_ref().unwrap();
+            let mut off = 0;
+            for (b, &np) in nptss.iter().enumerate() {
+                let fb = dfdn.rows(off, np).into_owned();
+                let yb = &self_blocks[b] * fb;
+                for k in 0..np {
+                    rhs[off + k] += yb[k];
+                }
+                off += np;
+            }
+
+            if nbody > 1 {
+                rhs += lslp_3d_interactions_with_geom(
+                    npts, nelm, mint, &nptss, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq,
+                    &etq, &wq, exact_geom,
+                );
+            }
+            rhs
+        } else {
+            lslp_3d_with_geom(
+                npts,
+                nelm,
+                mint,
+                nq,
+                &dfdn,
+                &p,
+                &n,
+                &vna,
+                &alpha,
+                &beta,
+                &gamma,
+                &xiq,
+                &etq,
+                &wq,
+                &zz,
+                &ww,
+                exact_geom,
+                exact_singular_geometry,
+            )
+        };
         #[cfg(feature = "timing")]
         println!("Force RHS: {:.3}s", t_rhs.elapsed().as_secs_f64());
 
@@ -275,9 +443,24 @@ impl BemSolver {
             if cache_guard.is_none() {
                 #[cfg(feature = "timing")]
                 let t_mat = Instant::now();
-                let amat_final = ldlp_3d_assemble(
-                    npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
-                    &zz, &ww,
+                let amat_final = ldlp_3d_assemble_with_geom(
+                    npts,
+                    nelm,
+                    mint,
+                    nq,
+                    &p,
+                    &n,
+                    &vna,
+                    &alpha,
+                    &beta,
+                    &gamma,
+                    &xiq,
+                    &etq,
+                    &wq,
+                    &zz,
+                    &ww,
+                    exact_geom,
+                    exact_singular_geometry,
                 );
                 #[cfg(feature = "timing")]
                 println!(
@@ -300,9 +483,24 @@ impl BemSolver {
                 // First evaluation: assemble the full matrix, split out the
                 // dense self-blocks (+ LU), then zero their positions so the
                 // remainder is exactly the interaction matrix.
-                let mut amat_full = ldlp_3d_assemble(
-                    npts, nelm, mint, nq, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
-                    &zz, &ww,
+                let mut amat_full = ldlp_3d_assemble_with_geom(
+                    npts,
+                    nelm,
+                    mint,
+                    nq,
+                    &p,
+                    &n,
+                    &vna,
+                    &alpha,
+                    &beta,
+                    &gamma,
+                    &xiq,
+                    &etq,
+                    &wq,
+                    &zz,
+                    &ww,
+                    exact_geom,
+                    exact_singular_geometry,
                 );
                 let mut self_dense = Vec::with_capacity(nbody);
                 let mut self_lu = Vec::with_capacity(nbody);
@@ -325,8 +523,9 @@ impl BemSolver {
                 });
                 amat_full
             } else {
-                ldlp_3d_assemble_interactions(
+                ldlp_3d_assemble_interactions_with_geom(
                     npts, nelm, mint, &nptss, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+                    exact_geom,
                 )
             };
             #[cfg(feature = "timing")]
@@ -397,10 +596,17 @@ impl BemSolver {
             f
         };
 
-        let (_srf_area, ke_integral) = ke_3d(
+        let (_srf_area, ke_integral) = ke_3d_with_geom(
             npts, nelm, mint, &f, &dfdn, &p, &n, &vna, &alpha, &beta, &gamma, &xiq, &etq, &wq,
+            exact_geom,
         );
         sys_ref.fluid.kinetic_energy = 0.5 * sys_ref.fluid.density * ke_integral;
+
+        if mode == SolveMode::EnergyOnly {
+            self.last_quadratic_force = None;
+            self.last_quadratic_torque = None;
+            return (DVector::zeros(3 * nbody), DVector::zeros(3 * nbody));
+        }
 
         // Pressure (dphi/dt) force and torque per body.
         #[cfg(feature = "timing")]
@@ -424,11 +630,18 @@ impl BemSolver {
         // history push. The integrator differences these between step endpoints
         // to form F = -dL/dt, an energy-consistent (state-function) force.
         if mode == SolveMode::Impulse {
-            let contributions: Vec<(usize, Vector3<f64>, Vector3<f64>)> = (0..nelm)
+            let compute_quadratic_pressure = self.compute_quadratic_pressure;
+            let contributions: Vec<(
+                usize,
+                Vector3<f64>,
+                Vector3<f64>,
+                Vector3<f64>,
+                Vector3<f64>,
+            )> = (0..nelm)
                 .into_par_iter()
                 .map(|k| {
                     let body = elm_body[k];
-                    let (l_lin, l_ang) = lamb_impulse_element(
+                    let (l_lin, l_ang) = lamb_impulse_element_with_geom(
                         k,
                         mint,
                         &positions[body],
@@ -443,17 +656,51 @@ impl BemSolver {
                         &xiq,
                         &etq,
                         &wq,
+                        exact_geom,
                     );
-                    (body, l_lin, l_ang)
+                    let (pressure_force, pressure_torque) = if compute_quadratic_pressure {
+                        pressure_force_element_with_geom(
+                            k,
+                            mint,
+                            &positions[body],
+                            rho_f,
+                            &f,
+                            &dfdn,
+                            &p,
+                            &n,
+                            &vna,
+                            &alpha,
+                            &beta,
+                            &gamma,
+                            &xiq,
+                            &etq,
+                            &wq,
+                            exact_geom,
+                        )
+                    } else {
+                        (Vector3::zeros(), Vector3::zeros())
+                    };
+                    (body, l_lin, l_ang, pressure_force, pressure_torque)
                 })
                 .collect();
             let mut l_lin_out = DVector::zeros(3 * nbody);
             let mut l_ang_out = DVector::zeros(3 * nbody);
-            for (body, ll, la) in contributions {
+            let mut pressure_force_out = DVector::zeros(3 * nbody);
+            let mut pressure_torque_out = DVector::zeros(3 * nbody);
+            for (body, ll, la, pf, pt) in contributions {
                 for c in 0..3 {
                     l_lin_out[3 * body + c] += ll[c];
                     l_ang_out[3 * body + c] += la[c];
+                    pressure_force_out[3 * body + c] += pf[c];
+                    pressure_torque_out[3 * body + c] += pt[c];
                 }
+            }
+            if compute_quadratic_pressure {
+                self.last_quadratic_force = Some(pressure_force_out);
+                self.last_quadratic_torque = Some(pressure_torque_out);
+            } else {
+                self.last_quadratic_force = None;
+                self.last_quadratic_torque = None;
             }
             return (l_lin_out, l_ang_out);
         }
@@ -502,8 +749,6 @@ impl BemSolver {
             DVector::zeros(npts)
         };
 
-        let impulse_transport = sys_ref.impulse_transport;
-
         let contributions: Vec<(
             usize,
             Vector3<f64>,
@@ -514,7 +759,7 @@ impl BemSolver {
             .into_par_iter()
             .map(|k| {
                 let body = elm_body[k];
-                let (force, torque) = dphi_dt_force_element(
+                let (force, torque) = dphi_dt_force_element_with_geom(
                     k,
                     mint,
                     &positions[body],
@@ -530,27 +775,25 @@ impl BemSolver {
                     &xiq,
                     &etq,
                     &wq,
+                    exact_geom,
                 );
-                let (l_lin, l_ang) = if impulse_transport {
-                    lamb_impulse_element(
-                        k,
-                        mint,
-                        &positions[body],
-                        rho_f,
-                        &f,
-                        &p,
-                        &n,
-                        &vna,
-                        &alpha,
-                        &beta,
-                        &gamma,
-                        &xiq,
-                        &etq,
-                        &wq,
-                    )
-                } else {
-                    (Vector3::zeros(), Vector3::zeros())
-                };
+                let (l_lin, l_ang) = lamb_impulse_element_with_geom(
+                    k,
+                    mint,
+                    &positions[body],
+                    rho_f,
+                    &f,
+                    &p,
+                    &n,
+                    &vna,
+                    &alpha,
+                    &beta,
+                    &gamma,
+                    &xiq,
+                    &etq,
+                    &wq,
+                    exact_geom,
+                );
                 (body, force, torque, l_lin, l_ang)
             })
             .collect();
@@ -566,14 +809,12 @@ impl BemSolver {
             l_ang[body] += la;
         }
 
-        if impulse_transport {
-            // F = dL_lin/dt = (∂φ/∂t term) + ω × L_lin;  N similarly + ω × L_ang.
-            // ω is the body's lab-frame angular velocity (same vector dfdn uses).
-            for b in 0..nbody {
-                let omega = sys_ref.bodies[b].angular_velocity().imag();
-                lin_force[b] += omega.cross(&l_lin[b]);
-                torque[b] += omega.cross(&l_ang[b]);
-            }
+        // F = dL_lin/dt = (unsteady pressure term) + omega x L_lin; N likewise.
+        // omega is the body's lab-frame angular velocity, matching dphi/dn.
+        for b in 0..nbody {
+            let omega = sys_ref.bodies[b].angular_velocity().imag();
+            lin_force[b] += omega.cross(&l_lin[b]);
+            torque[b] += omega.cross(&l_ang[b]);
         }
 
         if fire_bootstrap {

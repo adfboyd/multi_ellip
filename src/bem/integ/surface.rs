@@ -8,6 +8,7 @@
     unused_imports
 )]
 use super::*;
+use crate::bem::exact_geometry::{quadratic_shape, ExactEllipsoidSurface};
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3, Vector6};
 use rayon::prelude::*;
 use std::f64::consts::PI;
@@ -170,6 +171,27 @@ pub fn sine_find(a: &Vector3<f64>, b: &Vector3<f64>) -> f64 {
     (a.cross(b)).norm() / (a.norm() * b.norm())
 }
 
+#[inline]
+fn scalar_at_shape(nodes: &[usize; 6], values: &DVector<f64>, ph: &[f64; 6]) -> f64 {
+    ph.iter()
+        .enumerate()
+        .map(|(i, &phi)| phi * values[nodes[i]])
+        .sum()
+}
+
+#[inline]
+fn exact_n_hat_da(
+    exact: &ExactEllipsoidSurface,
+    k: usize,
+    xi: f64,
+    eta: f64,
+    weight: f64,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let point = exact.evaluate(k, xi, eta);
+    let n_hat_da = point.normal * (0.5 * point.jacobian * weight);
+    (point.position, n_hat_da)
+}
+
 pub fn gradient_interp_3d_integral(
     k: usize,
     mint: usize,
@@ -304,9 +326,91 @@ pub fn pressure_force_element(
     (force, torque)
 }
 
-/// Computes the −ρ ∂φ/∂t surface-pressure force and torque on one element.
-/// ∂φ/∂t is approximated as (f_current − f_prev) / dt.
-/// Force = +ρ ∮ (∂φ/∂t) n̂ dA  (positive sign from unsteady Bernoulli).
+/// Computes the quadratic Bernoulli surface-pressure load on one element:
+/// `+0.5 rho |grad phi|^2 n dA`, packed as force and centre-relative torque.
+/// The impulse integrator applies this only when the experimental
+/// `impulse_quadratic_pressure` flag is enabled; the final sign/scale is set in
+/// the impulse residual rather than hidden in this quadrature helper.
+pub fn pressure_force_element_with_geom(
+    k: usize,
+    mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>,
+    dfdn: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let Some(exact) = exact else {
+        return pressure_force_element(
+            k,
+            mint,
+            body_centre,
+            rho_f,
+            f,
+            dfdn,
+            p,
+            n,
+            vna,
+            alpha,
+            beta,
+            gamma,
+            xiq,
+            etq,
+            wq,
+        );
+    };
+
+    let nodes = [
+        n[(k, 0)],
+        n[(k, 1)],
+        n[(k, 2)],
+        n[(k, 3)],
+        n[(k, 4)],
+        n[(k, 5)],
+    ];
+    let mut force = Vector3::zeros();
+    let mut torque = Vector3::zeros();
+
+    for i in 0..mint {
+        let xi = xiq[i];
+        let eta = etq[i];
+        let (ph, dph_dxi, dph_deta) = quadratic_shape(alpha[k], beta[k], gamma[k], xi, eta);
+        let dfdn_int = scalar_at_shape(&nodes, dfdn, &ph);
+        let dfdxi = dph_dxi
+            .iter()
+            .enumerate()
+            .map(|(j, &dph)| dph * f[nodes[j]])
+            .sum::<f64>();
+        let dfdet = dph_deta
+            .iter()
+            .enumerate()
+            .map(|(j, &dph)| dph * f[nodes[j]])
+            .sum::<f64>();
+
+        let point = exact.evaluate(k, xi, eta);
+        let tangential = dfdxi * point.tangent_eta - dfdet * point.tangent_xi;
+        let grad_phi_sq =
+            tangential.norm_squared() / (point.jacobian * point.jacobian) + dfdn_int * dfdn_int;
+        let n_hat_da = point.normal * (0.5 * point.jacobian * wq[i]);
+        let r = point.position - body_centre;
+
+        let dp = 0.5 * rho_f * grad_phi_sq;
+        force += dp * n_hat_da;
+        torque += dp * r.cross(&n_hat_da);
+    }
+
+    (force, torque)
+}
+
 pub fn dphi_dt_force_element(
     k: usize,
     mint: usize,
@@ -323,6 +427,44 @@ pub fn dphi_dt_force_element(
     xiq: &DVector<f64>,
     etq: &DVector<f64>,
     wq: &DVector<f64>,
+) -> (Vector3<f64>, Vector3<f64>) {
+    dphi_dt_force_element_with_geom(
+        k,
+        mint,
+        body_centre,
+        rho_f,
+        f,
+        phi_dot,
+        p,
+        n,
+        vna,
+        alpha,
+        beta,
+        gamma,
+        xiq,
+        etq,
+        wq,
+        None,
+    )
+}
+
+pub fn dphi_dt_force_element_with_geom(
+    k: usize,
+    mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>,
+    phi_dot: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
 ) -> (Vector3<f64>, Vector3<f64>) {
     let mut force = Vector3::zeros();
     let mut torque = Vector3::zeros();
@@ -360,6 +502,22 @@ pub fn dphi_dt_force_element(
         phi_dot[i6],
     );
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    if let Some(exact) = exact {
+        let nodes = [i1, i2, i3, i4, i5, i6];
+        for i in 0..mint {
+            let xi = xiq[i];
+            let eta = etq[i];
+            let ph = exact.shape_values(k, xi, eta);
+            let phi_dot_int = scalar_at_shape(&nodes, phi_dot, &ph);
+            let (xvec, n_hat_da) = exact_n_hat_da(exact, k, xi, eta, wq[i]);
+            let r = xvec - body_centre;
+
+            force += rho_f * phi_dot_int * n_hat_da;
+            torque += rho_f * phi_dot_int * r.cross(&n_hat_da);
+        }
+        return (force, torque);
+    }
 
     for i in 0..mint {
         let (xvec, _v, _hs, _f_int, phi_dot_int, _dfdxi, _dfdet, ddxi, ddet) = gradient_interp(
@@ -400,6 +558,42 @@ pub fn lamb_impulse_element(
     etq: &DVector<f64>,
     wq: &DVector<f64>,
 ) -> (Vector3<f64>, Vector3<f64>) {
+    lamb_impulse_element_with_geom(
+        k,
+        mint,
+        body_centre,
+        rho_f,
+        f,
+        p,
+        n,
+        vna,
+        alpha,
+        beta,
+        gamma,
+        xiq,
+        etq,
+        wq,
+        None,
+    )
+}
+
+pub fn lamb_impulse_element_with_geom(
+    k: usize,
+    mint: usize,
+    body_centre: &Vector3<f64>,
+    rho_f: f64,
+    f: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> (Vector3<f64>, Vector3<f64>) {
     let mut l_lin = Vector3::zeros();
     let mut l_ang = Vector3::zeros();
 
@@ -426,6 +620,22 @@ pub fn lamb_impulse_element(
 
     let (f1, f2, f3, f4, f5, f6) = (f[i1], f[i2], f[i3], f[i4], f[i5], f[i6]);
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    if let Some(exact) = exact {
+        let nodes = [i1, i2, i3, i4, i5, i6];
+        for i in 0..mint {
+            let xi = xiq[i];
+            let eta = etq[i];
+            let ph = exact.shape_values(k, xi, eta);
+            let f_int = scalar_at_shape(&nodes, f, &ph);
+            let (xvec, n_hat_da) = exact_n_hat_da(exact, k, xi, eta, wq[i]);
+            let r = xvec - body_centre;
+
+            l_lin += rho_f * f_int * n_hat_da;
+            l_ang += rho_f * f_int * r.cross(&n_hat_da);
+        }
+        return (l_lin, l_ang);
+    }
 
     for i in 0..mint {
         // Reuse gradient_interp for geometry + interpolated φ (f_int); the "df"
@@ -595,6 +805,27 @@ pub fn ke_3d_integral(
     etq: &DVector<f64>,
     wq: &DVector<f64>,
 ) -> (f64, f64) {
+    ke_3d_integral_with_geom(
+        k, mint, f, df, p, n, vna, alpha, beta, gamma, xiq, etq, wq, None,
+    )
+}
+
+pub fn ke_3d_integral_with_geom(
+    k: usize,
+    mint: usize,
+    f: &DVector<f64>,
+    df: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> (f64, f64) {
     let mut area = 0.0;
     let mut sdlp = 0.0;
 
@@ -623,6 +854,22 @@ pub fn ke_3d_integral(
     let (df1, df2, df3, df4, df5, df6) = (df[i1], df[i2], df[i3], df[i4], df[i5], df[i6]);
 
     let (al, be, ga) = (alpha[k], beta[k], gamma[k]);
+
+    if let Some(exact) = exact {
+        let nodes = [i1, i2, i3, i4, i5, i6];
+        for i in 0..mint {
+            let xi = xiq[i];
+            let eta = etq[i];
+            let ph = exact.shape_values(k, xi, eta);
+            let f_int = scalar_at_shape(&nodes, f, &ph);
+            let dfdn_int = scalar_at_shape(&nodes, df, &ph);
+            let cf = 0.5 * exact.evaluate(k, xi, eta).jacobian * wq[i];
+
+            area += cf;
+            sdlp += -dfdn_int * f_int * cf;
+        }
+        return (sdlp, area);
+    }
 
     for i in 0..mint {
         let (xi, eta) = (xiq[i], etq[i]);
@@ -661,14 +908,36 @@ pub fn ke_3d(
     etq: &DVector<f64>,
     wq: &DVector<f64>,
 ) -> (f64, f64) {
+    ke_3d_with_geom(
+        _npts, nelm, mint, f, dfdn, p, n, vna, alpha, beta, gamma, xiq, etq, wq, None,
+    )
+}
+
+pub fn ke_3d_with_geom(
+    _npts: usize,
+    nelm: usize,
+    mint: usize,
+    f: &DVector<f64>,
+    dfdn: &DVector<f64>,
+    p: &DMatrix<f64>,
+    n: &DMatrix<usize>,
+    vna: &DMatrix<f64>,
+    alpha: &DVector<f64>,
+    beta: &DVector<f64>,
+    gamma: &DVector<f64>,
+    xiq: &DVector<f64>,
+    etq: &DVector<f64>,
+    wq: &DVector<f64>,
+    exact: Option<&ExactEllipsoidSurface>,
+) -> (f64, f64) {
     //Calculates the total kinetic energy of the fluid, doing a surface integral of phi*(dphi/dn)
 
     let mut srf_area = 0.0;
     let mut f0 = 0.0;
 
     for k in 0..nelm {
-        let (sdlp, arelm) = ke_3d_integral(
-            k, mint, f, dfdn, p, n, vna, alpha, beta, gamma, xiq, etq, wq,
+        let (sdlp, arelm) = ke_3d_integral_with_geom(
+            k, mint, f, dfdn, p, n, vna, alpha, beta, gamma, xiq, etq, wq, exact,
         );
 
         srf_area += arelm;

@@ -22,12 +22,16 @@ pub struct Simulation {
     pub phi_history: std::collections::VecDeque<na::DVector<f64>>,
     /// Remaining first-step bootstrap passes.
     pub bootstrap_redos: usize,
-    /// Add the rotating-frame impulse transport terms omega x L.
-    pub impulse_transport: bool,
     /// Enable the semi-implicit added-mass-partitioned velocity update.
     pub added_mass_stab: bool,
     /// Blend the BDF2 potential-time-derivative stencil toward BDF1.
     pub phidot_blend: f64,
+    /// Evaluate regular BEM quadrature on the exact ellipsoid surface rather
+    /// than the quadratic interpolation of scaled mesh nodes.
+    pub exact_ellipsoid_geometry: bool,
+    /// Also evaluate singular BEM self-element quadrature on the exact
+    /// ellipsoid surface. This is experimental and off by default.
+    pub exact_singular_geometry: bool,
     pub step_dt: f64,
     /// During strong-coupling trial evaluations, prevent provisional potentials
     /// from entering the committed history.
@@ -49,9 +53,10 @@ impl Simulation {
             inertia_tensors,
             phi_history: std::collections::VecDeque::new(),
             bootstrap_redos: BOOTSTRAP_PASSES,
-            impulse_transport: true,
             added_mass_stab: false,
             phidot_blend: 0.0,
+            exact_ellipsoid_geometry: false,
+            exact_singular_geometry: false,
             step_dt: 0.01,
             freeze_phi_history: false,
         }

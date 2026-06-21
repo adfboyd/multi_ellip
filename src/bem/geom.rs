@@ -530,54 +530,40 @@ pub fn combiner_splitter(
 
 ///Computes gaussian quadrature constants
 pub fn gauss_leg(nq: usize) -> (DVector<f64>, DVector<f64>) {
-    let nq_a = if (nq != 3) & (nq != 6) & (nq != 12) {
-        println!("Unsupported quadrature points number, taking nq = 12");
-        12
-    } else {
-        nq
-    };
+    assert!(nq > 0, "Gauss-Legendre quadrature requires nq > 0");
 
-    let mut z = DVector::zeros(nq_a);
-    let mut w = DVector::zeros(nq_a);
+    let mut z = DVector::zeros(nq);
+    let mut w = DVector::zeros(nq);
+    let m = nq.div_ceil(2);
+    let eps = 1.0e-15;
 
-    if nq_a == 3 {
-        (z[0], z[1], z[2]) = (-0.77459666924148337703, 0.0, -0.77459666924148337703);
-        (w[0], w[1], w[2]) = (5.0 / 9.0, 8.0 / 9.0, 5.0 / 9.0);
-    } else if nq_a == 6 {
-        (z[0], z[1], z[2]) = (-0.932469514203152, -0.661209386466265, -0.238619186083197);
-        (z[3], z[4], z[5]) = (-z[2], -z[1], -z[0]);
+    for i in 0..m {
+        let mut x = (std::f64::consts::PI * (i as f64 + 0.75) / (nq as f64 + 0.5)).cos();
 
-        (w[0], w[1], w[2]) = (0.171324492379170, 0.360761573048139, 0.467913934572691);
-        (w[3], w[4], w[5]) = (w[2], w[1], w[0]);
-    } else if nq_a == 12 {
-        z[0] = -0.981560634246719;
-        z[1] = -0.904117256370475;
-        z[2] = -0.769902674194305;
-        z[3] = -0.587317954286617;
-        z[4] = -0.367831498998180;
-        z[5] = -0.125233408511469;
+        let pp = loop {
+            let mut p1 = 1.0;
+            let mut p2 = 0.0;
+            for j in 1..=nq {
+                let p3 = p2;
+                p2 = p1;
+                p1 = ((2 * j - 1) as f64 * x * p2 - (j - 1) as f64 * p3) / j as f64;
+            }
+            let pp = nq as f64 * (x * p1 - p2) / (x * x - 1.0);
+            let x_next = x - p1 / pp;
+            if (x_next - x).abs() <= eps {
+                x = x_next;
+                break pp;
+            }
+            x = x_next;
+        };
 
-        z[6] = -z[5];
-        z[7] = -z[4];
-        z[8] = -z[3];
-        z[9] = -z[2];
-        z[10] = -z[1];
-        z[11] = -z[0];
-
-        w[0] = 0.047175336386511;
-        w[1] = 0.106939325995318;
-        w[2] = 0.160078328543346;
-        w[3] = 0.203167426723066;
-        w[4] = 0.233492536538355;
-        w[5] = 0.249147045813403;
-
-        w[6] = w[5];
-        w[7] = w[4];
-        w[8] = w[3];
-        w[9] = w[2];
-        w[10] = w[1];
-        w[11] = w[0];
+        z[i] = -x;
+        z[nq - 1 - i] = x;
+        let weight = 2.0 / ((1.0 - x * x) * pp * pp);
+        w[i] = weight;
+        w[nq - 1 - i] = weight;
     }
+
     (z, w)
 }
 

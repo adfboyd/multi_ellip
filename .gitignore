@@ -1,4 +1,5 @@
 /target
+/target_*/
 
 # Build artifacts from malformed commands
 /--release/
@@ -41,15 +42,40 @@ input_close*.txt
 lamb_formulation.html
 __pycache__/
 *.pyc
+/.claude/
+/.vscode/
+/scratch_*/
+/scratch_*.zip
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
 
 # Generated study run directories
 studies/**/runs/
+studies/**/runs_*/
+studies/**/lyapunov/
+studies/**/smoke_header/
+studies/**/__pycache__/
+studies/**/input.txt
+studies/**/run.log
+studies/**/study.log
+studies/**/*_study.log
+studies/**/*_stdout.log
+studies/**/*_stderr.log
+studies/**/driver_stdout.log
+studies/**/driver_stderr.log
+studies/**/regen.log
+studies/**/frozen_grid_runs/
+studies/**/energy_runs/
 /coupled_validation_runs/
 /coupled_dt_convergence_runs/
 /two_body_endpoint_subset_runs/
 /two_body_parameter_sweep_coupled_runs/
 /two_body_parameter_sweep_user_runs/
 /two_body_parameter_sweep_task_runs/
+/studies/two_body_parameter_sweep_ndiv2_rerun/
+/studies/two_body_parameter_sweep_ndiv2_noproj/
 /old_two_body_sweep_analysis/
 /old_two_body_sweep_analysis_smoke/
 /single_body_dynamics_check_after_two_body/
