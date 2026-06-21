@@ -50,6 +50,7 @@ pub enum CouplingScheme {
 enum PairMetricMode {
     PointGradient,
     TranslationalDiscreteGradient,
+    GlobalTranslationalDiscreteGradient,
 }
 
 pub struct Rk4PCDM {
@@ -454,10 +455,10 @@ impl Rk4PCDM {
             fluid_energy_gradient_linear_scale,
             fluid_energy_gradient_angular_scale,
             impulse_pair_metric_correction,
-            impulse_pair_metric_mode: if impulse_pair_metric_mode == 1 {
-                PairMetricMode::TranslationalDiscreteGradient
-            } else {
-                PairMetricMode::PointGradient
+            impulse_pair_metric_mode: match impulse_pair_metric_mode {
+                1 => PairMetricMode::TranslationalDiscreteGradient,
+                2 => PairMetricMode::GlobalTranslationalDiscreteGradient,
+                _ => PairMetricMode::PointGradient,
             },
             impulse_pair_metric_cutoff,
             impulse_pair_metric_inner_cutoff,
@@ -2797,6 +2798,11 @@ impl Rk4PCDM {
             Vector3::new(0.0, 1.0, 0.0),
             Vector3::new(0.0, 0.0, 1.0),
         ];
+
+        if self.impulse_pair_metric_mode == PairMetricMode::GlobalTranslationalDiscreteGradient {
+            return self.impulse_global_translation_metric_gradient(start, end, &midpoint);
+        }
+
         let mut active_pairs = 0usize;
         let mut sampled_state = false;
 
@@ -2874,6 +2880,9 @@ impl Rk4PCDM {
                             }
                         }
                     }
+                    PairMetricMode::GlobalTranslationalDiscreteGradient => {
+                        unreachable!("global pair metric mode returns before the per-pair loop")
+                    }
                 }
 
                 if self.impulse_pair_metric_angular_scale == 0.0 {
@@ -2926,6 +2935,93 @@ impl Rk4PCDM {
             let _ = self.solver.kinetic_energy_only();
         }
         (force, torque, active_pairs)
+    }
+
+    fn impulse_global_translation_metric_gradient(
+        &mut self,
+        start: &BodyState,
+        end: &BodyState,
+        midpoint: &BodyState,
+    ) -> (DVector<f64>, DVector<f64>, usize) {
+        let mut force = DVector::zeros(3 * self.nbody);
+        let torque = DVector::zeros(3 * self.nbody);
+        if self.nbody < 2 {
+            return (force, torque, 0);
+        }
+
+        let (pos_start, _) = &start.lin;
+        let (pos_end, _) = &end.lin;
+        let mut mean_delta = Vector3::zeros();
+        for b in 0..self.nbody {
+            mean_delta += Vector3::new(
+                pos_end[3 * b] - pos_start[3 * b],
+                pos_end[3 * b + 1] - pos_start[3 * b + 1],
+                pos_end[3 * b + 2] - pos_start[3 * b + 2],
+            );
+        }
+        mean_delta /= self.nbody as f64;
+
+        let mut delta = DVector::zeros(3 * self.nbody);
+        let mut denom = 0.0;
+        for b in 0..self.nbody {
+            let db = Vector3::new(
+                pos_end[3 * b] - pos_start[3 * b] - mean_delta[0],
+                pos_end[3 * b + 1] - pos_start[3 * b + 1] - mean_delta[1],
+                pos_end[3 * b + 2] - pos_start[3 * b + 2] - mean_delta[2],
+            );
+            for c in 0..3 {
+                delta[3 * b + c] = db[c];
+            }
+            denom += db.dot(&db);
+        }
+        if denom <= 1.0e-24 {
+            return (force, torque, 0);
+        }
+
+        let (pos_mid, _) = &midpoint.lin;
+        let mut active_pairs = 0usize;
+        let mut weight_sum = 0.0;
+        for a in 0..self.nbody {
+            let xa = Vector3::new(pos_mid[3 * a], pos_mid[3 * a + 1], pos_mid[3 * a + 2]);
+            for b in (a + 1)..self.nbody {
+                let xb = Vector3::new(pos_mid[3 * b], pos_mid[3 * b + 1], pos_mid[3 * b + 2]);
+                let weight = self.impulse_pair_metric_weight((xb - xa).norm());
+                if weight > 0.0 {
+                    active_pairs += 1;
+                    weight_sum += weight;
+                }
+            }
+        }
+        if active_pairs == 0 {
+            return (force, torque, 0);
+        }
+        let pair_weight = weight_sum / active_pairs as f64;
+
+        let state_start = self.global_internal_translation_state(midpoint, &delta, -0.5);
+        let ke_start = self.fluid_ke_only_for_state(&state_start);
+        let state_end = self.global_internal_translation_state(midpoint, &delta, 0.5);
+        let ke_end = self.fluid_ke_only_for_state(&state_end);
+        let scale = pair_weight * (ke_end - ke_start) / denom;
+        for i in 0..force.len() {
+            force[i] = scale * delta[i];
+        }
+
+        self.solver.set_state(end);
+        let _ = self.solver.kinetic_energy_only();
+        (force, torque, active_pairs)
+    }
+
+    fn global_internal_translation_state(
+        &self,
+        state: &BodyState,
+        delta: &DVector<f64>,
+        scale: f64,
+    ) -> BodyState {
+        let mut out = state.clone();
+        for i in 0..(3 * self.nbody) {
+            out.lin.0[i] += scale * delta[i];
+        }
+        out
     }
 
     fn pair_relative_translation_state(

@@ -625,10 +625,10 @@ fn main() {
     println!(
         "  Impulse pair metric correction: {}  (mode = {}, cutoff = {}, inner/outer = {}/{}, eps = {}, linear scale = {}, angular scale = {})",
         fmt_enabled(impulse_pair_metric_correction),
-        if impulse_pair_metric_mode == 1 {
-            "discrete-gradient"
-        } else {
-            "point-gradient"
+        match impulse_pair_metric_mode {
+            1 => "pair discrete-gradient",
+            2 => "global internal discrete-gradient",
+            _ => "point-gradient",
         },
         if impulse_pair_metric_cutoff > 0.0 {
             impulse_pair_metric_cutoff.to_string()

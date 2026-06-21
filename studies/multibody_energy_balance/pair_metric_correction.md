@@ -9,6 +9,11 @@ multibody impulse scheme. It is disabled by default.
 - `impulse_pair_metric_mode=0`: old local point-gradient mode.
 - `impulse_pair_metric_mode=1`: translational discrete-gradient mode
   (current default).
+- `impulse_pair_metric_mode=2`: global internal-translation discrete-gradient
+  mode. This removes the common translation from the step displacement and
+  samples the fluid KE at the whole internal start/end displacement with two
+  energy-only BEM solves. It is intended to capture many-body translational
+  metric terms that a sum of pairwise closures can miss.
 - `impulse_pair_metric_cutoff=<distance>`: legacy hard cutoff. Used when
   `inner/outer` are not supplied. A non-positive value means all pairs.
 - `impulse_pair_metric_inner_cutoff=<distance>` and
@@ -64,6 +69,43 @@ This is cheaper than the point-gradient mode because it needs two extra BEM
 evaluations per active pair when the angular scale is zero. The angular pair
 finite-difference path is still present for diagnostics, but remains disabled by
 default.
+
+In `mode=2`, the translational load is a global internal-coordinate
+discrete-gradient. Let `dx_b = x_{b,n+1} - x_{b,n}` and remove the common
+translation `mean_b(dx_b)`, giving internal displacements `d_b`. The code
+evaluates the fluid KE at midpoint velocity/orientation and positions
+`x_mid - d/2` and `x_mid + d/2`, then applies
+
+```text
+F_b = w * (K_f(x_mid + d/2) - K_f(x_mid - d/2)) / sum_c |d_c|^2 * d_b
+```
+
+where `w` is the mean active pair weight. Thus `sum_b F_b = 0` and
+`sum_b F_b.d_b = Delta K_f` by construction. The usual internal-load
+constraint is then applied, so the accepted load also has zero net torque about
+the midpoint. This mode needs two energy-only BEM solves per step regardless of
+the number of bodies, making it a candidate reduced many-body closure.
+
+For two bodies, mode 2 collapses algebraically to the pairwise relative
+translation mode. The close two-body calibration gives the same trajectory
+scores as mode 1, as expected. Its value is for `nbody >= 3`, where mode 1
+requires two energy-only BEM samples per active pair while mode 2 requires only
+two samples for the whole internal translational displacement.
+
+Short three-body smoke tests to `t=0.5`, `ndiv=2`, `dt=0.05`, all three pairs
+active, scale `1.0`, no projection:
+
+| case | mode | mean step | max active pairs | pair load norm | max global H drift | max per-body H drift |
+|---|---|---:|---:|---:|---:|---:|
+| `rho=1` | pairwise DG | `0.3512 s` | `3` | `6.53e-4` | `4.42e-6` | `1.73e-5` |
+| `rho=1` | global internal DG | `0.2893 s` | `3` | `4.31e-4` | `4.42e-6` | `1.01e-5` |
+| `rho=0.1` | pairwise DG | `0.4794 s` | `3` | `9.38e-4` | `5.67e-6` | `9.75e-6` |
+| `rho=0.1` | global internal DG | `0.4400 s` | `3` | `6.07e-4` | `5.67e-6` | `1.33e-5` |
+
+These are not accuracy validation cases; they only show that the global
+internal mode has the expected lower cost when several pairs are active and
+does not immediately damage the conservation diagnostics in short, mild
+three-body runs. A real accuracy claim needs a three-body variational reference.
 
 ## Initial close-contact tests
 

@@ -81,7 +81,12 @@ def read_input(path: Path) -> dict[str, float | int | str]:
 
 
 def write_input(
-    path: Path, base: dict[str, float | int | str], tend: float, scale: float, angular_scale: float
+    path: Path,
+    base: dict[str, float | int | str],
+    tend: float,
+    mode: int,
+    scale: float,
+    angular_scale: float,
 ) -> float:
     cfg = dict(base)
     dt = float(cfg.get("dt", 0.025))
@@ -95,7 +100,7 @@ def write_input(
             "impulse_scheme": 1,
             "energy_projection": 0,
             "impulse_pair_metric_correction": 1,
-            "impulse_pair_metric_mode": 1,
+            "impulse_pair_metric_mode": mode,
             "impulse_pair_metric_linear_scale": scale,
             "impulse_pair_metric_angular_scale": angular_scale,
             "impulse_pair_metric_cutoff": 0,
@@ -373,6 +378,7 @@ def main() -> int:
         help="variational reference as LABEL=PATH; may be repeated",
     )
     parser.add_argument("--scales", nargs="+", type=float, default=[1.0, 1.3, 1.4, 1.5])
+    parser.add_argument("--mode", type=int, default=1, help="pair metric mode: 1 pairwise DG, 2 global internal DG")
     parser.add_argument("--angular-scale", type=float, default=0.0)
     parser.add_argument("--score-pos-weight", type=float, default=1.0)
     parser.add_argument("--score-vel-weight", type=float, default=0.25)
@@ -419,11 +425,13 @@ def main() -> int:
         ref_rows = read_rows(ref_path)
         tend = f(ref_rows[-1], "time")
         for scale in args.scales:
-            run_dir = runs_dir / f"{token(label)}_lin{token(scale)}_ang{token(args.angular_scale)}"
+            run_dir = runs_dir / (
+                f"{token(label)}_mode{args.mode}_lin{token(scale)}_ang{token(args.angular_scale)}"
+            )
             input_path = run_dir / "input.txt"
             log_path = run_dir / "run.log"
             data_path = run_dir / "multiple_body_complete.dat"
-            tend_run = write_input(input_path, base, tend, scale, args.angular_scale)
+            tend_run = write_input(input_path, base, tend, args.mode, scale, args.angular_scale)
             if not args.reuse_existing or not data_path.exists() or not log_path.exists():
                 run_command([str(exe), str(input_path), str(run_dir)], log_path)
             run_rows = read_rows(data_path)
