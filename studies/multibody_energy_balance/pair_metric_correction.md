@@ -183,6 +183,13 @@ restore solve. The solver is already at the accepted end-state impulse solve in
 that case. This also preserved the output file bit-for-bit and reduced the same
 clean probe to `0.0926 s/step`.
 
+The focused regression runner
+`studies/multibody_energy_balance/benchmark_pair_metric_regression.py` recreates
+this close scale-1 case, reports the KE drift, separation, cache counters, and
+output hash, and can compare the generated `.dat` file against a supplied
+baseline. It is intended as a quick guard that later speed changes preserve the
+validated pair-DG trajectory.
+
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
 forces can reduce the impulse energy drift without using projection.
