@@ -17,7 +17,8 @@ multibody impulse scheme. It is disabled by default.
   in between.
 - `impulse_pair_metric_eps=<eps>`: central-difference perturbation size.
 - `impulse_pair_metric_linear_scale=<scale>`: scale for the relative-translation
-  metric force. Default when enabled through the common scale is `0.1`.
+  metric force. Default is `1.0` in discrete-gradient mode and `0.1` in
+  point-gradient mode.
 - `impulse_pair_metric_angular_scale=<scale>`: scale for the relative-rotation
   metric torque. Default is `0.0`.
 - `impulse_internal_load_constraint=1`: enabled by default when the pair metric
@@ -90,20 +91,25 @@ After adding the translational discrete-gradient mode:
 | point gradient, linear 0.1 | 5 | 10.77% | 10.73% | 7.34 | 1.82e-2 | 8.59e-2 | 0.1222 s |
 | discrete gradient, linear 0.1 | 5 | 11.44% | 11.36% | 6.58 | 1.86e-2 | 2.64e-2 | 0.1117 s |
 | discrete gradient, smooth 3.5/4.5 | 5 | 11.45% | 11.37% | 6.58 | 1.86e-2 | 2.77e-2 | 0.1201 s |
+| discrete gradient, linear 0.5 | 5 | 9.74% | 9.74% | 8.37 | 1.79e-2 | 7.96e-2 | 0.1042 s |
+| discrete gradient, linear 1.0 | 5 | 8.51% | 8.51% | 10.75 | 1.88e-2 | 1.38e-1 | 0.1084 s |
 
 Far-pair cutoff check with `sep=8`, `cutoff=4`: zero active pairs, identical
 energy/momentum diagnostics, and negligible overhead.
 
 ## Interpretation
 
-The translational pair metric force has the right broad energy direction in the
-close case, but the effect remains modest and it changes the trajectory. The
-discrete-gradient form is less aggressive than the point-gradient form, but it
-has a better cost/diagnostic profile: lower per-body angular drift, smaller
-trajectory distortion, and lower runtime overhead. The relative-rotation
-finite-difference component is not reliable yet; it can damage angular-momentum
-diagnostics and worsen energy drift. For that reason the current default leaves
-`impulse_pair_metric_angular_scale=0`.
+The translational pair metric force has the right sign: positive scale reduces
+the energy drift, while negative scale is destabilising. The discrete-gradient
+work identity gives scale `1.0`; that is now the default for
+`impulse_pair_metric_mode=1`. This improves energy most, but also changes the
+trajectory/separation most strongly. Smaller scales are useful diagnostics for
+continuity with the uncorrected impulse solution, but they are no longer the
+default physical choice.
+
+The relative-rotation finite-difference component is not reliable yet; it can
+damage angular-momentum diagnostics and worsen energy drift. For that reason
+the current default leaves `impulse_pair_metric_angular_scale=0`.
 
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric

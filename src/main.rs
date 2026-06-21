@@ -219,7 +219,12 @@ fn main() {
     )
     .max(0.0);
     let impulse_pair_metric_eps = get("impulse_pair_metric_eps", fluid_energy_gradient_eps);
-    let impulse_pair_metric_scale = get("impulse_pair_metric_scale", 0.1);
+    let default_pair_metric_scale = if impulse_pair_metric_mode == 1 {
+        1.0
+    } else {
+        0.1
+    };
+    let impulse_pair_metric_scale = get("impulse_pair_metric_scale", default_pair_metric_scale);
     let impulse_pair_metric_linear_scale = get(
         "impulse_pair_metric_linear_scale",
         impulse_pair_metric_scale,
