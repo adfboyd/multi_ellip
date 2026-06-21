@@ -75,3 +75,22 @@ The variational reference final separation for the same short case is about
 without improving either energy drift or trajectory agreement. The frozen
 single evaluation remains the better reduced approximation unless a different
 pair force derivation is introduced.
+
+## Warm-starting the implicit torque iterate
+
+The impulse fixed-point solve normally starts each step with zero torque. A
+trial used the previous accepted step's torque as the next initial guess. This
+does not change the residual being solved, but with the current finite
+fixed-point tolerance it does change the nonlinear iteration path slightly.
+
+For the close spheroid `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
+`dt=0.025`, `t=5` pair-DG case:
+
+| initial torque guess | mean step | mean FP iters | final KE drift | final separation |
+|---|---:|---:|---:|---:|
+| zero | `0.0980 s` | `10.060` | `8.512%` | `10.7454` |
+| previous step torque | `0.0963 s` | `9.965` | `8.506%` | `10.7686` |
+
+The speed gain is only about two percent, while positions differ by up to
+O(`1e-2`) over this run. That is too much trajectory dependence for such a
+small gain, so the zero-torque initial guess is kept.
