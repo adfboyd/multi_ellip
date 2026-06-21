@@ -209,6 +209,21 @@ def max_global_span(rows: list[dict[str, str]], ids: list[int], prefix: str) -> 
     return max(dist(total(row), start) / scale for row in rows)
 
 
+def matched_rows(
+    run_rows: list[dict[str, str]], ref_rows: list[dict[str, str]]
+) -> list[tuple[dict[str, str], dict[str, str]]]:
+    pairs = []
+    run_by_time = {round(f(row, "time"), 12): row for row in run_rows}
+    for ref_row in ref_rows:
+        key = round(f(ref_row, "time"), 12)
+        run_row = run_by_time.get(key)
+        if run_row is not None:
+            pairs.append((run_row, ref_row))
+    if len(pairs) < 2:
+        raise RuntimeError("could not match enough run/reference output rows by time")
+    return pairs
+
+
 def summarize_log(log_path: Path) -> dict[str, str | float]:
     text = log_path.read_text(encoding="utf-8", errors="replace")
     patterns = {
@@ -258,28 +273,49 @@ def compare_run(
     run_final = run_rows[-1]
     ref_final = ref_rows[-1]
     ids = body_ids(ref_final)
+    row_pairs = matched_rows(run_rows, ref_rows)
     pos_errors = [dist(vec(run_final, "p", body), vec(ref_final, "p", body)) for body in ids]
     vel_errors = [dist(vec(run_final, "v", body), vec(ref_final, "v", body)) for body in ids]
     omega_errors = [dist(vec(run_final, "w", body), vec(ref_final, "w", body)) for body in ids]
-    ref_displacements = [
-        tuple(a - b for a, b in zip(vec(ref_final, "p", body), vec(ref_initial, "p", body)))
+    pos_series_errors = [
+        dist(vec(run_row, "p", body), vec(ref_row, "p", body))
+        for run_row, ref_row in row_pairs
         for body in ids
     ]
-    ref_velocities = [vec(ref_final, "v", body) for body in ids]
-    ref_omegas = [vec(ref_final, "w", body) for body in ids]
+    vel_series_errors = [
+        dist(vec(run_row, "v", body), vec(ref_row, "v", body))
+        for run_row, ref_row in row_pairs
+        for body in ids
+    ]
+    omega_series_errors = [
+        dist(vec(run_row, "w", body), vec(ref_row, "w", body))
+        for run_row, ref_row in row_pairs
+        for body in ids
+    ]
+    sep_series_errors = [
+        separation(run_row, ids) - separation(ref_row, ids) for run_row, ref_row in row_pairs
+    ]
+    ref_displacements = [
+        tuple(a - b for a, b in zip(vec(ref_row, "p", body), vec(ref_initial, "p", body)))
+        for _run_row, ref_row in row_pairs
+        for body in ids
+    ]
+    ref_velocities = [vec(ref_row, "v", body) for _run_row, ref_row in row_pairs for body in ids]
+    ref_omegas = [vec(ref_row, "w", body) for _run_row, ref_row in row_pairs for body in ids]
     max_abs_ke, final_ke = max_ke_drift(run_rows)
     sep = separation(run_final, ids)
     sep_ref = separation(ref_final, ids)
     pos_scale = max(rms_norm(ref_displacements), 1.0)
     vel_scale = max(rms_norm(ref_velocities), 1.0)
     omega_scale = max(rms_norm(ref_omegas), 1.0)
-    sep_scale = max(abs(sep_ref - separation(ref_initial, ids)), 1.0)
+    ref_sep_changes = [separation(ref_row, ids) - separation(ref_initial, ids) for _run_row, ref_row in row_pairs]
+    sep_scale = max(math.sqrt(sum(s * s for s in ref_sep_changes) / len(ref_sep_changes)), 1.0)
     max_body_h = max_body_h_span(run_rows, ids)
     score_terms = {
-        "pos": rms(pos_errors) / pos_scale,
-        "vel": rms(vel_errors) / vel_scale,
-        "omega": rms(omega_errors) / omega_scale,
-        "sep": abs(sep - sep_ref) / sep_scale,
+        "pos": rms(pos_series_errors) / pos_scale,
+        "vel": rms(vel_series_errors) / vel_scale,
+        "omega": rms(omega_series_errors) / omega_scale,
+        "sep": rms(sep_series_errors) / sep_scale,
         "ke": max_abs_ke / 100.0,
         "body_h": max_body_h,
     }
@@ -293,16 +329,21 @@ def compare_run(
         "angular_scale": angular_scale,
         "t_final": f(run_final, "time"),
         "score": score,
+        "matched_rows": len(row_pairs),
         "pos_rms": rms(pos_errors),
         "pos_norm": score_terms["pos"],
+        "pos_series_rms": rms(pos_series_errors),
         "vel_rms": rms(vel_errors),
         "vel_norm": score_terms["vel"],
+        "vel_series_rms": rms(vel_series_errors),
         "omega_rms": rms(omega_errors),
         "omega_norm": score_terms["omega"],
+        "omega_series_rms": rms(omega_series_errors),
         "sep": sep,
         "sep_ref": sep_ref,
         "sep_err": sep - sep_ref,
         "sep_norm": score_terms["sep"],
+        "sep_series_rms": rms(sep_series_errors),
         "max_abs_ke_drift_pct": max_abs_ke,
         "final_ke_drift_pct": final_ke,
         "max_global_p_span_rel": max_global_span(run_rows, ids, "pcon"),
@@ -342,6 +383,7 @@ def main() -> int:
     parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--reuse-existing", action="store_true", help="reuse existing run output if present")
     args = parser.parse_args()
 
     base_input = args.base_input if args.base_input.is_absolute() else ROOT / args.base_input
@@ -382,7 +424,8 @@ def main() -> int:
             log_path = run_dir / "run.log"
             data_path = run_dir / "multiple_body_complete.dat"
             tend_run = write_input(input_path, base, tend, scale, args.angular_scale)
-            run_command([str(exe), str(input_path), str(run_dir)], log_path)
+            if not args.reuse_existing or not data_path.exists() or not log_path.exists():
+                run_command([str(exe), str(input_path), str(run_dir)], log_path)
             run_rows = read_rows(data_path)
             if abs(f(run_rows[-1], "time") - tend_run) > 10.0 * sys.float_info.epsilon * max(1.0, tend_run):
                 raise RuntimeError(
@@ -409,15 +452,16 @@ def main() -> int:
 
     print(f"\nSaved {out_path.relative_to(ROOT)}")
     print(
-        f"{'label':<8}{'scale':>8}{'score':>10}{'pos rms':>12}{'vel rms':>12}"
-        f"{'sep err':>12}{'max KE%':>10}{'mean step':>11}"
+        f"{'label':<8}{'scale':>8}{'score':>10}{'pos ser':>12}{'vel ser':>12}"
+        f"{'sep ser':>12}{'sep end':>12}{'max KE%':>10}{'mean step':>11}"
     )
     for row in rows:
         print(
             f"{str(row['label']):<8}{float(row['scale']):>8.3g}"
             f"{float(row['score']):>10.4g}"
-            f"{float(row['pos_rms']):>12.4g}{float(row['vel_rms']):>12.4g}"
-            f"{float(row['sep_err']):>12.4g}{float(row['max_abs_ke_drift_pct']):>10.4g}"
+            f"{float(row['pos_series_rms']):>12.4g}{float(row['vel_series_rms']):>12.4g}"
+            f"{float(row['sep_series_rms']):>12.4g}{float(row['sep_err']):>12.4g}"
+            f"{float(row['max_abs_ke_drift_pct']):>10.4g}"
             f"{float(row['mean_time_per_step']):>11.4g}"
         )
     print("\nBest score by reference")

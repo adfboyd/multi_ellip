@@ -240,24 +240,27 @@ The calibration can now be reproduced with:
 python studies/multibody_energy_balance/calibrate_pair_metric_scale.py --skip-build --scales 0.8 1.0 1.2 1.3 1.35 1.4 1.45 1.5 1.6
 ```
 
-The script writes a local ignored CSV and reports a normalized score combining
-position error, velocity error, separation error, KE drift, and per-body
-angular impulse drift. With the default weights, the finer sweep gives:
+The script writes a local ignored CSV and reports a normalized full-trajectory
+score combining time-series position error, velocity error, separation error,
+KE drift, and per-body angular impulse drift. With the default weights, the
+finer sweep gives:
 
-| reference horizon | best linear scale | score | final sep error | max KE drift |
-|---:|---:|---:|---:|---:|
-| `t=0.25` | `1.2` | `2.21e-2` | `-6.78e-4` | `1.718%` |
-| `t=0.50` | `1.4` | `3.81e-2` | `-5.72e-3` | `4.816%` |
+| reference horizon | best linear scale | score | separation RMS error | final sep error | max KE drift |
+|---:|---:|---:|---:|---:|---:|
+| `t=0.25` | `1.2` | `1.84e-2` | `1.56e-3` | `-6.78e-4` | `1.718%` |
+| `t=0.50` | `1.3` | `2.67e-2` | `1.23e-2` | `-3.76e-2` | `4.747%` |
 
 This is useful but not a proof of a universal closure. The optimum moving from
-about `1.2` at `t=0.25` to about `1.4` at `t=0.50` says the pairwise
-translation-only closure is still missing part of the full variational action,
-probably higher-order many-body and rotational metric terms. The practical
-reduced-model guidance is therefore:
+about `1.2` at `t=0.25` to about `1.3` at `t=0.50`, while the best endpoint
+separation match at `t=0.50` is closer to `1.4`, says the pairwise
+translation-only closure is still missing part of the full variational action.
+The likely missing pieces are higher-order many-body and rotational metric
+terms, not an energy projection. The practical reduced-model guidance is
+therefore:
 
 - use scale `1.0` for the physically derived pair work identity and cleaner
   conservation diagnostics;
-- use scale `1.3--1.4` when the priority is closer short-time agreement with
+- use scale `1.2--1.4` when the priority is closer short-time agreement with
   the expensive variational reference in close-contact two-body dynamics;
 - do not treat any single calibrated scale as validated outside this regime
   until a matching variational reference has been run for that geometry,
