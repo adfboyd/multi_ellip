@@ -128,3 +128,25 @@ Although clearance weighting is physically plausible and can reduce the
 per-body angular drift in one long diagnostic, it does not improve the
 trajectory against the variational reference. It should not replace the current
 centre-distance cutoff without a better reduced-force derivation.
+
+## Energy-only samples for the full global discrete-gradient correction
+
+The reduced pair metric correction benefits from using BEM `EnergyOnly` solves
+for its finite-difference samples, but the older full global
+`impulse_metric_correction` path did not show the same benefit. A trial changed
+`fluid_energy_configuration_discrete_gradient` to use `kinetic_energy_only()`
+for its KE samples and final restore.
+
+For the close spheroid global-discrete-gradient diagnostic, `ndiv=2`,
+`dt=0.025`, `t=0.1`:
+
+| sample solve path | mean step | total wall time | max global H drift | max per-body H drift |
+|---|---:|---:|---:|---:|
+| full impulse samples | `2.6730 s` | `10.84 s` | `1.510e-3` | `1.190e-1` |
+| energy-only samples | `3.0053 s` | `11.87 s` | `1.510e-3` | `1.190e-1` |
+
+The output diagnostics were unchanged, but the energy-only version was slower
+for this path, likely because the full impulse path keeps a more favourable
+warm-start sequence for the subsequent solves. The global correction remains a
+diagnostic and should not be switched to `EnergyOnly` unless a broader benchmark
+shows a real benefit.
