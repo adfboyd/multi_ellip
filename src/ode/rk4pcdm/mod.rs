@@ -2529,6 +2529,11 @@ impl Rk4PCDM {
         self.solver.fluid_kinetic_energy()
     }
 
+    fn fluid_ke_only_for_state(&mut self, state: &BodyState) -> f64 {
+        self.solver.set_state(state);
+        self.solver.kinetic_energy_only()
+    }
+
     fn state_on_config_path(
         &self,
         start: &BodyState,
@@ -2768,7 +2773,7 @@ impl Rk4PCDM {
                                 lin: (p_plus, vel_mid.clone()),
                                 ang: (q_mid.clone(), omega_mid.clone()),
                             };
-                            let ke_plus = self.fluid_ke_for_state(&state_plus);
+                            let ke_plus = self.fluid_ke_only_for_state(&state_plus);
 
                             let mut p_minus = pos_mid.clone();
                             p_minus[3 * a + c] += 0.5 * h_pos;
@@ -2777,7 +2782,7 @@ impl Rk4PCDM {
                                 lin: (p_minus, vel_mid.clone()),
                                 ang: (q_mid.clone(), omega_mid.clone()),
                             };
-                            let ke_minus = self.fluid_ke_for_state(&state_minus);
+                            let ke_minus = self.fluid_ke_only_for_state(&state_minus);
                             let grad = weight * (ke_plus - ke_minus) / (2.0 * h_pos);
                             force[3 * a + c] -= grad;
                             force[3 * b + c] += grad;
@@ -2803,14 +2808,14 @@ impl Rk4PCDM {
                                 b,
                                 r_start - (xb - xa),
                             );
-                            let ke_start = self.fluid_ke_for_state(&state_start_pair);
+                            let ke_start = self.fluid_ke_only_for_state(&state_start_pair);
                             let state_end_pair = self.pair_relative_translation_state(
                                 &midpoint,
                                 a,
                                 b,
                                 r_end - (xb - xa),
                             );
-                            let ke_end = self.fluid_ke_for_state(&state_end_pair);
+                            let ke_end = self.fluid_ke_only_for_state(&state_end_pair);
                             let grad_vec = weight * (ke_end - ke_start) / denom * delta_r;
                             for c in 0..3 {
                                 force[3 * a + c] -= grad_vec[c];
@@ -2841,7 +2846,7 @@ impl Rk4PCDM {
                         lin: (pos_mid.clone(), vel_mid.clone()),
                         ang: (q_plus, omega_mid.clone()),
                     };
-                    let ke_plus = self.fluid_ke_for_state(&state_plus);
+                    let ke_plus = self.fluid_ke_only_for_state(&state_plus);
 
                     let mut q_minus = q_mid.clone();
                     q_minus[a] = (dq_minus_a
@@ -2856,7 +2861,7 @@ impl Rk4PCDM {
                         lin: (pos_mid.clone(), vel_mid.clone()),
                         ang: (q_minus, omega_mid.clone()),
                     };
-                    let ke_minus = self.fluid_ke_for_state(&state_minus);
+                    let ke_minus = self.fluid_ke_only_for_state(&state_minus);
                     let grad = weight * (ke_plus - ke_minus) / (2.0 * h_rot);
                     torque[3 * a + c] -= grad;
                     torque[3 * b + c] += grad;
