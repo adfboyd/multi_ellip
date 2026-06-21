@@ -132,7 +132,16 @@ pub struct Rk4PCDM {
     pub impulse_variational_defect_last_metric_scale: f64,
     pub impulse_variational_defect_last_pressure_cos: f64,
     pub impulse_variational_defect_last_pressure_scale: f64,
+    pub impulse_global_p_drift_last: f64,
+    pub impulse_global_h_drift_last: f64,
+    pub impulse_body_p_drift_max_last: f64,
+    pub impulse_body_h_drift_max_last: f64,
+    pub impulse_global_p_drift_max: f64,
+    pub impulse_global_h_drift_max: f64,
+    pub impulse_body_p_drift_max: f64,
+    pub impulse_body_h_drift_max: f64,
     impulse_variational_defect_out: bool,
+    impulse_partition_initial: Option<ImpulsePartitionState>,
     variational_discrete_momentum_out: Option<DVector<f64>>,
     variational_discrete_momentum_initial: Option<DVector<f64>>,
     /// Fluid KE captured at the start of the current step (stage-A force call,
@@ -192,6 +201,14 @@ pub struct BodyInfo {
     pub density: f64,
     pub shape: Vector3<f64>,
     pub initial_ke_ratio: f64,
+}
+
+#[derive(Clone)]
+struct ImpulsePartitionState {
+    per_body_p: Vec<Vector3<f64>>,
+    per_body_h: Vec<Vector3<f64>>,
+    global_p: Vector3<f64>,
+    global_h: Vector3<f64>,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -371,7 +388,16 @@ impl Rk4PCDM {
             impulse_variational_defect_last_metric_scale: f64::NAN,
             impulse_variational_defect_last_pressure_cos: f64::NAN,
             impulse_variational_defect_last_pressure_scale: f64::NAN,
+            impulse_global_p_drift_last: f64::NAN,
+            impulse_global_h_drift_last: f64::NAN,
+            impulse_body_p_drift_max_last: f64::NAN,
+            impulse_body_h_drift_max_last: f64::NAN,
+            impulse_global_p_drift_max: 0.0,
+            impulse_global_h_drift_max: 0.0,
+            impulse_body_p_drift_max: 0.0,
+            impulse_body_h_drift_max: 0.0,
             impulse_variational_defect_out: false,
+            impulse_partition_initial: None,
             variational_discrete_momentum_out: None,
             variational_discrete_momentum_initial: None,
             fluid_ke_step_start: 0.0,
@@ -545,6 +571,7 @@ impl Rk4PCDM {
                     | CouplingScheme::Variational
             ) {
                 let (l_lin, l_ang) = self.solver.impulse();
+                self.record_impulse_partition_drift(&xp, &op, &l_lin, &l_ang);
                 self.fluid_impulse_lin_step_start = Some(l_lin);
                 self.fluid_impulse_ang_step_start = Some(l_ang);
             } else {
@@ -814,6 +841,12 @@ impl Rk4PCDM {
     fn advance_one_step_impulse(&mut self) {
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_n,
+            &l_ang_n,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
@@ -1013,6 +1046,12 @@ impl Rk4PCDM {
         self.solver.set_state(&self.state);
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_n,
+            &l_ang_n,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_n);
         self.fluid_impulse_ang_step_start = Some(l_ang_n);
         self.capture_initial_total_ke();
@@ -1643,6 +1682,12 @@ impl Rk4PCDM {
         self.half_step = half_save;
         self.quarter_step = quarter_save;
         self.fluid_ke_step_start = fluid_ke_start;
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_start,
+            &l_ang_start,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_start);
         self.fluid_impulse_ang_step_start = Some(l_ang_start);
     }
@@ -1650,6 +1695,12 @@ impl Rk4PCDM {
     fn advance_one_hamiltonian_substep(&mut self) {
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_n,
+            &l_ang_n,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();
@@ -1817,6 +1868,12 @@ impl Rk4PCDM {
         self.half_step = half_save;
         self.quarter_step = quarter_save;
         self.fluid_ke_step_start = fluid_ke_start;
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_start,
+            &l_ang_start,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_start);
         self.fluid_impulse_ang_step_start = Some(l_ang_start);
     }
@@ -1824,6 +1881,12 @@ impl Rk4PCDM {
     fn advance_one_hamiltonian_midpoint_substep(&mut self) {
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        self.record_impulse_partition_drift(
+            &self.state.lin.clone(),
+            &self.state.ang.clone(),
+            &l_lin_n,
+            &l_ang_n,
+        );
         self.fluid_impulse_lin_step_start = Some(l_lin_n.clone());
         self.fluid_impulse_ang_step_start = Some(l_ang_n.clone());
         self.capture_initial_total_ke();

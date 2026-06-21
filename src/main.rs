@@ -51,6 +51,7 @@ fn main() {
     // order and blank lines irrelevant.
     let input_data: String = input_data
         .lines()
+        .map(|l| l.trim().trim_start_matches('\u{feff}'))
         .filter(|l| l.contains('='))
         .collect::<Vec<_>>()
         .join("\n");
@@ -661,6 +662,16 @@ fn main() {
                     stepper.impulse_fp_last_iter, mean_iters, stepper.impulse_fp_max_iter
                 );
                 println!("  Approx impulse solves/step:     {:.3}", mean_iters + 1.0);
+            }
+            if impulse_scheme || hamiltonian_scheme || hamiltonian_midpoint_scheme {
+                println!(
+                    "  Impulse global drift P/H:       {:.6e} / {:.6e}",
+                    stepper.impulse_global_p_drift_max, stepper.impulse_global_h_drift_max
+                );
+                println!(
+                    "  Impulse per-body max drift P/H: {:.6e} / {:.6e}",
+                    stepper.impulse_body_p_drift_max, stepper.impulse_body_h_drift_max
+                );
             }
             if energy_projection || hamiltonian_scheme || hamiltonian_midpoint_scheme {
                 println!(
