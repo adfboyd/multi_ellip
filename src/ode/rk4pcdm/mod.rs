@@ -129,6 +129,8 @@ pub struct Rk4PCDM {
     pub impulse_fp_iter_sum: usize,
     pub impulse_fp_last_iter: usize,
     pub impulse_fp_max_iter: usize,
+    pub impulse_start_cache_hits: usize,
+    pub impulse_start_direct_solves: usize,
     pub variational_discrete_momentum_last_drift: f64,
     pub variational_discrete_momentum_max_drift: f64,
     pub impulse_variational_defect_probe_count: usize,
@@ -148,6 +150,7 @@ pub struct Rk4PCDM {
     pub impulse_body_h_drift_max: f64,
     impulse_variational_defect_out: bool,
     impulse_partition_initial: Option<ImpulsePartitionState>,
+    impulse_next_start_cache: Option<ImpulseStartCache>,
     variational_discrete_momentum_out: Option<DVector<f64>>,
     variational_discrete_momentum_initial: Option<DVector<f64>>,
     /// Fluid KE captured at the start of the current step (stage-A force call,
@@ -227,6 +230,12 @@ struct ImpulsePartitionState {
     per_body_h: Vec<Vector3<f64>>,
     global_p: Vector3<f64>,
     global_h: Vector3<f64>,
+}
+
+struct ImpulseStartCache {
+    l_lin: DVector<f64>,
+    l_ang: DVector<f64>,
+    fluid_ke: f64,
 }
 
 /// Solid-body kinetic energy breakdown for one timestep.
@@ -405,6 +414,8 @@ impl Rk4PCDM {
             impulse_fp_iter_sum: 0,
             impulse_fp_last_iter: 0,
             impulse_fp_max_iter: 0,
+            impulse_start_cache_hits: 0,
+            impulse_start_direct_solves: 0,
             variational_discrete_momentum_last_drift: f64::NAN,
             variational_discrete_momentum_max_drift: 0.0,
             impulse_variational_defect_probe_count: 0,
@@ -424,6 +435,7 @@ impl Rk4PCDM {
             impulse_body_h_drift_max: 0.0,
             impulse_variational_defect_out: false,
             impulse_partition_initial: None,
+            impulse_next_start_cache: None,
             variational_discrete_momentum_out: None,
             variational_discrete_momentum_initial: None,
             fluid_ke_step_start: 0.0,
@@ -881,8 +893,16 @@ impl Rk4PCDM {
     /// Coupled end-state fixed point (linear + torque) with the added-mass
     /// preconditioner. No φ-history, no bootstrap.
     fn advance_one_step_impulse(&mut self) {
-        let (l_lin_n, l_ang_n) = self.solver.impulse();
-        self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+        let (l_lin_n, l_ang_n) = if let Some(cache) = self.impulse_next_start_cache.take() {
+            self.impulse_start_cache_hits += 1;
+            self.fluid_ke_step_start = cache.fluid_ke;
+            (cache.l_lin, cache.l_ang)
+        } else {
+            self.impulse_start_direct_solves += 1;
+            let impulse = self.solver.impulse();
+            self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
+            impulse
+        };
         self.record_impulse_partition_drift(
             &self.state.lin.clone(),
             &self.state.ang.clone(),
@@ -904,6 +924,8 @@ impl Rk4PCDM {
         let mut v_new = v_n.clone();
         let mut torque = DVector::zeros(3 * self.nbody);
         let mut o_new = self.state.ang.clone();
+        let mut l_lin_step_end = l_lin_n.clone();
+        let mut l_ang_step_end = l_ang_n.clone();
         let mut pair_metric_force = DVector::zeros(3 * self.nbody);
         let mut pair_metric_torque = DVector::zeros(3 * self.nbody);
         let mut pair_metric_ready = !self.impulse_pair_metric_correction;
@@ -933,6 +955,8 @@ impl Rk4PCDM {
             });
 
             let (l_lin_np1, l_ang_np1) = self.solver.impulse();
+            l_lin_step_end = l_lin_np1.clone();
+            l_ang_step_end = l_ang_np1.clone();
             let (mut pressure_force, mut pressure_torque) = if self.impulse_quadratic_pressure {
                 self.solver.quadratic_pressure_load()
             } else {
@@ -1104,6 +1128,13 @@ impl Rk4PCDM {
 
         if self.energy_projection {
             self.project_step_energy_preserving_impulse(ke_step_start, &conserved_step_start);
+            self.impulse_next_start_cache = None;
+        } else {
+            self.impulse_next_start_cache = Some(ImpulseStartCache {
+                l_lin: l_lin_step_end,
+                l_ang: l_ang_step_end,
+                fluid_ke: self.solver.fluid_kinetic_energy(),
+            });
         }
     }
 

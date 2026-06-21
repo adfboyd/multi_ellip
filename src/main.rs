@@ -711,11 +711,20 @@ fn main() {
             if impulse_scheme && stepper.impulse_fp_steps > 0 {
                 let mean_iters =
                     stepper.impulse_fp_iter_sum as f64 / stepper.impulse_fp_steps as f64;
+                let start_solves_per_step =
+                    stepper.impulse_start_direct_solves as f64 / stepper.impulse_fp_steps as f64;
                 println!(
                     "  Impulse FP iters last/mean/max: {} / {:.3} / {}",
                     stepper.impulse_fp_last_iter, mean_iters, stepper.impulse_fp_max_iter
                 );
-                println!("  Approx impulse solves/step:     {:.3}", mean_iters + 1.0);
+                println!(
+                    "  Approx impulse solves/step:     {:.3}",
+                    mean_iters + start_solves_per_step
+                );
+                println!(
+                    "  Impulse start cache hits/direct: {} / {}",
+                    stepper.impulse_start_cache_hits, stepper.impulse_start_direct_solves
+                );
             }
             if impulse_pair_metric_correction {
                 println!(

@@ -169,6 +169,14 @@ output file bit-for-bit while changing the mean runtime from `0.1084 s/step` to
 dominates this path; avoiding the extra surface quadrature is still the cleaner
 implementation.
 
+The impulse solver also reuses the previous accepted endpoint impulse as the
+next step's start impulse. This is a state-function cache, not an approximation:
+the next step starts from exactly the endpoint state whose impulse was already
+solved in the previous fixed-point iteration. Projection clears the cache. In
+the same close scale-1 probe the cache gave `199 / 1` start cache hits/direct
+solves and preserved the output file bit-for-bit while reducing the clean mean
+runtime further to `0.0980 s/step`.
+
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
 forces can reduce the impulse energy drift without using projection.
