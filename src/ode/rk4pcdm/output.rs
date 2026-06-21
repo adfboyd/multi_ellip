@@ -73,12 +73,14 @@ impl Rk4PCDM {
         }
         if self.impulse_variational_defect_probe {
             println!(
-                "  Impulse variational defect {:.3e} | metric cos/scale {:.3e}/{:.3e} | pressure cos/scale {:.3e}/{:.3e}",
+                "  Impulse variational defect {:.3e} | metric cos/scale {:.3e}/{:.3e} | pressure cos/scale {:.3e}/{:.3e} | pair cos/scale {:.3e}/{:.3e}",
                 self.impulse_variational_defect_last_norm,
                 self.impulse_variational_defect_last_metric_cos,
                 self.impulse_variational_defect_last_metric_scale,
                 self.impulse_variational_defect_last_pressure_cos,
-                self.impulse_variational_defect_last_pressure_scale
+                self.impulse_variational_defect_last_pressure_scale,
+                self.impulse_variational_defect_last_pair_cos,
+                self.impulse_variational_defect_last_pair_scale
             );
         }
     }
@@ -186,7 +188,7 @@ impl Rk4PCDM {
         }
         write!(
             writer,
-            ",impulse_global_p_drift,impulse_global_h_drift,impulse_body_p_drift_max,impulse_body_h_drift_max,impulse_pair_metric_pairs,impulse_pair_metric_load_norm,jdisc_px,jdisc_py,jdisc_pz,jdisc_hx,jdisc_hy,jdisc_hz,jdisc_drift,impulse_var_defect_norm,impulse_var_metric_cos,impulse_var_metric_scale,impulse_var_pressure_cos,impulse_var_pressure_scale"
+            ",impulse_global_p_drift,impulse_global_h_drift,impulse_body_p_drift_max,impulse_body_h_drift_max,impulse_pair_metric_pairs,impulse_pair_metric_load_norm,jdisc_px,jdisc_py,jdisc_pz,jdisc_hx,jdisc_hy,jdisc_hz,jdisc_drift,impulse_var_defect_norm,impulse_var_metric_cos,impulse_var_metric_scale,impulse_var_pressure_cos,impulse_var_pressure_scale,impulse_var_pair_cos,impulse_var_pair_scale"
         )?;
         writeln!(writer)
     }
@@ -287,15 +289,17 @@ impl Rk4PCDM {
         if self.impulse_variational_defect_out {
             write!(
                 writer,
-                ", {}, {}, {}, {}, {}",
+                ", {}, {}, {}, {}, {}, {}, {}",
                 self.impulse_variational_defect_last_norm,
                 self.impulse_variational_defect_last_metric_cos,
                 self.impulse_variational_defect_last_metric_scale,
                 self.impulse_variational_defect_last_pressure_cos,
-                self.impulse_variational_defect_last_pressure_scale
+                self.impulse_variational_defect_last_pressure_scale,
+                self.impulse_variational_defect_last_pair_cos,
+                self.impulse_variational_defect_last_pair_scale
             )?;
         } else {
-            write!(writer, ", NaN, NaN, NaN, NaN, NaN")?;
+            write!(writer, ", NaN, NaN, NaN, NaN, NaN, NaN, NaN")?;
         }
         writeln!(writer)
     }

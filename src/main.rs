@@ -889,6 +889,11 @@ fn main() {
                     stepper.impulse_variational_defect_last_pressure_cos,
                     stepper.impulse_variational_defect_last_pressure_scale
                 );
+                println!(
+                    "  Defect vs pair-metric cos/scale:    {:.6e} / {:.6e}",
+                    stepper.impulse_variational_defect_last_pair_cos,
+                    stepper.impulse_variational_defect_last_pair_scale
+                );
             }
             println!(
                 "  CPU cores:         {} available, {} Rayon worker thread(s)",

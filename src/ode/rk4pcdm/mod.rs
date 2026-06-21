@@ -140,6 +140,8 @@ pub struct Rk4PCDM {
     pub impulse_variational_defect_last_metric_scale: f64,
     pub impulse_variational_defect_last_pressure_cos: f64,
     pub impulse_variational_defect_last_pressure_scale: f64,
+    pub impulse_variational_defect_last_pair_cos: f64,
+    pub impulse_variational_defect_last_pair_scale: f64,
     pub impulse_global_p_drift_last: f64,
     pub impulse_global_h_drift_last: f64,
     pub impulse_body_p_drift_max_last: f64,
@@ -425,6 +427,8 @@ impl Rk4PCDM {
             impulse_variational_defect_last_metric_scale: f64::NAN,
             impulse_variational_defect_last_pressure_cos: f64::NAN,
             impulse_variational_defect_last_pressure_scale: f64::NAN,
+            impulse_variational_defect_last_pair_cos: f64::NAN,
+            impulse_variational_defect_last_pair_scale: f64::NAN,
             impulse_global_p_drift_last: f64::NAN,
             impulse_global_h_drift_last: f64::NAN,
             impulse_body_p_drift_max_last: f64::NAN,
@@ -1627,13 +1631,15 @@ impl Rk4PCDM {
             self.impulse_variational_defect_last_metric_scale = f64::NAN;
             self.impulse_variational_defect_last_pressure_cos = f64::NAN;
             self.impulse_variational_defect_last_pressure_scale = f64::NAN;
+            self.impulse_variational_defect_last_pair_cos = f64::NAN;
+            self.impulse_variational_defect_last_pair_scale = f64::NAN;
             return;
         };
 
-        // Forced DEL would be R + dt Q = 0, so this is the generalized
+        // Forced DEL is written here as R - dt Q = 0, so this is the generalized
         // configuration force that would make the accepted impulse endpoint
         // variationally balanced for this step.
-        let target = -residual / self.step_size.max(1.0e-12);
+        let target = residual / self.step_size.max(1.0e-12);
         let target_norm = target.norm();
 
         let (mut metric_force, mut metric_torque) =
@@ -1641,6 +1647,8 @@ impl Rk4PCDM {
         self.solver.set_state(end);
         let _ = self.solver.impulse();
         let (mut pressure_force, mut pressure_torque) = self.solver.quadratic_pressure_load();
+        let (mut pair_force, mut pair_torque, _pair_count) =
+            self.impulse_pair_metric_gradient(start, end);
 
         if self.impulse_internal_load_constraint {
             self.enforce_internal_load_constraint(
@@ -1653,12 +1661,19 @@ impl Rk4PCDM {
                 &mut pressure_force,
                 &mut pressure_torque,
             );
+            self.enforce_internal_load_constraint(
+                &midpoint.lin.0,
+                &mut pair_force,
+                &mut pair_torque,
+            );
         }
 
         let metric = self.generalized_load_vector(&metric_force, &metric_torque);
         let pressure = self.generalized_load_vector(&pressure_force, &pressure_torque);
+        let pair = self.generalized_load_vector(&pair_force, &pair_torque);
         let (metric_cos, metric_scale) = Self::vector_alignment(&target, &metric);
         let (pressure_cos, pressure_scale) = Self::vector_alignment(&target, &pressure);
+        let (pair_cos, pair_scale) = Self::vector_alignment(&target, &pair);
 
         self.impulse_variational_defect_probe_count += 1;
         self.impulse_variational_defect_last_norm = target_norm;
@@ -1670,6 +1685,8 @@ impl Rk4PCDM {
         self.impulse_variational_defect_last_metric_scale = metric_scale;
         self.impulse_variational_defect_last_pressure_cos = pressure_cos;
         self.impulse_variational_defect_last_pressure_scale = pressure_scale;
+        self.impulse_variational_defect_last_pair_cos = pair_cos;
+        self.impulse_variational_defect_last_pair_scale = pair_scale;
         self.impulse_variational_defect_out = true;
 
         self.solver.set_state(end);

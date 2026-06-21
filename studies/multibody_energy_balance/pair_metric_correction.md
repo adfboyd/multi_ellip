@@ -146,6 +146,24 @@ action reference, rather than merely improving an energy number in isolation.
 It is still not a complete replacement for the variational method, because the
 separation error remains significant by `t=0.5`.
 
+The variational-defect probe also reports how the reduced pair load aligns with
+the expensive forced-discrete-Euler-Lagrange residual. This diagnostic uses
+`R - dt Q = 0`, so a positive pair scale should give positive alignment when
+the pair load is correcting the missing variational force. In a two-step
+`t=0.05` close-pair smoke run:
+
+| run | defect vs pair load cos | fitted pair scale |
+|---|---:|---:|
+| uncorrected impulse endpoint | `7.20e-1` | `9.84e-1` |
+| scale-1 pair-corrected endpoint | `1.39e-1` | `1.45e-1` |
+
+This is an important consistency check: before correction, the pair load
+explains a large part of the missing variational generalized force with a scale
+close to the derived value `1.0`; after applying it, the remaining variational
+defect is much less pair-like. That supports the pair correction as the right
+low-cost first closure term and points the remaining error toward missing
+many-body and/or rotational terms rather than a sign error.
+
 ## Interpretation
 
 The translational pair metric force has the right sign: positive scale reduces
