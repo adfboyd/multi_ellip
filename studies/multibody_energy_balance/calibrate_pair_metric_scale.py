@@ -152,6 +152,13 @@ def rms(errors: list[float]) -> float:
     return math.sqrt(sum(e * e for e in errors) / max(1, len(errors)))
 
 
+def rms_norm(values: list[tuple[float, float, float]]) -> float:
+    return math.sqrt(
+        sum(sum(component * component for component in value) for value in values)
+        / max(1, len(values))
+    )
+
+
 def separation(row: dict[str, str], ids: list[int]) -> float:
     if len(ids) < 2:
         return float("nan")
@@ -241,36 +248,66 @@ def compare_run(
     label: str,
     scale: float,
     angular_scale: float,
+    score_weights: dict[str, float],
     run_rows: list[dict[str, str]],
     ref_rows: list[dict[str, str]],
     log_path: Path,
     run_dir: Path,
 ) -> dict[str, object]:
+    ref_initial = ref_rows[0]
     run_final = run_rows[-1]
     ref_final = ref_rows[-1]
     ids = body_ids(ref_final)
     pos_errors = [dist(vec(run_final, "p", body), vec(ref_final, "p", body)) for body in ids]
     vel_errors = [dist(vec(run_final, "v", body), vec(ref_final, "v", body)) for body in ids]
     omega_errors = [dist(vec(run_final, "w", body), vec(ref_final, "w", body)) for body in ids]
+    ref_displacements = [
+        tuple(a - b for a, b in zip(vec(ref_final, "p", body), vec(ref_initial, "p", body)))
+        for body in ids
+    ]
+    ref_velocities = [vec(ref_final, "v", body) for body in ids]
+    ref_omegas = [vec(ref_final, "w", body) for body in ids]
     max_abs_ke, final_ke = max_ke_drift(run_rows)
     sep = separation(run_final, ids)
     sep_ref = separation(ref_final, ids)
+    pos_scale = max(rms_norm(ref_displacements), 1.0)
+    vel_scale = max(rms_norm(ref_velocities), 1.0)
+    omega_scale = max(rms_norm(ref_omegas), 1.0)
+    sep_scale = max(abs(sep_ref - separation(ref_initial, ids)), 1.0)
+    max_body_h = max_body_h_span(run_rows, ids)
+    score_terms = {
+        "pos": rms(pos_errors) / pos_scale,
+        "vel": rms(vel_errors) / vel_scale,
+        "omega": rms(omega_errors) / omega_scale,
+        "sep": abs(sep - sep_ref) / sep_scale,
+        "ke": max_abs_ke / 100.0,
+        "body_h": max_body_h,
+    }
+    score = math.sqrt(
+        sum(score_weights[key] * value * value for key, value in score_terms.items())
+        / max(sum(score_weights.values()), sys.float_info.epsilon)
+    )
     out: dict[str, object] = {
         "label": label,
         "scale": scale,
         "angular_scale": angular_scale,
         "t_final": f(run_final, "time"),
+        "score": score,
         "pos_rms": rms(pos_errors),
+        "pos_norm": score_terms["pos"],
         "vel_rms": rms(vel_errors),
+        "vel_norm": score_terms["vel"],
         "omega_rms": rms(omega_errors),
+        "omega_norm": score_terms["omega"],
         "sep": sep,
         "sep_ref": sep_ref,
         "sep_err": sep - sep_ref,
+        "sep_norm": score_terms["sep"],
         "max_abs_ke_drift_pct": max_abs_ke,
         "final_ke_drift_pct": final_ke,
         "max_global_p_span_rel": max_global_span(run_rows, ids, "pcon"),
         "max_global_h_span_rel": max_global_span(run_rows, ids, "hcon"),
-        "max_body_h_span_rel": max_body_h_span(run_rows, ids),
+        "max_body_h_span_rel": max_body_h,
         "max_body_h_column": max_column(run_rows, "impulse_body_h_drift_max"),
         "run_dir": str(run_dir.relative_to(ROOT)),
     }
@@ -296,6 +333,12 @@ def main() -> int:
     )
     parser.add_argument("--scales", nargs="+", type=float, default=[1.0, 1.3, 1.4, 1.5])
     parser.add_argument("--angular-scale", type=float, default=0.0)
+    parser.add_argument("--score-pos-weight", type=float, default=1.0)
+    parser.add_argument("--score-vel-weight", type=float, default=0.25)
+    parser.add_argument("--score-omega-weight", type=float, default=0.0)
+    parser.add_argument("--score-sep-weight", type=float, default=1.0)
+    parser.add_argument("--score-ke-weight", type=float, default=0.05)
+    parser.add_argument("--score-body-h-weight", type=float, default=0.05)
     parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--skip-build", action="store_true")
@@ -320,6 +363,14 @@ def main() -> int:
         raise SystemExit(f"release binary not found: {exe}")
 
     base = read_input(base_input)
+    score_weights = {
+        "pos": args.score_pos_weight,
+        "vel": args.score_vel_weight,
+        "omega": args.score_omega_weight,
+        "sep": args.score_sep_weight,
+        "ke": args.score_ke_weight,
+        "body_h": args.score_body_h_weight,
+    }
     rows: list[dict[str, object]] = []
     for label, ref_path_raw in refs:
         ref_path = ref_path_raw if ref_path_raw.is_absolute() else ROOT / ref_path_raw
@@ -337,7 +388,18 @@ def main() -> int:
                 raise RuntimeError(
                     f"{run_dir} ended at t={f(run_rows[-1], 'time')}, expected snapped t={tend_run}"
                 )
-            rows.append(compare_run(label, scale, args.angular_scale, run_rows, ref_rows, log_path, run_dir))
+            rows.append(
+                compare_run(
+                    label,
+                    scale,
+                    args.angular_scale,
+                    score_weights,
+                    run_rows,
+                    ref_rows,
+                    log_path,
+                    run_dir,
+                )
+            )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="\n") as f_out:
@@ -347,15 +409,24 @@ def main() -> int:
 
     print(f"\nSaved {out_path.relative_to(ROOT)}")
     print(
-        f"{'label':<8}{'scale':>8}{'pos rms':>12}{'vel rms':>12}"
+        f"{'label':<8}{'scale':>8}{'score':>10}{'pos rms':>12}{'vel rms':>12}"
         f"{'sep err':>12}{'max KE%':>10}{'mean step':>11}"
     )
     for row in rows:
         print(
             f"{str(row['label']):<8}{float(row['scale']):>8.3g}"
+            f"{float(row['score']):>10.4g}"
             f"{float(row['pos_rms']):>12.4g}{float(row['vel_rms']):>12.4g}"
             f"{float(row['sep_err']):>12.4g}{float(row['max_abs_ke_drift_pct']):>10.4g}"
             f"{float(row['mean_time_per_step']):>11.4g}"
+        )
+    print("\nBest score by reference")
+    labels = sorted({str(row["label"]) for row in rows})
+    for label in labels:
+        best = min((row for row in rows if row["label"] == label), key=lambda row: float(row["score"]))
+        print(
+            f"  {label}: scale {float(best['scale']):.4g}, score {float(best['score']):.4g}, "
+            f"sep_err {float(best['sep_err']):.4g}, max_KE {float(best['max_abs_ke_drift_pct']):.4g}%"
         )
     return 0
 

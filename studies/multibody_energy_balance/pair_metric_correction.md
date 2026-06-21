@@ -233,3 +233,32 @@ around `1.3--1.4` is the best current reduced approximation in this close-pair
 test. For strict conservation diagnostics, the derived scale `1.0` is still the
 more defensible default because it has lower per-body angular drift and follows
 directly from the pair discrete-gradient work identity.
+
+The calibration can now be reproduced with:
+
+```text
+python studies/multibody_energy_balance/calibrate_pair_metric_scale.py --skip-build --scales 0.8 1.0 1.2 1.3 1.35 1.4 1.45 1.5 1.6
+```
+
+The script writes a local ignored CSV and reports a normalized score combining
+position error, velocity error, separation error, KE drift, and per-body
+angular impulse drift. With the default weights, the finer sweep gives:
+
+| reference horizon | best linear scale | score | final sep error | max KE drift |
+|---:|---:|---:|---:|---:|
+| `t=0.25` | `1.2` | `2.21e-2` | `-6.78e-4` | `1.718%` |
+| `t=0.50` | `1.4` | `3.81e-2` | `-5.72e-3` | `4.816%` |
+
+This is useful but not a proof of a universal closure. The optimum moving from
+about `1.2` at `t=0.25` to about `1.4` at `t=0.50` says the pairwise
+translation-only closure is still missing part of the full variational action,
+probably higher-order many-body and rotational metric terms. The practical
+reduced-model guidance is therefore:
+
+- use scale `1.0` for the physically derived pair work identity and cleaner
+  conservation diagnostics;
+- use scale `1.3--1.4` when the priority is closer short-time agreement with
+  the expensive variational reference in close-contact two-body dynamics;
+- do not treat any single calibrated scale as validated outside this regime
+  until a matching variational reference has been run for that geometry,
+  density, separation, and mesh.
