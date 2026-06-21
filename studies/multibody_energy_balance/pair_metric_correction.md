@@ -97,6 +97,24 @@ After adding the translational discrete-gradient mode:
 Far-pair cutoff check with `sep=8`, `cutoff=4`: zero active pairs, identical
 energy/momentum diagnostics, and negligible overhead.
 
+Short timestep check, same close case to `t=2`, using discrete-gradient scale
+`1.0`:
+
+| dt | run | max KE drift | final KE drift | final sep | max global H drift | max per-body H drift |
+|---:|---|---:|---:|---:|---:|---:|
+| 0.0500 | baseline | 10.57% | 10.36% | 3.69 | 3.90e-2 | 1.70e-2 |
+| 0.0500 | pair DG | 8.05% | 8.02% | 5.59 | 4.17e-2 | 1.35e-1 |
+| 0.0250 | baseline | 10.41% | 10.21% | 3.70 | 9.78e-3 | 4.29e-3 |
+| 0.0250 | pair DG | 7.94% | 7.94% | 5.55 | 1.04e-2 | 1.32e-1 |
+| 0.0125 | baseline | 10.37% | 10.18% | 3.71 | 2.45e-3 | 1.08e-3 |
+| 0.0125 | pair DG | 7.95% | 7.95% | 5.53 | 2.59e-3 | 1.30e-1 |
+
+The correction reduces the dt-invariant energy drift by roughly one quarter in
+this case. The remaining drift is still essentially timestep-independent, so
+the reduced pair term does not fully replace the global action formulation. The
+larger final separation is also a real dynamical change, not a harmless output
+diagnostic change.
+
 ## Interpretation
 
 The translational pair metric force has the right sign: positive scale reduces
