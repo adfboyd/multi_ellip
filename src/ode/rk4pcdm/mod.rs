@@ -2870,7 +2870,7 @@ impl Rk4PCDM {
         }
 
         self.solver.set_state(end);
-        let _ = self.solver.impulse();
+        let _ = self.solver.kinetic_energy_only();
         (force, torque, active_pairs)
     }
 

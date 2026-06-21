@@ -53,3 +53,25 @@ Representative per-step cosine/scale values:
 So the existing correction vectors do not provide a stable physical
 sign/scale. Turning them on directly would be another projection-like patch, not
 a determined multibody impulse model.
+
+## Refreshing the pair metric force every fixed-point iteration
+
+The pair discrete-gradient correction is currently evaluated once per step and
+then held fixed through the endpoint fixed-point solve. A more literal reduced
+action residual would refresh that pair force at the current endpoint on every
+fixed-point iteration, but this is much more expensive because each active pair
+adds two BEM energy solves per refresh.
+
+For the close spheroid `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
+`dt=0.025`, `t=0.5` probe:
+
+| pair metric evaluation | mean step | final KE drift | final separation |
+|---|---:|---:|---:|
+| frozen once per step | `0.1237 s` | `4.594%` | `3.2866` |
+| refreshed every FP iteration | `0.3937 s` | `4.648%` | `3.2798` |
+
+The variational reference final separation for the same short case is about
+`3.417`. Refreshing the pair force therefore costs roughly three times more
+without improving either energy drift or trajectory agreement. The frozen
+single evaluation remains the better reduced approximation unless a different
+pair force derivation is introduced.

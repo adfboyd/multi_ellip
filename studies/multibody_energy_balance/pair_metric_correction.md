@@ -160,13 +160,14 @@ The relative-rotation finite-difference component is not reliable yet; it can
 damage angular-momentum diagnostics and worsen energy drift. For that reason
 the current default leaves `impulse_pair_metric_angular_scale=0`.
 
-The pair finite-difference samples use the BEM `EnergyOnly` path, not a full
-impulse quadrature, because the reduced metric force needs only the fluid
-kinetic energy at the sampled configurations. In the close `t=5`, `dt=0.025`
-scale-1 probe this preserved the output file bit-for-bit while changing the
-mean runtime from `0.1084 s/step` to `0.1072 s/step`. The small gain confirms
-that the BEM solve itself dominates this path; avoiding the extra surface
-quadrature is still the cleaner implementation.
+The pair finite-difference samples, including the final end-state KE restore,
+use the BEM `EnergyOnly` path, not a full impulse quadrature, because the
+reduced metric force needs only the fluid kinetic energy at the sampled
+configurations. In the close `t=5`, `dt=0.025` scale-1 probe this preserved the
+output file bit-for-bit while changing the mean runtime from `0.1084 s/step` to
+`0.1056 s/step`. The small speed gain confirms that the BEM solve itself
+dominates this path; avoiding the extra surface quadrature is still the cleaner
+implementation.
 
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
