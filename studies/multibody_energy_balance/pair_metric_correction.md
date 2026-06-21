@@ -177,6 +177,12 @@ the same close scale-1 probe the cache gave `199 / 1` start cache hits/direct
 solves and preserved the output file bit-for-bit while reducing the clean mean
 runtime further to `0.0980 s/step`.
 
+If no pair actually samples an offset state (for example after all pairs have
+moved outside the cutoff), the pair helper now skips the final end-state KE
+restore solve. The solver is already at the accepted end-state impulse solve in
+that case. This also preserved the output file bit-for-bit and reduced the same
+clean probe to `0.0926 s/step`.
+
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
 forces can reduce the impulse energy drift without using projection.

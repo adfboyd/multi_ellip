@@ -2781,6 +2781,7 @@ impl Rk4PCDM {
             Vector3::new(0.0, 0.0, 1.0),
         ];
         let mut active_pairs = 0usize;
+        let mut sampled_state = false;
 
         for a in 0..self.nbody {
             let xa = Vector3::new(pos_mid[3 * a], pos_mid[3 * a + 1], pos_mid[3 * a + 2]);
@@ -2796,6 +2797,7 @@ impl Rk4PCDM {
                 match self.impulse_pair_metric_mode {
                     PairMetricMode::PointGradient => {
                         let h_pos = eps * sep.max(1.0);
+                        sampled_state = true;
                         for c in 0..3 {
                             let mut p_plus = pos_mid.clone();
                             p_plus[3 * a + c] -= 0.5 * h_pos;
@@ -2833,6 +2835,7 @@ impl Rk4PCDM {
                         let delta_r = r_end - r_start;
                         let denom = delta_r.dot(&delta_r);
                         if denom > 1.0e-24 {
+                            sampled_state = true;
                             let state_start_pair = self.pair_relative_translation_state(
                                 &midpoint,
                                 a,
@@ -2859,6 +2862,7 @@ impl Rk4PCDM {
                 if self.impulse_pair_metric_angular_scale == 0.0 {
                     continue;
                 }
+                sampled_state = true;
                 for c in 0..3 {
                     let h_rot = eps;
                     let dq_plus_b = UnitQuaternion::from_scaled_axis(0.5 * h_rot * axes[c]);
@@ -2900,8 +2904,10 @@ impl Rk4PCDM {
             }
         }
 
-        self.solver.set_state(end);
-        let _ = self.solver.kinetic_energy_only();
+        if sampled_state {
+            self.solver.set_state(end);
+            let _ = self.solver.kinetic_energy_only();
+        }
         (force, torque, active_pairs)
     }
 
