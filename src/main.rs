@@ -206,7 +206,18 @@ fn main() {
         fluid_energy_gradient_scale,
     );
     let impulse_pair_metric_correction = get("impulse_pair_metric_correction", 0.0) > 0.5;
+    let impulse_pair_metric_mode = get("impulse_pair_metric_mode", 1.0).max(0.0) as usize;
     let impulse_pair_metric_cutoff = get("impulse_pair_metric_cutoff", 0.0).max(0.0);
+    let impulse_pair_metric_inner_cutoff = get(
+        "impulse_pair_metric_inner_cutoff",
+        impulse_pair_metric_cutoff,
+    )
+    .max(0.0);
+    let impulse_pair_metric_outer_cutoff = get(
+        "impulse_pair_metric_outer_cutoff",
+        impulse_pair_metric_cutoff,
+    )
+    .max(0.0);
     let impulse_pair_metric_eps = get("impulse_pair_metric_eps", fluid_energy_gradient_eps);
     let impulse_pair_metric_scale = get("impulse_pair_metric_scale", 0.1);
     let impulse_pair_metric_linear_scale = get(
@@ -409,7 +420,10 @@ fn main() {
         fluid_energy_gradient_linear_scale,
         fluid_energy_gradient_angular_scale,
         impulse_pair_metric_correction,
+        impulse_pair_metric_mode,
         impulse_pair_metric_cutoff,
+        impulse_pair_metric_inner_cutoff,
+        impulse_pair_metric_outer_cutoff,
         impulse_pair_metric_eps,
         impulse_pair_metric_linear_scale,
         impulse_pair_metric_angular_scale,
@@ -604,13 +618,20 @@ fn main() {
         fmt_enabled(fluid_energy_discrete_gradient)
     );
     println!(
-        "  Impulse pair metric correction: {}  (cutoff = {}, eps = {}, linear scale = {}, angular scale = {})",
+        "  Impulse pair metric correction: {}  (mode = {}, cutoff = {}, inner/outer = {}/{}, eps = {}, linear scale = {}, angular scale = {})",
         fmt_enabled(impulse_pair_metric_correction),
+        if impulse_pair_metric_mode == 1 {
+            "discrete-gradient"
+        } else {
+            "point-gradient"
+        },
         if impulse_pair_metric_cutoff > 0.0 {
             impulse_pair_metric_cutoff.to_string()
         } else {
             "all pairs".to_string()
         },
+        impulse_pair_metric_inner_cutoff,
+        impulse_pair_metric_outer_cutoff,
         impulse_pair_metric_eps,
         impulse_pair_metric_linear_scale,
         impulse_pair_metric_angular_scale

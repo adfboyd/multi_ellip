@@ -46,6 +46,12 @@ pub enum CouplingScheme {
     Variational,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PairMetricMode {
+    PointGradient,
+    TranslationalDiscreteGradient,
+}
+
 pub struct Rk4PCDM {
     /// BEM fluid coupling: pushes body state, solves, returns impulse/force/KE.
     solver: BemSolver,
@@ -174,7 +180,10 @@ pub struct Rk4PCDM {
     fluid_energy_gradient_linear_scale: f64,
     fluid_energy_gradient_angular_scale: f64,
     impulse_pair_metric_correction: bool,
+    impulse_pair_metric_mode: PairMetricMode,
     impulse_pair_metric_cutoff: f64,
+    impulse_pair_metric_inner_cutoff: f64,
+    impulse_pair_metric_outer_cutoff: f64,
     impulse_pair_metric_eps: f64,
     impulse_pair_metric_linear_scale: f64,
     impulse_pair_metric_angular_scale: f64,
@@ -288,7 +297,10 @@ impl Rk4PCDM {
         fluid_energy_gradient_linear_scale: f64,
         fluid_energy_gradient_angular_scale: f64,
         impulse_pair_metric_correction: bool,
+        impulse_pair_metric_mode: usize,
         impulse_pair_metric_cutoff: f64,
+        impulse_pair_metric_inner_cutoff: f64,
+        impulse_pair_metric_outer_cutoff: f64,
         impulse_pair_metric_eps: f64,
         impulse_pair_metric_linear_scale: f64,
         impulse_pair_metric_angular_scale: f64,
@@ -426,7 +438,14 @@ impl Rk4PCDM {
             fluid_energy_gradient_linear_scale,
             fluid_energy_gradient_angular_scale,
             impulse_pair_metric_correction,
+            impulse_pair_metric_mode: if impulse_pair_metric_mode == 1 {
+                PairMetricMode::TranslationalDiscreteGradient
+            } else {
+                PairMetricMode::PointGradient
+            },
             impulse_pair_metric_cutoff,
+            impulse_pair_metric_inner_cutoff,
+            impulse_pair_metric_outer_cutoff,
             impulse_pair_metric_eps,
             impulse_pair_metric_linear_scale,
             impulse_pair_metric_angular_scale,
@@ -2715,10 +2734,11 @@ impl Rk4PCDM {
         }
 
         let midpoint = self.midpoint_state_from_endpoint(start, end);
+        let (pos_start, _) = &start.lin;
+        let (pos_end, _) = &end.lin;
         let (pos_mid, vel_mid) = &midpoint.lin;
         let (q_mid, omega_mid) = &midpoint.ang;
         let eps = self.impulse_pair_metric_eps.abs().max(1.0e-6);
-        let cutoff = self.impulse_pair_metric_cutoff;
         let axes = [
             Vector3::new(1.0, 0.0, 0.0),
             Vector3::new(0.0, 1.0, 0.0),
@@ -2731,35 +2751,78 @@ impl Rk4PCDM {
             for b in (a + 1)..self.nbody {
                 let xb = Vector3::new(pos_mid[3 * b], pos_mid[3 * b + 1], pos_mid[3 * b + 2]);
                 let sep = (xb - xa).norm();
-                if cutoff > 0.0 && sep > cutoff {
+                let weight = self.impulse_pair_metric_weight(sep);
+                if weight <= 0.0 {
                     continue;
                 }
                 active_pairs += 1;
 
-                let h_pos = eps * sep.max(1.0);
-                for c in 0..3 {
-                    let mut p_plus = pos_mid.clone();
-                    p_plus[3 * a + c] -= 0.5 * h_pos;
-                    p_plus[3 * b + c] += 0.5 * h_pos;
-                    let state_plus = BodyState {
-                        lin: (p_plus, vel_mid.clone()),
-                        ang: (q_mid.clone(), omega_mid.clone()),
-                    };
-                    let ke_plus = self.fluid_ke_for_state(&state_plus);
+                match self.impulse_pair_metric_mode {
+                    PairMetricMode::PointGradient => {
+                        let h_pos = eps * sep.max(1.0);
+                        for c in 0..3 {
+                            let mut p_plus = pos_mid.clone();
+                            p_plus[3 * a + c] -= 0.5 * h_pos;
+                            p_plus[3 * b + c] += 0.5 * h_pos;
+                            let state_plus = BodyState {
+                                lin: (p_plus, vel_mid.clone()),
+                                ang: (q_mid.clone(), omega_mid.clone()),
+                            };
+                            let ke_plus = self.fluid_ke_for_state(&state_plus);
 
-                    let mut p_minus = pos_mid.clone();
-                    p_minus[3 * a + c] += 0.5 * h_pos;
-                    p_minus[3 * b + c] -= 0.5 * h_pos;
-                    let state_minus = BodyState {
-                        lin: (p_minus, vel_mid.clone()),
-                        ang: (q_mid.clone(), omega_mid.clone()),
-                    };
-                    let ke_minus = self.fluid_ke_for_state(&state_minus);
-                    let grad = (ke_plus - ke_minus) / (2.0 * h_pos);
-                    force[3 * a + c] -= grad;
-                    force[3 * b + c] += grad;
+                            let mut p_minus = pos_mid.clone();
+                            p_minus[3 * a + c] += 0.5 * h_pos;
+                            p_minus[3 * b + c] -= 0.5 * h_pos;
+                            let state_minus = BodyState {
+                                lin: (p_minus, vel_mid.clone()),
+                                ang: (q_mid.clone(), omega_mid.clone()),
+                            };
+                            let ke_minus = self.fluid_ke_for_state(&state_minus);
+                            let grad = weight * (ke_plus - ke_minus) / (2.0 * h_pos);
+                            force[3 * a + c] -= grad;
+                            force[3 * b + c] += grad;
+                        }
+                    }
+                    PairMetricMode::TranslationalDiscreteGradient => {
+                        let r_start = Vector3::new(
+                            pos_start[3 * b] - pos_start[3 * a],
+                            pos_start[3 * b + 1] - pos_start[3 * a + 1],
+                            pos_start[3 * b + 2] - pos_start[3 * a + 2],
+                        );
+                        let r_end = Vector3::new(
+                            pos_end[3 * b] - pos_end[3 * a],
+                            pos_end[3 * b + 1] - pos_end[3 * a + 1],
+                            pos_end[3 * b + 2] - pos_end[3 * a + 2],
+                        );
+                        let delta_r = r_end - r_start;
+                        let denom = delta_r.dot(&delta_r);
+                        if denom > 1.0e-24 {
+                            let state_start_pair = self.pair_relative_translation_state(
+                                &midpoint,
+                                a,
+                                b,
+                                r_start - (xb - xa),
+                            );
+                            let ke_start = self.fluid_ke_for_state(&state_start_pair);
+                            let state_end_pair = self.pair_relative_translation_state(
+                                &midpoint,
+                                a,
+                                b,
+                                r_end - (xb - xa),
+                            );
+                            let ke_end = self.fluid_ke_for_state(&state_end_pair);
+                            let grad_vec = weight * (ke_end - ke_start) / denom * delta_r;
+                            for c in 0..3 {
+                                force[3 * a + c] -= grad_vec[c];
+                                force[3 * b + c] += grad_vec[c];
+                            }
+                        }
+                    }
                 }
 
+                if self.impulse_pair_metric_angular_scale == 0.0 {
+                    continue;
+                }
                 for c in 0..3 {
                     let h_rot = eps;
                     let dq_plus_b = UnitQuaternion::from_scaled_axis(0.5 * h_rot * axes[c]);
@@ -2794,7 +2857,7 @@ impl Rk4PCDM {
                         ang: (q_minus, omega_mid.clone()),
                     };
                     let ke_minus = self.fluid_ke_for_state(&state_minus);
-                    let grad = (ke_plus - ke_minus) / (2.0 * h_rot);
+                    let grad = weight * (ke_plus - ke_minus) / (2.0 * h_rot);
                     torque[3 * a + c] -= grad;
                     torque[3 * b + c] += grad;
                 }
@@ -2804,6 +2867,51 @@ impl Rk4PCDM {
         self.solver.set_state(end);
         let _ = self.solver.impulse();
         (force, torque, active_pairs)
+    }
+
+    fn pair_relative_translation_state(
+        &self,
+        state: &BodyState,
+        a: usize,
+        b: usize,
+        delta_relative: Vector3<f64>,
+    ) -> BodyState {
+        let mut out = state.clone();
+        for c in 0..3 {
+            out.lin.0[3 * a + c] -= 0.5 * delta_relative[c];
+            out.lin.0[3 * b + c] += 0.5 * delta_relative[c];
+        }
+        out
+    }
+
+    fn impulse_pair_metric_weight(&self, sep: f64) -> f64 {
+        let legacy_cutoff = self.impulse_pair_metric_cutoff;
+        let mut inner = self.impulse_pair_metric_inner_cutoff;
+        let mut outer = self.impulse_pair_metric_outer_cutoff;
+        if inner <= 0.0 && outer <= 0.0 && legacy_cutoff <= 0.0 {
+            return 1.0;
+        }
+        if inner <= 0.0 {
+            inner = legacy_cutoff;
+        }
+        if outer <= 0.0 {
+            outer = legacy_cutoff;
+        }
+        if outer < inner {
+            std::mem::swap(&mut inner, &mut outer);
+        }
+        if outer <= 0.0 {
+            return 1.0;
+        }
+        if sep <= inner {
+            return 1.0;
+        }
+        if sep >= outer {
+            return 0.0;
+        }
+        let s = (sep - inner) / (outer - inner).max(1.0e-12);
+        let smooth = s * s * (3.0 - 2.0 * s);
+        1.0 - smooth
     }
 
     fn project_step_energy_preserving_impulse(&mut self, target_ke: f64, target: &DVector<f64>) {

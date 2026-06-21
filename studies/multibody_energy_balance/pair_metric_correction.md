@@ -6,9 +6,15 @@ multibody impulse scheme. It is disabled by default.
 ## Input flags
 
 - `impulse_pair_metric_correction=1`: enable the correction.
-- `impulse_pair_metric_cutoff=<distance>`: only correct body pairs whose
-  midpoint centre distance is below this value. A non-positive value means all
-  pairs.
+- `impulse_pair_metric_mode=0`: old local point-gradient mode.
+- `impulse_pair_metric_mode=1`: translational discrete-gradient mode
+  (current default).
+- `impulse_pair_metric_cutoff=<distance>`: legacy hard cutoff. Used when
+  `inner/outer` are not supplied. A non-positive value means all pairs.
+- `impulse_pair_metric_inner_cutoff=<distance>` and
+  `impulse_pair_metric_outer_cutoff=<distance>`: smoothstep pair weighting.
+  Weight is one below the inner cutoff, zero above the outer cutoff, and smooth
+  in between.
 - `impulse_pair_metric_eps=<eps>`: central-difference perturbation size.
 - `impulse_pair_metric_linear_scale=<scale>`: scale for the relative-translation
   metric force. Default when enabled through the common scale is `0.1`.
@@ -35,6 +41,29 @@ The gradient is deliberately lagged for the whole timestep. Recomputing it at
 every impulse fixed-point iterate would multiply the cost by roughly the fixed
 point iteration count and is not a useful reduced model.
 
+In `mode=1`, the translational load uses a pairwise discrete-gradient identity
+instead of a local point gradient. For a pair `a,b`,
+
+```text
+r_n   = x_b,n   - x_a,n
+r_np1 = x_b,n+1 - x_a,n+1
+dr    = r_np1 - r_n
+Q_ab  = w_ab * (K_f(r_np1) - K_f(r_n)) / |dr|^2 * dr
+```
+
+where `K_f` is evaluated at fixed midpoint velocity/orientation with only the
+pair relative separation changed. The body loads are then
+
+```text
+F_a -= Q_ab
+F_b += Q_ab
+```
+
+This is cheaper than the point-gradient mode because it needs two extra BEM
+evaluations per active pair when the angular scale is zero. The angular pair
+finite-difference path is still present for diagnostics, but remains disabled by
+default.
+
 ## Initial close-contact tests
 
 Case: spheroids `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
@@ -50,16 +79,31 @@ Case: spheroids `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
 | linear scale 0.1 | 5 | 10.77% | 10.73% | 7.34 | 1.82e-2 | 0.139 s |
 | common linear/angular scale -0.1 | 5 | 18.49% | 18.49% | 4.16 | 2.25e-2 | 0.208 s |
 
+After adding the translational discrete-gradient mode:
+
+| run | t_end | max KE drift | final KE drift | final sep | max global H drift | max per-body H drift | mean step |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 1 | 8.27% | 8.27% | 3.20 | 6.35e-3 | 2.65e-3 | 0.100 s |
+| point gradient, linear 0.1 | 1 | 7.42% | 7.42% | 3.35 | 6.21e-3 | 5.51e-2 | about 0.12 s |
+| discrete gradient, linear 0.1 | 1 | 7.81% | 7.81% | 3.27 | 6.26e-3 | 1.80e-2 | about 0.11 s |
+| baseline | 5 | 12.21% | 12.18% | 6.03 | 1.93e-2 | 1.09e-2 | 0.0975 s |
+| point gradient, linear 0.1 | 5 | 10.77% | 10.73% | 7.34 | 1.82e-2 | 8.59e-2 | 0.1222 s |
+| discrete gradient, linear 0.1 | 5 | 11.44% | 11.36% | 6.58 | 1.86e-2 | 2.64e-2 | 0.1117 s |
+| discrete gradient, smooth 3.5/4.5 | 5 | 11.45% | 11.37% | 6.58 | 1.86e-2 | 2.77e-2 | 0.1201 s |
+
 Far-pair cutoff check with `sep=8`, `cutoff=4`: zero active pairs, identical
 energy/momentum diagnostics, and negligible overhead.
 
 ## Interpretation
 
 The translational pair metric force has the right broad energy direction in the
-close case, but the effect is modest and visibly changes the trajectory. The
-relative-rotation finite-difference component is not reliable yet; it can
-damage angular-momentum diagnostics and worsen energy drift. For that reason
-the current default leaves `impulse_pair_metric_angular_scale=0`.
+close case, but the effect remains modest and it changes the trajectory. The
+discrete-gradient form is less aggressive than the point-gradient form, but it
+has a better cost/diagnostic profile: lower per-body angular drift, smaller
+trajectory distortion, and lower runtime overhead. The relative-rotation
+finite-difference component is not reliable yet; it can damage angular-momentum
+diagnostics and worsen energy drift. For that reason the current default leaves
+`impulse_pair_metric_angular_scale=0`.
 
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
