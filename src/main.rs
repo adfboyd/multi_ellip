@@ -299,14 +299,7 @@ fn main() {
     let mut hamiltonian_coupled_broyden_update =
         get("hamiltonian_coupled_broyden_update", 0.0) > 0.5;
     if variational_scheme {
-        let variational_reuse_jacobian = get(
-            "variational_reuse_jacobian",
-            if hamiltonian_coupled_reuse_jacobian {
-                1.0
-            } else {
-                0.0
-            },
-        ) > 0.5;
+        let variational_reuse_jacobian = get("variational_reuse_jacobian", 1.0) > 0.5;
         let variational_default_interval = if variational_reuse_jacobian {
             hamiltonian_coupled_iters
         } else {
@@ -317,18 +310,11 @@ fn main() {
             variational_default_interval as f64,
         )
         .max(1.0) as usize;
-        hamiltonian_coupled_broyden_update = get(
-            "variational_broyden_update",
-            if hamiltonian_coupled_broyden_update {
-                1.0
-            } else {
-                0.0
-            },
-        ) > 0.5;
+        hamiltonian_coupled_broyden_update = get("variational_broyden_update", 1.0) > 0.5;
     }
     let variational_momentum_diagnostic = get("variational_momentum_diagnostic", 1.0) > 0.5;
     let variational_reuse_step_jacobian =
-        variational_scheme && get("variational_reuse_step_jacobian", 0.0) > 0.5;
+        variational_scheme && get("variational_reuse_step_jacobian", 1.0) > 0.5;
     let variational_energy_only_lagrangian =
         variational_scheme && get("variational_energy_only_lagrangian", 0.0) > 0.5;
     if variational_reuse_step_jacobian {

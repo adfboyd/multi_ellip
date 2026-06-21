@@ -348,3 +348,25 @@ therefore:
 - do not treat any single calibrated scale as validated outside this regime
   until a matching variational reference has been run for that geometry,
   density, separation, and mesh.
+
+## Variational reference cost reduction
+
+The fully variational midpoint solve remains the physically determined
+multibody reference, but finite-difference Newton Jacobians are expensive. The
+close three-body reference case, `1:0.7:0.7` spheroids at `rho=1`, `ndiv=2`,
+`dt=0.05`, `t_end=0.1`, was therefore rerun with the same residual equations
+but with Broyden Jacobian updates and cross-step Jacobian reuse.
+
+| solve strategy | mean step | wall time | Jacobian builds | final residual | discrete momentum drift |
+|---|---:|---:|---:|---:|---:|
+| full finite-difference Newton | `30.946 s` | `61 s` | `4` | `4.04e-11` | `2.66e-8` |
+| Broyden + step-Jacobian reuse | `5.954 s` | `28 s` | `1` | `4.10e-9` | `2.61e-8` |
+
+The numerical trajectory difference against the full Newton output was
+negligible for this reference: position RMS `1.03e-11`, velocity RMS
+`2.06e-10`, angular-velocity RMS `2.12e-10`, and max output-column difference
+`4.42e-9`. This makes Broyden/reuse the default variational solve strategy.
+The equations solved are unchanged; only the nonlinear linearisation strategy
+changes. Full finite-difference Newton can still be forced with
+`variational_reuse_step_jacobian=0`, `variational_reuse_jacobian=0`, and
+`variational_broyden_update=0`.

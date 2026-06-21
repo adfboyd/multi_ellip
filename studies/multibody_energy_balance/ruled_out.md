@@ -172,3 +172,24 @@ also slower:
 The likely reason is that the per-body block loop has better locality in the
 small dense matrices used by `dfdn_single`, while the copy cost is not dominant.
 The existing RHS path is kept.
+
+## Energy-only variational action samples as the default
+
+The variational midpoint residual can evaluate the discrete Lagrangian through
+`solver.kinetic_energy_only()` instead of `solver.impulse()`. This is
+algebraically valid for the current action evaluation because only the kinetic
+energy value is consumed, but it did not reduce runtime on the close three-body
+reference.
+
+For `rho=1`, three close `1:0.7:0.7` spheroids, `ndiv=2`, `dt=0.05`,
+`t_end=0.1`:
+
+| action evaluation | mean step | wall time | final residual | Jacobian builds | output |
+|---|---:|---:|---:|---:|---|
+| full impulse solve | `30.946 s` | `61 s` | `4.04e-11` | `4` | baseline |
+| KE-only solve | `39.795 s` | `78 s` | `4.04e-11` | `4` | byte-identical |
+
+The KE-only route is useful as a consistency check, but it is slower for this
+case, probably because the full impulse path leaves the BEM warm starts in a
+more favourable state. It remains available through
+`variational_energy_only_lagrangian=1`, but it should not be the default.
