@@ -193,3 +193,43 @@ validated pair-DG trajectory.
 This is not yet a production fix. It is a physically motivated reduced-action
 prototype that gives a controlled way to test whether close-contact metric
 forces can reduce the impulse energy drift without using projection.
+
+## Calibration against variational references
+
+The scale `1.0` follows from the reduced translational discrete-gradient work
+identity and remains the default. It is not necessarily the best reduced model
+for the full multibody variational trajectory, because the pair approximation
+omits higher-order many-body and rotational metric terms. A short calibration
+against the expensive variational reference therefore tested whether a single
+stronger translational pair scale can move the impulse solution closer to the
+fully determined solution without projection.
+
+Close spheroids `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
+`dt=0.025`, no projection:
+
+| t_end | linear scale | angular scale | position RMS vs variational | velocity RMS vs variational | final sep error | max KE drift | max per-body H drift |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.25 | 1.0 | 0.0 | `2.66e-2` | `1.82e-1` | `-2.01e-2` | `1.607%` | `2.17e-2` |
+| 0.25 | 1.3 | 0.0 | `2.60e-2` | `1.90e-1` | `+9.02e-3` | `1.779%` | `2.97e-2` |
+| 0.25 | 1.4 | 0.0 | `2.64e-2` | `1.97e-1` | `+1.87e-2` | `1.842%` | `3.25e-2` |
+| 0.50 | 1.0 | 0.0 | `7.56e-2` | `4.25e-1` | `-1.30e-1` | `4.594%` | `4.91e-2` |
+| 0.50 | 1.4 | 0.0 | `6.60e-2` | `3.81e-1` | `-5.72e-3` | `4.816%` | `8.05e-2` |
+| 0.50 | 1.5 | 0.0 | `6.65e-2` | `3.76e-1` | `+2.65e-2` | `4.892%` | `8.80e-2` |
+
+Small angular scales (`0.05`, `0.1`) worsened the short-reference errors and
+energy drift, so `impulse_pair_metric_angular_scale=0` remains the recommended
+setting.
+
+The same close case run to `t=5` showed:
+
+| linear scale | max KE drift | final KE drift | final separation | max per-body H drift |
+|---:|---:|---:|---:|---:|
+| 1.0 | `8.512%` | `8.512%` | `10.745` | `0.1377` |
+| 1.4 | `7.959%` | `7.822%` | `12.585` | `0.1602` |
+
+For studies where the goal is closer agreement with the fully determined
+variational trajectory at much lower cost, `impulse_pair_metric_linear_scale`
+around `1.3--1.4` is the best current reduced approximation in this close-pair
+test. For strict conservation diagnostics, the derived scale `1.0` is still the
+more defensible default because it has lower per-body angular drift and follows
+directly from the pair discrete-gradient work identity.
