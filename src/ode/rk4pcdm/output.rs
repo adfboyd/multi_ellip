@@ -186,7 +186,7 @@ impl Rk4PCDM {
         }
         write!(
             writer,
-            ",impulse_global_p_drift,impulse_global_h_drift,impulse_body_p_drift_max,impulse_body_h_drift_max,jdisc_px,jdisc_py,jdisc_pz,jdisc_hx,jdisc_hy,jdisc_hz,jdisc_drift,impulse_var_defect_norm,impulse_var_metric_cos,impulse_var_metric_scale,impulse_var_pressure_cos,impulse_var_pressure_scale"
+            ",impulse_global_p_drift,impulse_global_h_drift,impulse_body_p_drift_max,impulse_body_h_drift_max,impulse_pair_metric_pairs,impulse_pair_metric_load_norm,jdisc_px,jdisc_py,jdisc_pz,jdisc_hx,jdisc_hy,jdisc_hz,jdisc_drift,impulse_var_defect_norm,impulse_var_metric_cos,impulse_var_metric_scale,impulse_var_pressure_cos,impulse_var_pressure_scale"
         )?;
         writeln!(writer)
     }
@@ -266,6 +266,11 @@ impl Rk4PCDM {
             self.impulse_global_h_drift_last,
             self.impulse_body_p_drift_max_last,
             self.impulse_body_h_drift_max_last
+        )?;
+        write!(
+            writer,
+            ", {}, {}",
+            self.impulse_pair_metric_last_pairs, self.impulse_pair_metric_last_norm
         )?;
         if let Some(momentum) = &self.variational_discrete_momentum_out {
             for c in 0..6 {

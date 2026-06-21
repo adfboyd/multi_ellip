@@ -173,6 +173,15 @@ pub struct Rk4PCDM {
     fluid_energy_gradient_eps: f64,
     fluid_energy_gradient_linear_scale: f64,
     fluid_energy_gradient_angular_scale: f64,
+    impulse_pair_metric_correction: bool,
+    impulse_pair_metric_cutoff: f64,
+    impulse_pair_metric_eps: f64,
+    impulse_pair_metric_linear_scale: f64,
+    impulse_pair_metric_angular_scale: f64,
+    pub impulse_pair_metric_last_pairs: usize,
+    pub impulse_pair_metric_max_pairs: usize,
+    pub impulse_pair_metric_last_norm: f64,
+    pub impulse_pair_metric_max_norm: f64,
     impulse_quadratic_pressure: bool,
     impulse_quadratic_pressure_scale: f64,
     impulse_internal_load_constraint: bool,
@@ -278,6 +287,11 @@ impl Rk4PCDM {
         fluid_energy_gradient_eps: f64,
         fluid_energy_gradient_linear_scale: f64,
         fluid_energy_gradient_angular_scale: f64,
+        impulse_pair_metric_correction: bool,
+        impulse_pair_metric_cutoff: f64,
+        impulse_pair_metric_eps: f64,
+        impulse_pair_metric_linear_scale: f64,
+        impulse_pair_metric_angular_scale: f64,
         impulse_quadratic_pressure: bool,
         impulse_quadratic_pressure_scale: f64,
         impulse_internal_load_constraint: bool,
@@ -411,6 +425,15 @@ impl Rk4PCDM {
             fluid_energy_gradient_eps,
             fluid_energy_gradient_linear_scale,
             fluid_energy_gradient_angular_scale,
+            impulse_pair_metric_correction,
+            impulse_pair_metric_cutoff,
+            impulse_pair_metric_eps,
+            impulse_pair_metric_linear_scale,
+            impulse_pair_metric_angular_scale,
+            impulse_pair_metric_last_pairs: 0,
+            impulse_pair_metric_max_pairs: 0,
+            impulse_pair_metric_last_norm: f64::NAN,
+            impulse_pair_metric_max_norm: 0.0,
             impulse_quadratic_pressure,
             impulse_quadratic_pressure_scale,
             impulse_internal_load_constraint,
@@ -862,6 +885,9 @@ impl Rk4PCDM {
         let mut v_new = v_n.clone();
         let mut torque = DVector::zeros(3 * self.nbody);
         let mut o_new = self.state.ang.clone();
+        let mut pair_metric_force = DVector::zeros(3 * self.nbody);
+        let mut pair_metric_torque = DVector::zeros(3 * self.nbody);
+        let mut pair_metric_ready = !self.impulse_pair_metric_correction;
 
         // Anderson-acceleration history for the coupled (v_new, torque) iterate.
         let nb3 = 3 * self.nbody;
@@ -900,6 +926,16 @@ impl Rk4PCDM {
                 lin: (p_new.clone(), v_new.clone()),
                 ang: o_new.clone(),
             };
+            if !pair_metric_ready {
+                let (force, torque_load, active_pairs) =
+                    self.impulse_pair_metric_gradient(&start_state, &end_state);
+                pair_metric_force = force;
+                pair_metric_torque = torque_load;
+                self.impulse_pair_metric_last_pairs = active_pairs;
+                self.impulse_pair_metric_max_pairs =
+                    self.impulse_pair_metric_max_pairs.max(active_pairs);
+                pair_metric_ready = true;
+            }
             let (mut gradient_force, mut gradient_torque) = if self.fluid_energy_discrete_gradient {
                 self.fluid_energy_configuration_discrete_gradient(&start_state, &end_state)
             } else if self.fluid_energy_gradient {
@@ -913,6 +949,16 @@ impl Rk4PCDM {
                     DVector::zeros(3 * self.nbody),
                 )
             };
+            if self.impulse_pair_metric_correction {
+                gradient_force += self.impulse_pair_metric_linear_scale * &pair_metric_force;
+                gradient_torque += self.impulse_pair_metric_angular_scale * &pair_metric_torque;
+                let correction_norm = pair_metric_force.norm() + pair_metric_torque.norm();
+                self.impulse_pair_metric_last_norm = correction_norm;
+                if correction_norm.is_finite() {
+                    self.impulse_pair_metric_max_norm =
+                        self.impulse_pair_metric_max_norm.max(correction_norm);
+                }
+            }
             if self.impulse_internal_load_constraint {
                 let p_mid = 0.5 * (&p_n + &p_new);
                 self.enforce_internal_load_constraint(
@@ -2655,6 +2701,109 @@ impl Rk4PCDM {
         self.solver.set_state(state);
         let _ = self.solver.impulse();
         (force, torque)
+    }
+
+    fn impulse_pair_metric_gradient(
+        &mut self,
+        start: &BodyState,
+        end: &BodyState,
+    ) -> (DVector<f64>, DVector<f64>, usize) {
+        let mut force = DVector::zeros(3 * self.nbody);
+        let mut torque = DVector::zeros(3 * self.nbody);
+        if self.nbody < 2 {
+            return (force, torque, 0);
+        }
+
+        let midpoint = self.midpoint_state_from_endpoint(start, end);
+        let (pos_mid, vel_mid) = &midpoint.lin;
+        let (q_mid, omega_mid) = &midpoint.ang;
+        let eps = self.impulse_pair_metric_eps.abs().max(1.0e-6);
+        let cutoff = self.impulse_pair_metric_cutoff;
+        let axes = [
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+        ];
+        let mut active_pairs = 0usize;
+
+        for a in 0..self.nbody {
+            let xa = Vector3::new(pos_mid[3 * a], pos_mid[3 * a + 1], pos_mid[3 * a + 2]);
+            for b in (a + 1)..self.nbody {
+                let xb = Vector3::new(pos_mid[3 * b], pos_mid[3 * b + 1], pos_mid[3 * b + 2]);
+                let sep = (xb - xa).norm();
+                if cutoff > 0.0 && sep > cutoff {
+                    continue;
+                }
+                active_pairs += 1;
+
+                let h_pos = eps * sep.max(1.0);
+                for c in 0..3 {
+                    let mut p_plus = pos_mid.clone();
+                    p_plus[3 * a + c] -= 0.5 * h_pos;
+                    p_plus[3 * b + c] += 0.5 * h_pos;
+                    let state_plus = BodyState {
+                        lin: (p_plus, vel_mid.clone()),
+                        ang: (q_mid.clone(), omega_mid.clone()),
+                    };
+                    let ke_plus = self.fluid_ke_for_state(&state_plus);
+
+                    let mut p_minus = pos_mid.clone();
+                    p_minus[3 * a + c] += 0.5 * h_pos;
+                    p_minus[3 * b + c] -= 0.5 * h_pos;
+                    let state_minus = BodyState {
+                        lin: (p_minus, vel_mid.clone()),
+                        ang: (q_mid.clone(), omega_mid.clone()),
+                    };
+                    let ke_minus = self.fluid_ke_for_state(&state_minus);
+                    let grad = (ke_plus - ke_minus) / (2.0 * h_pos);
+                    force[3 * a + c] -= grad;
+                    force[3 * b + c] += grad;
+                }
+
+                for c in 0..3 {
+                    let h_rot = eps;
+                    let dq_plus_b = UnitQuaternion::from_scaled_axis(0.5 * h_rot * axes[c]);
+                    let dq_minus_b = UnitQuaternion::from_scaled_axis(-0.5 * h_rot * axes[c]);
+                    let dq_plus_a = UnitQuaternion::from_scaled_axis(-0.5 * h_rot * axes[c]);
+                    let dq_minus_a = UnitQuaternion::from_scaled_axis(0.5 * h_rot * axes[c]);
+
+                    let mut q_plus = q_mid.clone();
+                    q_plus[a] = (dq_plus_a * UnitQuaternion::from_quaternion(q_mid[a].normalize()))
+                        .into_inner()
+                        .normalize();
+                    q_plus[b] = (dq_plus_b * UnitQuaternion::from_quaternion(q_mid[b].normalize()))
+                        .into_inner()
+                        .normalize();
+                    let state_plus = BodyState {
+                        lin: (pos_mid.clone(), vel_mid.clone()),
+                        ang: (q_plus, omega_mid.clone()),
+                    };
+                    let ke_plus = self.fluid_ke_for_state(&state_plus);
+
+                    let mut q_minus = q_mid.clone();
+                    q_minus[a] = (dq_minus_a
+                        * UnitQuaternion::from_quaternion(q_mid[a].normalize()))
+                    .into_inner()
+                    .normalize();
+                    q_minus[b] = (dq_minus_b
+                        * UnitQuaternion::from_quaternion(q_mid[b].normalize()))
+                    .into_inner()
+                    .normalize();
+                    let state_minus = BodyState {
+                        lin: (pos_mid.clone(), vel_mid.clone()),
+                        ang: (q_minus, omega_mid.clone()),
+                    };
+                    let ke_minus = self.fluid_ke_for_state(&state_minus);
+                    let grad = (ke_plus - ke_minus) / (2.0 * h_rot);
+                    torque[3 * a + c] -= grad;
+                    torque[3 * b + c] += grad;
+                }
+            }
+        }
+
+        self.solver.set_state(end);
+        let _ = self.solver.impulse();
+        (force, torque, active_pairs)
     }
 
     fn project_step_energy_preserving_impulse(&mut self, target_ke: f64, target: &DVector<f64>) {

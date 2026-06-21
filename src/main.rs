@@ -205,14 +205,25 @@ fn main() {
         "fluid_energy_gradient_angular_scale",
         fluid_energy_gradient_scale,
     );
+    let impulse_pair_metric_correction = get("impulse_pair_metric_correction", 0.0) > 0.5;
+    let impulse_pair_metric_cutoff = get("impulse_pair_metric_cutoff", 0.0).max(0.0);
+    let impulse_pair_metric_eps = get("impulse_pair_metric_eps", fluid_energy_gradient_eps);
+    let impulse_pair_metric_scale = get("impulse_pair_metric_scale", 0.1);
+    let impulse_pair_metric_linear_scale = get(
+        "impulse_pair_metric_linear_scale",
+        impulse_pair_metric_scale,
+    );
+    let impulse_pair_metric_angular_scale = get("impulse_pair_metric_angular_scale", 0.0);
     let impulse_quadratic_pressure = get("impulse_quadratic_pressure", 0.0) > 0.5;
     let impulse_quadratic_pressure_scale = get("impulse_quadratic_pressure_scale", 1.0);
-    let default_internal_load_constraint =
-        if impulse_metric_correction || impulse_quadratic_pressure {
-            1.0
-        } else {
-            0.0
-        };
+    let default_internal_load_constraint = if impulse_metric_correction
+        || impulse_quadratic_pressure
+        || impulse_pair_metric_correction
+    {
+        1.0
+    } else {
+        0.0
+    };
     let impulse_internal_load_constraint = get(
         "impulse_internal_load_constraint",
         default_internal_load_constraint,
@@ -397,6 +408,11 @@ fn main() {
         fluid_energy_gradient_eps,
         fluid_energy_gradient_linear_scale,
         fluid_energy_gradient_angular_scale,
+        impulse_pair_metric_correction,
+        impulse_pair_metric_cutoff,
+        impulse_pair_metric_eps,
+        impulse_pair_metric_linear_scale,
+        impulse_pair_metric_angular_scale,
         impulse_quadratic_pressure,
         impulse_quadratic_pressure_scale,
         impulse_internal_load_constraint,
@@ -588,6 +604,18 @@ fn main() {
         fmt_enabled(fluid_energy_discrete_gradient)
     );
     println!(
+        "  Impulse pair metric correction: {}  (cutoff = {}, eps = {}, linear scale = {}, angular scale = {})",
+        fmt_enabled(impulse_pair_metric_correction),
+        if impulse_pair_metric_cutoff > 0.0 {
+            impulse_pair_metric_cutoff.to_string()
+        } else {
+            "all pairs".to_string()
+        },
+        impulse_pair_metric_eps,
+        impulse_pair_metric_linear_scale,
+        impulse_pair_metric_angular_scale
+    );
+    println!(
         "  Impulse metric correction: {}  (internal load constraint = {})",
         fmt_enabled(impulse_metric_correction),
         fmt_enabled(impulse_internal_load_constraint)
@@ -662,6 +690,16 @@ fn main() {
                     stepper.impulse_fp_last_iter, mean_iters, stepper.impulse_fp_max_iter
                 );
                 println!("  Approx impulse solves/step:     {:.3}", mean_iters + 1.0);
+            }
+            if impulse_pair_metric_correction {
+                println!(
+                    "  Pair metric pairs last/max:     {} / {}",
+                    stepper.impulse_pair_metric_last_pairs, stepper.impulse_pair_metric_max_pairs
+                );
+                println!(
+                    "  Pair metric load norm last/max: {:.6e} / {:.6e}",
+                    stepper.impulse_pair_metric_last_norm, stepper.impulse_pair_metric_max_norm
+                );
             }
             if impulse_scheme || hamiltonian_scheme || hamiltonian_midpoint_scheme {
                 println!(
