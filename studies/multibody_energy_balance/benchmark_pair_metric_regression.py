@@ -174,6 +174,11 @@ def summarize_log(log_path: Path) -> dict[str, str]:
     return out
 
 
+def parse_pair_count(value: str) -> tuple[int, int]:
+    left, right = value.split("/")
+    return int(left.strip()), int(right.strip())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the close two-body pair-metric benchmark and summarize byte-level regression data."
@@ -183,6 +188,11 @@ def main() -> int:
     parser.add_argument("--dt", type=float, default=0.025)
     parser.add_argument("--ndiv", type=int, default=2)
     parser.add_argument("--baseline", type=Path, default=None, help="optional baseline multiple_body_complete.dat")
+    parser.add_argument("--expect-cache-hits", type=int, default=None)
+    parser.add_argument("--expect-direct-start-solves", type=int, default=None)
+    parser.add_argument("--expect-active-output-rows", type=int, default=None)
+    parser.add_argument("--expect-pairs-max", type=int, default=None)
+    parser.add_argument("--max-mean-time", type=float, default=None, help="fail if reported mean step time exceeds this")
     parser.add_argument("--skip-build", action="store_true")
     args = parser.parse_args()
 
@@ -210,6 +220,34 @@ def main() -> int:
         if summary["sha256"] != baseline_hash:
             raise SystemExit("output hash differs from baseline")
         print("  baseline_match: yes")
+
+    if args.expect_cache_hits is not None or args.expect_direct_start_solves is not None:
+        if not summary["cache_hits_direct"]:
+            raise SystemExit("missing cache hit/direct summary")
+        cache_hits, direct_solves = parse_pair_count(str(summary["cache_hits_direct"]))
+        if args.expect_cache_hits is not None and cache_hits != args.expect_cache_hits:
+            raise SystemExit(f"cache hits {cache_hits} != expected {args.expect_cache_hits}")
+        if args.expect_direct_start_solves is not None and direct_solves != args.expect_direct_start_solves:
+            raise SystemExit(
+                f"direct start solves {direct_solves} != expected {args.expect_direct_start_solves}"
+            )
+
+    if args.expect_active_output_rows is not None:
+        active_rows = int(summary["active_output_rows"])
+        if active_rows != args.expect_active_output_rows:
+            raise SystemExit(f"active output rows {active_rows} != expected {args.expect_active_output_rows}")
+
+    if args.expect_pairs_max is not None:
+        if not summary["pairs_last_max"]:
+            raise SystemExit("missing pair last/max summary")
+        _pairs_last, pairs_max = parse_pair_count(str(summary["pairs_last_max"]))
+        if pairs_max != args.expect_pairs_max:
+            raise SystemExit(f"max active pairs {pairs_max} != expected {args.expect_pairs_max}")
+
+    if args.max_mean_time is not None:
+        mean_time = float(summary["mean_time_per_step"])
+        if mean_time > args.max_mean_time:
+            raise SystemExit(f"mean step time {mean_time:.4f}s exceeds limit {args.max_mean_time:.4f}s")
 
     return 0
 
