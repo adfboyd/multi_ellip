@@ -94,3 +94,37 @@ For the close spheroid `1:0.7:0.7`, `rho=1`, `E=0.25`, `sep=3`, `ndiv=2`,
 The speed gain is only about two percent, while positions differ by up to
 O(`1e-2`) over this run. That is too much trajectory dependence for such a
 small gain, so the zero-torque initial guess is kept.
+
+## Surface-clearance weighting for pair activation
+
+The pair metric correction currently uses centre distance in the smooth
+inner/outer cutoff. A trial replaced that distance with an ellipsoid
+line-of-centres surface clearance,
+
+`gap = |x_b - x_a| - h_a(e) - h_b(-e)`,
+
+where `e` is the centre-line direction and `h_i` is the oriented ellipsoid
+support radius. This is geometrically better motivated than centre distance,
+but it did not improve the validated close-contact case.
+
+For the close spheroid pair-DG case to `t=5`, `ndiv=2`, `dt=0.025`:
+
+| weighting | cutoff band | max KE drift | final separation | active output rows | max per-body H drift |
+|---|---:|---:|---:|---:|---:|
+| centre distance | `4 / 4` | `8.512%` | `10.7454` | `12 / 51` | `0.1377` |
+| surface clearance | `4 / 4` | `9.200%` | `12.3481` | `22 / 51` | `0.1950` |
+| surface clearance | `1 / 2` | `8.626%` | `9.3443` | `12 / 51` | `0.0841` |
+
+Against the short `t=0.5` variational reference, the tuned `1 / 2` clearance
+band was also slightly worse than centre distance:
+
+| run | max KE drift | final separation error | position RMS error | velocity RMS error |
+|---|---:|---:|---:|---:|
+| impulse | `5.270%` | `-0.3638` | `0.1262` | `0.5767` |
+| pair, centre cutoff | `4.594%` | `-0.1301` | `0.0756` | `0.4251` |
+| pair, clearance `1 / 2` | `4.569%` | `-0.1384` | `0.0768` | `0.4333` |
+
+Although clearance weighting is physically plausible and can reduce the
+per-body angular drift in one long diagnostic, it does not improve the
+trajectory against the variational reference. It should not replace the current
+centre-distance cutoff without a better reduced-force derivation.
