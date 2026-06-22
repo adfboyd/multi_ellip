@@ -39,6 +39,10 @@ run directories.
 - `single_body_triaxial_exact_orientation.png` and
   `single_body_spheroid_exact_orientation.png`: exact-added-mass orientation
   marker panels.
+- `representative_single_body_orbits/`: compact 3D marker-orbit figures using
+  one representative regular/quasiperiodic trajectory and, where present in the
+  current data, one representative chaotic-like trajectory.  The spheroid
+  single-body data currently contains regular cases only.
 - `ke_ratio_recurrence_current_comparison/`: recurrence plots and metrics for
   current triaxial/spheroid single-body runs and exact references.
 
