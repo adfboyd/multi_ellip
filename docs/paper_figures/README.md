@@ -6,6 +6,13 @@ run directories.
 
 ## Section 3 Solver and Single-Body Figures
 
+- `section3_clean/`: curated paper-ready Section 3 exports assembled from the
+  study outputs:
+  - `section3_grid_discretisation.png`
+  - `section3_bem_convergence.png`
+  - `section3_geometric_error_convergence.png`
+  - `section3_recurrence_examples.png`
+  - `section3_marker_orbit_examples.png`
 - `default_grid_overlay_panel.png`: ellipsoid surface discretisation for
   increasing `ndiv`.
 - `default_grid_error_panel.png`: local geometric surface error.
@@ -45,5 +52,12 @@ run directories.
   single-body data currently contains regular cases only.
 - `ke_ratio_recurrence_current_comparison/`: recurrence plots and metrics for
   current triaxial/spheroid single-body runs and exact references.
+
+## Section 4 Setup Figure
+
+- `section4_setup/section4_two_body_setup_schematic.png`: schematic of the
+  two-body initial configuration with different orientations, initial
+  separation, parallel translational velocities, and independent angular
+  velocities.
 
 Two-body sweep figures are intentionally not included in this export.
