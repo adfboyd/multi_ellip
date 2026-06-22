@@ -623,9 +623,10 @@ def plot_overview(rows: list[dict[str, float | str]], agreement: list[dict[str, 
         "quasi-periodic": 1,
         "complex-regular": 2,
         "weakly-regular": 3,
-        "ambiguous/irregular": 4,
-        "chaotic-like": 5,
-        "chaotic-candidate": 6,
+        "sensitive-regular": 4,
+        "ambiguous/irregular": 5,
+        "chaotic-like": 6,
+        "chaotic-candidate": 7,
         "": np.nan,
     }
     class_grid = np.full((len(sources), len(cases)), np.nan)
@@ -643,7 +644,15 @@ def plot_overview(rows: list[dict[str, float | str]], agreement: list[dict[str, 
             chaos_grid[i, j] = float(row["chaos_score"])
 
     fig, axes = plt.subplots(4, 1, figsize=(max(10.5, 0.55 * len(cases)), 10.8), constrained_layout=True)
-    im0 = axes[0].imshow(class_grid, aspect="auto", interpolation="nearest", vmin=0, vmax=6, cmap="viridis")
+    finite_classes = [value for value in class_order.values() if np.isfinite(value)]
+    im0 = axes[0].imshow(
+        class_grid,
+        aspect="auto",
+        interpolation="nearest",
+        vmin=min(finite_classes),
+        vmax=max(finite_classes),
+        cmap="viridis",
+    )
     axes[0].set_title("Recurrence behaviour class")
     axes[0].set_yticks(range(len(sources)), sources)
     axes[0].set_xticks(range(len(cases)), cases, rotation=60, ha="right", fontsize=7)
