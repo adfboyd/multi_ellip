@@ -26,9 +26,6 @@ nd*_log.txt
 run_*.ps1
 run_seq_driver.ps1
 
-# Plots
-*.png
-
 # Scratch / ad-hoc test inputs (input_ref*.txt are kept as validation cases)
 input_1body_*.txt
 input_sphere*.txt
