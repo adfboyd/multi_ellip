@@ -107,8 +107,6 @@ def plot_marker_orbit(ax: plt.Axes, row: Row, title: str, norm: plt.Normalize) -
     cmap = plt.get_cmap("viridis")
     ax.scatter(marker[:, 0], marker[:, 1], c=time, cmap=cmap, norm=norm, s=3.0, linewidths=0.0)
     ax.plot(marker[:, 0], marker[:, 1], lw=0.35, alpha=0.28, color="#303030")
-    ax.scatter(marker[0, 0], marker[0, 1], s=22, c="black", marker="o", zorder=3)
-    ax.scatter(marker[-1, 0], marker[-1, 1], s=28, c="#d62728", marker="x", zorder=3)
     ax.set_title(title, fontsize=10)
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(-1.1, 1.1)
@@ -165,28 +163,19 @@ def plot_source(rows: list[Row], source: str, out_dir: Path) -> Path:
     plot_marker_orbit(
         axes_arr[0],
         regular,
-        (
-            f"Regular/quasiperiodic\n"
-            f"{regular.case}, rho={regular.rho:g}, E={regular.ratio:g}, "
-            f"score={regular.broadband_chaos_score:.2f}"
-        ),
+        f"Regular/quasiperiodic, rho={regular.rho:g}, E={regular.ratio:g}",
         norm,
     )
     if chaotic is not None:
         plot_marker_orbit(
             axes_arr[1],
             chaotic,
-            (
-                f"Chaotic-like\n"
-                f"{chaotic.case}, rho={chaotic.rho:g}, E={chaotic.ratio:g}, "
-                f"score={chaotic.broadband_chaos_score:.2f}"
-            ),
+            f"Chaotic-like, rho={chaotic.rho:g}, E={chaotic.ratio:g}",
             norm,
         )
     sm = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis"))
     cbar = fig.colorbar(sm, ax=axes_arr.tolist(), shrink=0.82, pad=0.02)
     cbar.set_label("time")
-    fig.suptitle(pretty_source(source), fontsize=13)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{source}_representative_marker_orbits.png"
     fig.savefig(out, dpi=240)
