@@ -124,6 +124,9 @@ pub struct Rk4PCDM {
     pub coupled_max_jacobian_nullity: usize,
     pub coupled_min_jacobian_sigma: f64,
     pub coupled_jacobian_builds: usize,
+    pub variational_action_evals: usize,
+    pub variational_last_step_action_evals: usize,
+    pub variational_max_step_action_evals: usize,
     pub hamiltonian_adaptive_retry_count: usize,
     pub hamiltonian_max_substeps_used: usize,
     pub impulse_fp_steps: usize,
@@ -411,6 +414,9 @@ impl Rk4PCDM {
             coupled_max_jacobian_nullity: 0,
             coupled_min_jacobian_sigma: f64::INFINITY,
             coupled_jacobian_builds: 0,
+            variational_action_evals: 0,
+            variational_last_step_action_evals: 0,
+            variational_max_step_action_evals: 0,
             hamiltonian_adaptive_retry_count: 0,
             hamiltonian_max_substeps_used: hamiltonian_substeps.max(1),
             impulse_fp_steps: 0,
@@ -1146,6 +1152,7 @@ impl Rk4PCDM {
     }
 
     fn advance_one_step_variational(&mut self) {
+        self.variational_last_step_action_evals = 0;
         self.solver.set_state(&self.state);
         let (l_lin_n, l_ang_n) = self.solver.impulse();
         self.fluid_ke_step_start = self.solver.fluid_kinetic_energy();
@@ -1184,6 +1191,9 @@ impl Rk4PCDM {
         self.solver.set_state(&self.state);
         let _ = self.solver.impulse();
         self.o_lab = self.orientation_to_marker_point();
+        self.variational_max_step_action_evals = self
+            .variational_max_step_action_evals
+            .max(self.variational_last_step_action_evals);
     }
 
     fn backward_state_from_current_velocity(&self, current: &BodyState) -> BodyState {
@@ -1503,6 +1513,8 @@ impl Rk4PCDM {
     }
 
     fn discrete_lagrangian(&mut self, a: &BodyState, b: &BodyState) -> f64 {
+        self.variational_action_evals += 1;
+        self.variational_last_step_action_evals += 1;
         let midpoint = self.midpoint_state_from_endpoint(a, b);
         self.solver.set_state(&midpoint);
         let fluid_ke = if self.variational_energy_only_lagrangian {

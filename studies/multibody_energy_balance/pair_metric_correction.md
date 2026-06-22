@@ -396,3 +396,23 @@ from the previous fast variational output remained small: position RMS
 `2.5e-11`, velocity RMS `2.7e-10`, and angular-velocity RMS `4.1e-10`. The
 close three-body `t_end=0.1` smoke still used one Jacobian build and matched the
 previous fast output exactly.
+
+The code now reports variational discrete-action evaluation counts. These are a
+better cost diagnostic than Jacobian builds alone, because after Broyden reuse
+most cost is residual probing. In the close three-body `t_end=0.1` smoke the
+two steps used `792` and `216` action evaluations (`1008` total). In the
+two-body `t_end=0.5` reference the 20 steps used `5160` total action
+evaluations, with typical later steps around `216--240`.
+
+Relaxing the variational residual tolerance is therefore an effective optional
+speed/accuracy tradeoff. For the two-body `t_end=0.5` reference:
+
+| residual tolerance | action evals | Jacobian builds | wall time | position RMS vs `1e-8` | velocity RMS vs `1e-8` | omega RMS vs `1e-8` |
+|---:|---:|---:|---:|---:|---:|---:|
+| `1e-8` | `5160` | `2` | `45.2 s` | - | - | - |
+| `1e-7` | `4632` | `1` | `41.5 s` | `6.3e-10` | `4.6e-9` | `2.9e-8` |
+| `1e-6` | `4296` | `1` | `38.6 s` | `1.3e-8` | `6.1e-8` | `2.3e-7` |
+
+The conservative recommendation is to keep `1e-8` for reference generation and
+use `variational_tol=1e-7` / `hamiltonian_floor_tol=1e-7` when a cheaper
+near-reference trajectory is acceptable.

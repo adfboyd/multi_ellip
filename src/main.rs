@@ -839,6 +839,12 @@ fn main() {
                     stepper.coupled_jacobian_builds
                 );
                 println!(
+                    "  Variational action evals total/last/max-step: {} / {} / {}",
+                    stepper.variational_action_evals,
+                    stepper.variational_last_step_action_evals,
+                    stepper.variational_max_step_action_evals
+                );
+                println!(
                     "  Variational Jacobian min rank / max nullity: {} / {}",
                     min_rank, stepper.coupled_max_jacobian_nullity
                 );

@@ -57,6 +57,15 @@ impl Rk4PCDM {
                 self.hamiltonian_max_substeps_used
             );
         }
+        if self.scheme == CouplingScheme::Variational {
+            println!(
+                "  Variational action evals last/total/max-step {}/{}/{} | Jacobians {}",
+                self.variational_last_step_action_evals,
+                self.variational_action_evals,
+                self.variational_max_step_action_evals,
+                self.coupled_jacobian_builds
+            );
+        }
         if self.scheme == CouplingScheme::Impulse && self.impulse_fp_steps > 0 {
             let mean_iters = self.impulse_fp_iter_sum as f64 / self.impulse_fp_steps as f64;
             println!(
