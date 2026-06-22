@@ -3,9 +3,8 @@ import csv
 import itertools
 import math
 import random
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,19 +35,29 @@ ORIENTATIONS = [
     ((1.0, 1.0, 1.0, 0.0), (1.0, -1.0, 0.0, 1.0)),
 ]
 
-Vector3 = tuple[float, float, float]
+Vector3 = Tuple[float, float, float]
 
 
-@dataclass(frozen=True)
 class Case:
-    shape_name: str
-    rho: float
-    energy_ratio: float
-    separation: float
-    repeat: int
-    ndiv: int = NDIV
-    dt: float = DT
-    tend: float = T_END
+    def __init__(
+        self,
+        shape_name: str,
+        rho: float,
+        energy_ratio: float,
+        separation: float,
+        repeat: int,
+        ndiv: int = NDIV,
+        dt: float = DT,
+        tend: float = T_END,
+    ) -> None:
+        self.shape_name = shape_name
+        self.rho = rho
+        self.energy_ratio = energy_ratio
+        self.separation = separation
+        self.repeat = repeat
+        self.ndiv = ndiv
+        self.dt = dt
+        self.tend = tend
 
 
 def label_float(value: float) -> str:
@@ -114,7 +123,7 @@ def speed_for_ratio(shape: Vector3, density: float, energy_ratio: float, spin: V
     return math.sqrt(2.0 * target_lin_ke / mass)
 
 
-def selected_shapes(shape: str) -> list[str]:
+def selected_shapes(shape: str) -> List[str]:
     if shape == "all":
         return list(SHAPES)
     if shape not in SHAPES:
@@ -122,8 +131,8 @@ def selected_shapes(shape: str) -> list[str]:
     return [shape]
 
 
-def cases(shape: str) -> list[Case]:
-    out: list[Case] = []
+def cases(shape: str) -> List[Case]:
+    out: List[Case] = []
     for shape_name, rho, energy_ratio, separation, repeat in itertools.product(
         selected_shapes(shape),
         DENSITIES,
@@ -158,7 +167,7 @@ def run_dir(case: Case) -> Path:
     return RUNS / case.shape_name / case_name(case)
 
 
-def input_values(case: Case) -> dict[str, Any]:
+def input_values(case: Case) -> Dict[str, Any]:
     shape = SHAPES[case.shape_name]
     idx = case.repeat - 1
     ori1, ori2 = ORIENTATIONS[idx % len(ORIENTATIONS)]
@@ -224,7 +233,7 @@ def input_values(case: Case) -> dict[str, Any]:
     }
 
 
-def write_input(path: Path, values: dict[str, Any]) -> None:
+def write_input(path: Path, values: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as f:
         for key, value in values.items():
@@ -239,7 +248,7 @@ def format_path(path: Path, portable: bool) -> str:
     return path.relative_to(ROOT).as_posix() if portable else str(path)
 
 
-def write_manifest(case_list: list[Case], shape: str, portable: bool) -> Path:
+def write_manifest(case_list: List[Case], shape: str, portable: bool) -> Path:
     path = manifest_path(shape)
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
@@ -282,13 +291,13 @@ def write_manifest(case_list: list[Case], shape: str, portable: bool) -> Path:
     return path
 
 
-def setup(case_list: list[Case], shape: str, portable: bool) -> Path:
+def setup(case_list: List[Case], shape: str, portable: bool) -> Path:
     for case in case_list:
         write_input(run_dir(case) / "input.txt", input_values(case))
     return write_manifest(case_list, shape, portable)
 
 
-def print_plan(shape: str, case_list: list[Case], manifest: Path) -> None:
+def print_plan(shape: str, case_list: List[Case], manifest: Path) -> None:
     shape_names = sorted({case.shape_name for case in case_list})
     print("Two-body paper sweep")
     print(f"  Study dir:        {STUDY}")
@@ -307,7 +316,7 @@ def print_plan(shape: str, case_list: list[Case], manifest: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Set up two-body paper sweeps for spheroids/ellipsoids.")
-    parser.add_argument("--shape", choices=["all", *SHAPES.keys()], default="all")
+    parser.add_argument("--shape", choices=["all"] + list(SHAPES.keys()), default="all")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--portable-manifest", action="store_true")
     args = parser.parse_args()

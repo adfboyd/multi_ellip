@@ -1,7 +1,7 @@
 import csv
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 import matplotlib
 
@@ -18,7 +18,7 @@ SUMMARY = STUDY / "multibody_convergence_summary.csv"
 ORDERS = STUDY / "multibody_convergence_orders.csv"
 
 
-def read_manifest(path: Path) -> list[dict[str, str]]:
+def read_manifest(path: Path) -> List[Dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
@@ -35,7 +35,7 @@ def read_output(path: Path) -> np.ndarray:
     return data
 
 
-def output_complete(row: dict[str, str]) -> bool:
+def output_complete(row: Dict[str, str]) -> bool:
     output = resolve(row["output"])
     if not output.exists():
         return False
@@ -114,7 +114,7 @@ def ke_drift_pct(data: np.ndarray) -> float:
     return float(100.0 * np.max(np.abs(data["ke_total"] / ke0 - 1.0)))
 
 
-def line_key(row: dict[str, str], suite: str) -> tuple[Any, ...]:
+def line_key(row: Dict[str, str], suite: str) -> Tuple[Any, ...]:
     if suite == "temporal":
         return (
             row["family"],
@@ -136,20 +136,20 @@ def line_key(row: dict[str, str], suite: str) -> tuple[Any, ...]:
     )
 
 
-def independent_value(row: dict[str, str], suite: str) -> float:
+def independent_value(row: Dict[str, str], suite: str) -> float:
     if suite == "temporal":
         return float(row["dt"])
     ndiv = int(row["ndiv"])
     return 1.0 / (2.0**ndiv)
 
 
-def reference_row(rows: list[dict[str, str]], suite: str) -> dict[str, str]:
+def reference_row(rows: List[Dict[str, str]], suite: str) -> Dict[str, str]:
     if suite == "temporal":
         return min(rows, key=lambda r: float(r["dt"]))
     return max(rows, key=lambda r: int(r["ndiv"]))
 
 
-def fit_order(xs: list[float], ys: list[float]) -> float:
+def fit_order(xs: List[float], ys: List[float]) -> float:
     x = np.asarray(xs, dtype=float)
     y = np.asarray(ys, dtype=float)
     mask = np.isfinite(x) & np.isfinite(y) & (x > 0.0) & (y > 0.0)
@@ -159,11 +159,11 @@ def fit_order(xs: list[float], ys: list[float]) -> float:
     return float(slope)
 
 
-def summarize(rows: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def summarize(rows: List[Dict[str, str]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     completed = [row for row in rows if output_complete(row)]
     data = {row["name"]: read_output(resolve(row["output"])) for row in completed}
-    summary_rows: list[dict[str, Any]] = []
-    order_rows: list[dict[str, Any]] = []
+    summary_rows: List[Dict[str, Any]] = []
+    order_rows: List[Dict[str, Any]] = []
 
     for row in completed:
         item = data[row["name"]]
@@ -186,7 +186,7 @@ def summarize(rows: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[di
                 }
             )
 
-    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
     for srow in summary_rows:
         key = line_key({k: str(v) for k, v in srow.items()}, str(srow["suite"]))
         groups.setdefault(key, []).append(srow)
@@ -232,9 +232,9 @@ def summarize(rows: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[di
     return summary_rows, order_rows
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+def write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields: list[str] = []
+    fields: List[str] = []
     for row in rows:
         for key in row:
             if key not in fields:
@@ -245,12 +245,12 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def label(row: dict[str, Any]) -> str:
+def label(row: Dict[str, Any]) -> str:
     shape = "spheroid" if "spheroid" in str(row["shape_name"]) else "triaxial"
     return f"{shape}, sep={float(row['separation']):g}"
 
 
-def plot_endpoint(summary_rows: list[dict[str, Any]]) -> None:
+def plot_endpoint(summary_rows: List[Dict[str, Any]]) -> None:
     rows = [r for r in summary_rows if r["family"] == "periodic" and not r["reference"]]
     fig, axes = plt.subplots(2, 2, figsize=(9.0, 6.5), constrained_layout=True)
     specs = [
@@ -260,7 +260,7 @@ def plot_endpoint(summary_rows: list[dict[str, Any]]) -> None:
         ("grid", "orientation_angle_error_rad", "h", "orientation angle error"),
     ]
     colors = plt.cm.tab10(np.linspace(0, 1, 6))
-    groups: dict[tuple[str, float, str], list[dict[str, Any]]] = {}
+    groups: Dict[Tuple[str, float, str], List[Dict[str, Any]]] = {}
     for row in rows:
         groups.setdefault((str(row["shape_name"]), float(row["separation"]), str(row["suite"])), []).append(row)
     for ax, (suite, metric, xlabel, ylabel) in zip(axes.flat, specs):
@@ -283,12 +283,12 @@ def plot_endpoint(summary_rows: list[dict[str, Any]]) -> None:
     plt.close(fig)
 
 
-def plot_energy(summary_rows: list[dict[str, Any]]) -> None:
+def plot_energy(summary_rows: List[Dict[str, Any]]) -> None:
     rows = [r for r in summary_rows if r["family"] == "stress"]
     fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.8), constrained_layout=True)
     for ax, suite in zip(axes, ["temporal", "grid"]):
         subset = [r for r in rows if r["suite"] == suite]
-        groups: dict[tuple[float, float], list[dict[str, Any]]] = {}
+        groups: Dict[Tuple[float, float], List[Dict[str, Any]]] = {}
         for row in subset:
             groups.setdefault((float(row["rho"]), float(row["separation"])), []).append(row)
         for (rho, sep), group in sorted(groups.items()):
@@ -308,7 +308,7 @@ def plot_energy(summary_rows: list[dict[str, Any]]) -> None:
     plt.close(fig)
 
 
-def plot_conservation(summary_rows: list[dict[str, Any]]) -> None:
+def plot_conservation(summary_rows: List[Dict[str, Any]]) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(8.6, 3.8), constrained_layout=True)
     for ax, metric, title in [
         (axes[0], "global_p_drift_pct", "linear momentum"),

@@ -3,9 +3,8 @@ import csv
 import itertools
 import math
 import random
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Set, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,22 +45,35 @@ T_PRINT = 1
 ORIENTATION_1 = (1.0, 2.0, 0.0, 0.0)
 ORIENTATION_2 = (1.0, 0.0, 1.0, 0.0)
 
-Vector3 = tuple[float, float, float]
+Vector3 = Tuple[float, float, float]
 
 
-@dataclass
 class Case:
-    family: str
-    shape_name: str
-    rho: float
-    energy_ratio: float
-    separation: float
-    ndiv: int
-    dt: float
-    suites: set[str] = field(default_factory=set)
-    method: str = "impulse_noproj"
-    repeat: int = 1
-    tend: float = T_END
+    def __init__(
+        self,
+        family: str,
+        shape_name: str,
+        rho: float,
+        energy_ratio: float,
+        separation: float,
+        ndiv: int,
+        dt: float,
+        suites: Set[str] = None,
+        method: str = "impulse_noproj",
+        repeat: int = 1,
+        tend: float = T_END,
+    ) -> None:
+        self.family = family
+        self.shape_name = shape_name
+        self.rho = rho
+        self.energy_ratio = energy_ratio
+        self.separation = separation
+        self.ndiv = ndiv
+        self.dt = dt
+        self.suites = set() if suites is None else suites
+        self.method = method
+        self.repeat = repeat
+        self.tend = tend
 
 
 def label_float(value: float) -> str:
@@ -127,7 +139,7 @@ def speed_for_ratio(shape: Vector3, density: float, energy_ratio: float, spin: V
     return math.sqrt(2.0 * target_lin_ke / mass)
 
 
-def case_key(case: Case) -> tuple[Any, ...]:
+def case_key(case: Case) -> Tuple[Any, ...]:
     return (
         case.family,
         case.method,
@@ -142,15 +154,15 @@ def case_key(case: Case) -> tuple[Any, ...]:
     )
 
 
-def add_case(case_map: dict[tuple[Any, ...], Case], case: Case, suite: str) -> None:
+def add_case(case_map: Dict[Tuple[Any, ...], Case], case: Case, suite: str) -> None:
     key = case_key(case)
     if key not in case_map:
         case_map[key] = case
     case_map[key].suites.add(suite)
 
 
-def cases() -> list[Case]:
-    case_map: dict[tuple[Any, ...], Case] = {}
+def cases() -> List[Case]:
+    case_map: Dict[Tuple[Any, ...], Case] = {}
 
     for shape_name, separation in itertools.product(SHAPES, PRIMARY_SEPARATIONS):
         for dt in PRIMARY_TEMPORAL_DTS:
@@ -238,7 +250,7 @@ def case_name(case: Case) -> str:
     )
 
 
-def method_values(case: Case) -> dict[str, Any]:
+def method_values(case: Case) -> Dict[str, Any]:
     if case.method != "impulse_noproj":
         raise ValueError(f"unsupported method {case.method!r}")
     return {
@@ -248,7 +260,7 @@ def method_values(case: Case) -> dict[str, Any]:
     }
 
 
-def input_values(case: Case) -> dict[str, Any]:
+def input_values(case: Case) -> Dict[str, Any]:
     shape = SHAPES[case.shape_name]
     rng = random.Random(case_seed(case))
     velocity_direction = random_unit(rng)
@@ -260,7 +272,7 @@ def input_values(case: Case) -> dict[str, Any]:
     linear_velocity2 = tuple(speed2 * x for x in velocity_direction)
     nsteps = int(round(case.tend / case.dt))
 
-    values: dict[str, Any] = {
+    values: Dict[str, Any] = {
         "cex1": -0.5 * case.separation,
         "cey1": 0.0,
         "cez1": 0.0,
@@ -309,7 +321,7 @@ def input_values(case: Case) -> dict[str, Any]:
     return values
 
 
-def write_input(path: Path, values: dict[str, Any]) -> None:
+def write_input(path: Path, values: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as f:
         for key, value in values.items():
@@ -320,7 +332,7 @@ def format_manifest_path(path: Path, portable: bool) -> str:
     return path.relative_to(ROOT).as_posix() if portable else str(path)
 
 
-def write_manifest(case_list: list[Case], portable: bool) -> None:
+def write_manifest(case_list: List[Case], portable: bool) -> None:
     MANIFEST.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "index",
@@ -366,13 +378,13 @@ def write_manifest(case_list: list[Case], portable: bool) -> None:
             )
 
 
-def setup(case_list: list[Case], portable_manifest: bool) -> None:
+def setup(case_list: List[Case], portable_manifest: bool) -> None:
     for case in case_list:
         write_input(RUNS / case_name(case) / "input.txt", input_values(case))
     write_manifest(case_list, portable_manifest)
 
 
-def print_plan(case_list: list[Case]) -> None:
+def print_plan(case_list: List[Case]) -> None:
     n_periodic = sum(1 for case in case_list if case.family == "periodic")
     n_stress = sum(1 for case in case_list if case.family == "stress")
     n_ndiv4 = sum(1 for case in case_list if case.ndiv == 4)
