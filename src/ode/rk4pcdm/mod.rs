@@ -1240,8 +1240,6 @@ impl Rk4PCDM {
         } else {
             None
         };
-        let mut used_full_fallback = false;
-
         for iter in 0..self.hamiltonian_coupled_iters {
             if residual_norm <= residual_tol {
                 break;
@@ -1314,7 +1312,6 @@ impl Rk4PCDM {
             && (self.hamiltonian_coupled_broyden_update
                 || self.hamiltonian_coupled_jacobian_interval > 1)
         {
-            used_full_fallback = true;
             reusable_jacobian = None;
             for _ in 0..self.hamiltonian_coupled_iters {
                 if residual_norm <= residual_tol {
@@ -1377,10 +1374,7 @@ impl Rk4PCDM {
             }
         }
 
-        if self.variational_reuse_step_jacobian
-            && residual_norm <= residual_tol
-            && !used_full_fallback
-        {
+        if self.variational_reuse_step_jacobian && residual_norm <= residual_tol {
             self.variational_step_jacobian = reusable_jacobian;
         } else if !self.variational_reuse_step_jacobian || residual_norm > residual_tol {
             self.variational_step_jacobian = None;

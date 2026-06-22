@@ -386,3 +386,13 @@ step still performs the committed endpoint solve. On the same diagnostic-off
 case this reduced wall time from `20.3 s` to `19.4 s`; physical output columns
 changed by at most `1.1e-9`, with position RMS `2.4e-12`, velocity RMS
 `3.7e-11`, and angular-velocity RMS `1.4e-11`.
+
+If the reused Broyden Jacobian fails and the full finite-difference fallback
+converges, that fresh fallback Jacobian is now retained for the next step
+instead of being discarded. On the two-body `t_end=0.5` variational reference,
+this reduced Jacobian builds from `4` to `2`, wall time from `48.8 s` to
+`45.0 s`, and mean step time from `2.38 s` to `2.15 s`. The physical difference
+from the previous fast variational output remained small: position RMS
+`2.5e-11`, velocity RMS `2.7e-10`, and angular-velocity RMS `4.1e-10`. The
+close three-body `t_end=0.1` smoke still used one Jacobian build and matched the
+previous fast output exactly.
