@@ -1526,8 +1526,9 @@ impl Rk4PCDM {
 
     fn restore_variational_probe_state(&mut self, saved_state: &BodyState) {
         self.state = saved_state.clone();
+        // Restore the rigid state only. The next action probe solves the BEM at
+        // its own midpoint, and the accepted step performs the committed solve.
         self.solver.set_state(&self.state);
-        let _ = self.solver.impulse();
     }
 
     fn record_variational_discrete_momentum(&mut self, momentum: DVector<f64>) {

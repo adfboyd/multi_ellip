@@ -378,3 +378,11 @@ into the solve. On the same close three-body case, disabling only this
 diagnostic changed physical output columns by at most `3.3e-11` while reducing
 wall time from `28 s` to `19 s` and mean post-first-step cost from `6.79 s` to
 `3.94 s`.
+
+The variational probe restore path now also restores only the rigid state,
+without immediately re-solving the BEM at that restored state. Each finite
+difference action probe sets and solves its own midpoint state, and the accepted
+step still performs the committed endpoint solve. On the same diagnostic-off
+case this reduced wall time from `20.3 s` to `19.4 s`; physical output columns
+changed by at most `1.1e-9`, with position RMS `2.4e-12`, velocity RMS
+`3.7e-11`, and angular-velocity RMS `1.4e-11`.
