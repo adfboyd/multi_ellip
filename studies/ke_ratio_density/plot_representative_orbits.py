@@ -102,40 +102,20 @@ def load_marker(row: Row) -> tuple[np.ndarray, np.ndarray]:
     return time[finite], marker[finite]
 
 
-def set_equal_axes(ax: plt.Axes, xyz: np.ndarray) -> None:
-    lo = np.nanmin(xyz, axis=0)
-    hi = np.nanmax(xyz, axis=0)
-    center = 0.5 * (lo + hi)
-    radius = 0.55 * max(float(np.max(hi - lo)), 1.0e-6)
-    ax.set_xlim(center[0] - radius, center[0] + radius)
-    ax.set_ylim(center[1] - radius, center[1] + radius)
-    ax.set_zlim(center[2] - radius, center[2] + radius)
-
-
-def plot_marker_orbit(ax: plt.Axes, row: Row, title: str) -> None:
+def plot_marker_orbit(ax: plt.Axes, row: Row, title: str, norm: plt.Normalize) -> None:
     time, marker = load_marker(row)
-    if len(time) > 1200:
-        # Keep the path readable while retaining the full time interval.
-        step = math.ceil(len(time) / 1200)
-        time = time[::step]
-        marker = marker[::step]
-
-    points = marker.reshape(-1, 1, 3)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
-    from mpl_toolkits.mplot3d.art3d import Line3DCollection
-
-    lc = Line3DCollection(segments, cmap="viridis", linewidth=0.55, alpha=0.92)
-    lc.set_array(time[:-1])
-    ax.add_collection3d(lc)
-    ax.scatter(*marker[0], s=22, color="black", label="start", zorder=4)
-    ax.scatter(*marker[-1], s=30, color="#d62728", marker="x", label="end", zorder=4)
-    set_equal_axes(ax, marker)
-    ax.set_xlabel("$m_x$")
-    ax.set_ylabel("$m_y$")
-    ax.set_zlabel("$m_z$")
-    ax.set_title(title, pad=8)
-    ax.view_init(elev=24, azim=-52)
-    ax.grid(alpha=0.18)
+    cmap = plt.get_cmap("viridis")
+    ax.scatter(marker[:, 0], marker[:, 1], c=time, cmap=cmap, norm=norm, s=3.0, linewidths=0.0)
+    ax.plot(marker[:, 0], marker[:, 1], lw=0.35, alpha=0.28, color="#303030")
+    ax.scatter(marker[0, 0], marker[0, 1], s=22, c="black", marker="o", zorder=3)
+    ax.scatter(marker[-1, 0], marker[-1, 1], s=28, c="#d62728", marker="x", zorder=3)
+    ax.set_title(title, fontsize=10)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(-1.1, 1.1)
+    ax.set_ylim(-1.1, 1.1)
+    ax.set_xlabel("ofix x")
+    ax.set_ylabel("ofix y")
+    ax.grid(alpha=0.2)
 
 
 def pretty_source(source: str) -> str:
@@ -179,28 +159,33 @@ def choose_examples(rows: list[Row], source: str) -> tuple[Row, Row | None]:
 def plot_source(rows: list[Row], source: str, out_dir: Path) -> Path:
     regular, chaotic = choose_examples(rows, source)
     ncols = 2 if chaotic is not None else 1
-    fig = plt.figure(figsize=(5.2 * ncols, 4.8), constrained_layout=True)
-    ax = fig.add_subplot(1, ncols, 1, projection="3d")
+    fig, axes = plt.subplots(1, ncols, figsize=(4.5 * ncols, 4.2), sharex=True, sharey=True, constrained_layout=True)
+    axes_arr = np.atleast_1d(axes)
+    norm = plt.Normalize(0.0, 100.0)
     plot_marker_orbit(
-        ax,
+        axes_arr[0],
         regular,
         (
             f"Regular/quasiperiodic\n"
             f"{regular.case}, rho={regular.rho:g}, E={regular.ratio:g}, "
             f"score={regular.broadband_chaos_score:.2f}"
         ),
+        norm,
     )
     if chaotic is not None:
-        ax = fig.add_subplot(1, ncols, 2, projection="3d")
         plot_marker_orbit(
-            ax,
+            axes_arr[1],
             chaotic,
             (
                 f"Chaotic-like\n"
                 f"{chaotic.case}, rho={chaotic.rho:g}, E={chaotic.ratio:g}, "
                 f"score={chaotic.broadband_chaos_score:.2f}"
             ),
+            norm,
         )
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=plt.get_cmap("viridis"))
+    cbar = fig.colorbar(sm, ax=axes_arr.tolist(), shrink=0.82, pad=0.02)
+    cbar.set_label("time")
     fig.suptitle(pretty_source(source), fontsize=13)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{source}_representative_marker_orbits.png"
