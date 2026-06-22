@@ -7,9 +7,9 @@ spheres, since those have already been run.
 ## Defaults
 
 - shapes: `1:0.7:0.7` spheroid and `1:0.8:0.6` triaxial ellipsoid;
-- densities: `rho = 4, 1, 0.3, 0.1, 0.03`;
-- energy ratios: `E = 0.25, 1, 4, 16`;
-- initial separations: `3, 5, 8`;
+- densities: `rho = 10, 4, 1, 0.3, 0.1, 0.03`;
+- energy ratios: `E = 0.2, 0.55, 1.5, 4, 11, 30`;
+- initial separations: `3, 5, 8, 11`;
 - repeats: `2`;
 - method: `impulse_scheme=1`, `energy_projection=0`;
 - mesh/time: `ndiv=2`, `dt=0.05`, `t=100`;
@@ -17,7 +17,7 @@ spheres, since those have already been run.
 - initial translational velocities are parallel; velocity and angular-velocity
   directions are deterministic-random per case.
 
-This gives 120 cases per shape, or 240 cases for `SHAPE=all`.
+This gives 288 cases per shape, or 576 cases for `SHAPE=all`.
 
 ## ARCHER2 Launch
 

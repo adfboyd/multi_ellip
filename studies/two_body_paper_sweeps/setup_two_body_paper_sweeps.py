@@ -17,9 +17,9 @@ SHAPES = {
     "ellipsoid_1_0p8_0p6": (1.0, 0.8, 0.6),
 }
 
-DENSITIES = [4.0, 1.0, 0.3, 0.1, 0.03]
-ENERGY_RATIOS = [0.25, 1.0, 4.0, 16.0]
-SEPARATIONS = [3.0, 5.0, 8.0]
+DENSITIES = [10.0, 4.0, 1.0, 0.3, 0.1, 0.03]
+ENERGY_RATIOS = [0.2, 0.55, 1.5, 4.0, 11.0, 30.0]
+SEPARATIONS = [3.0, 5.0, 8.0, 11.0]
 REPEATS = 2
 
 NDIV = 2
