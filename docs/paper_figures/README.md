@@ -11,6 +11,7 @@ run directories.
   - `section3_grid_discretisation.png`
   - `section3_bem_convergence.png`
   - `section3_geometric_error_convergence.png`
+  - `section3_single_body_endpoint_convergence.png`
   - `section3_recurrence_examples.png`
   - `section3_marker_orbit_examples.png`
 - `default_grid_overlay_panel.png`: ellipsoid surface discretisation for
