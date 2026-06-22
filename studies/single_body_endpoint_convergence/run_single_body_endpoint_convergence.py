@@ -21,6 +21,9 @@ STUDY = ROOT / "studies" / "single_body_endpoint_convergence"
 RUNS = STUDY / "runs"
 DOCS = ROOT / "docs" / "paper_figures" / "section3_clean"
 BASE_INPUT = ROOT / "studies" / "ke_ratio_density" / "runs_impulse_nd2" / "ratio1_rho4_run01" / "input.txt"
+EXACT_REFERENCE = (
+    ROOT / "studies" / "ke_ratio_density" / "runs_impulse_nd2" / "ratio1_rho4_run01" / "exact_added_mass.csv"
+)
 TARGET_T = 10.0
 
 
@@ -173,17 +176,28 @@ def read_output(path: Path) -> dict[str, np.ndarray]:
     return {key: np.asarray(values, dtype=float) for key, values in cols.items()}
 
 
-def endpoint(case: Case) -> dict[str, np.ndarray]:
+def endpoint(case: Case, target_t: float) -> dict[str, np.ndarray]:
     data = read_output(case.output)
     time_col = data["time"]
-    idx = int(np.argmin(np.abs(time_col - TARGET_T)))
-    if abs(float(time_col[idx]) - TARGET_T) > 1.0e-9:
-        raise ValueError(f"{case.output} has no endpoint at t={TARGET_T}")
+    idx = int(np.argmin(np.abs(time_col - target_t)))
+    if abs(float(time_col[idx]) - target_t) > 1.0e-9:
+        raise ValueError(f"{case.output} has no endpoint at t={target_t}")
     return {
         "centroid": np.array([data["px_1"][idx], data["py_1"][idx], data["pz_1"][idx]], dtype=float),
         "orientation_marker": np.array(
             [data["ofix1_1"][idx], data["ofix2_1"][idx], data["ofix3_1"][idx]], dtype=float
         ),
+    }
+
+
+def exact_endpoint(target_t: float) -> dict[str, np.ndarray]:
+    data = read_output(EXACT_REFERENCE)
+    time_col = data["time"]
+    if target_t < float(time_col[0]) or target_t > float(time_col[-1]):
+        raise ValueError(f"{EXACT_REFERENCE} does not cover t={target_t}")
+    return {
+        "centroid": np.array([np.interp(target_t, time_col, data[key]) for key in ("px", "py", "pz")]),
+        "orientation_marker": np.array([np.interp(target_t, time_col, data[key]) for key in ("ofx", "ofy", "ofz")]),
     }
 
 
@@ -204,8 +218,8 @@ def fit_order(x: np.ndarray, y: np.ndarray) -> float:
     return float(slope)
 
 
-def summarize(all_cases: list[Case]) -> list[dict[str, float | str]]:
-    endpoints = {case.name: endpoint(case) for case in all_cases}
+def summarize_self_reference(all_cases: list[Case], target_t: float) -> list[dict[str, float | str]]:
+    endpoints = {case.name: endpoint(case, target_t) for case in all_cases}
     refs = {
         suite: next(case for case in all_cases if case.suite == suite and case.reference)
         for suite in sorted({case.suite for case in all_cases})
@@ -223,9 +237,10 @@ def summarize(all_cases: list[Case]) -> list[dict[str, float | str]]:
                 "case": case.name,
                 "reference": case.reference,
                 "ref_case": "" if case.reference else ref.name,
+                "reference_type": "impulse_self",
                 "ndiv": case.ndiv,
                 "dt": case.dt,
-                "t": TARGET_T,
+                "t": target_t,
                 "independent": "dt" if case.suite == "temporal" else "h",
                 "independent_value": case.independent,
                 "centroid_x": item["centroid"][0],
@@ -244,6 +259,39 @@ def summarize(all_cases: list[Case]) -> list[dict[str, float | str]]:
     return rows
 
 
+def summarize_exact_reference(all_cases: list[Case], target_t: float) -> list[dict[str, float | str]]:
+    ref_item = exact_endpoint(target_t)
+    rows: list[dict[str, float | str]] = []
+    for case in all_cases:
+        item = endpoint(case, target_t)
+        centroid_error = float(np.linalg.norm(item["centroid"] - ref_item["centroid"]))
+        marker_delta = item["orientation_marker"] - ref_item["orientation_marker"]
+        rows.append(
+            {
+                "suite": case.suite,
+                "case": case.name,
+                "reference": False,
+                "ref_case": str(EXACT_REFERENCE),
+                "reference_type": "exact_added_mass",
+                "ndiv": case.ndiv,
+                "dt": case.dt,
+                "t": target_t,
+                "independent": "dt" if case.suite == "temporal" else "h",
+                "independent_value": case.independent,
+                "centroid_x": item["centroid"][0],
+                "centroid_y": item["centroid"][1],
+                "centroid_z": item["centroid"][2],
+                "orientation_marker_x": item["orientation_marker"][0],
+                "orientation_marker_y": item["orientation_marker"][1],
+                "orientation_marker_z": item["orientation_marker"][2],
+                "centroid_error": centroid_error,
+                "orientation_marker_error": float(np.linalg.norm(marker_delta)),
+                "orientation_angle_error_rad": orientation_angle(item["orientation_marker"], ref_item["orientation_marker"]),
+            }
+        )
+    return rows
+
+
 def write_rows(path: Path, rows: list[dict[str, float | str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields: list[str] = []
@@ -257,7 +305,12 @@ def write_rows(path: Path, rows: list[dict[str, float | str]]) -> None:
         writer.writerows(rows)
 
 
-def plot(rows: list[dict[str, float | str]]) -> None:
+def plot(
+    rows: list[dict[str, float | str]],
+    out_name: str,
+    figure_title: str,
+    grid_fit_min_ndiv: int = 2,
+) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(8.4, 6.4), constrained_layout=True)
     specs = [
         ("temporal", "centroid_error", "Centroid temporal convergence", "time step $\\Delta t$", "centroid error"),
@@ -278,29 +331,37 @@ def plot(rows: list[dict[str, float | str]]) -> None:
         ),
     ]
     order_rows: list[dict[str, float | str]] = []
-    for axis, (suite, metric, title, xlabel, ylabel) in zip(axes.flat, specs):
+    for axis, (suite, metric, subplot_title, xlabel, ylabel) in zip(axes.flat, specs):
         subset = [row for row in rows if row["suite"] == suite and str(row["reference"]) != "True"]
         x = np.asarray([float(row["independent_value"]) for row in subset], dtype=float)
         y = np.asarray([float(row[metric]) for row in subset], dtype=float)
-        axis.loglog(x, y, "o-", color="#1f77b4")
+        if suite == "grid":
+            ndiv = np.asarray([int(row["ndiv"]) for row in subset], dtype=int)
+            fit_mask = ndiv >= grid_fit_min_ndiv
+            axis.loglog(x[~fit_mask], y[~fit_mask], "o", color="0.62", label="pre-asymptotic")
+            axis.loglog(x[fit_mask], y[fit_mask], "o-", color="#1f77b4", label=f"fit ndiv >= {grid_fit_min_ndiv}")
+            order = fit_order(x[fit_mask], y[fit_mask])
+            axis.legend(fontsize=8)
+        else:
+            axis.loglog(x, y, "o-", color="#1f77b4")
+            order = fit_order(x, y)
         axis.invert_xaxis()
-        axis.set_title(title)
+        axis.set_title(subplot_title)
         axis.set_xlabel(xlabel)
         axis.set_ylabel(ylabel)
         axis.grid(alpha=0.25, which="both")
-        order = fit_order(x, y)
         order_rows.append({"suite": suite, "metric": metric, "order": order})
         if math.isfinite(order):
             axis.text(0.04, 0.08, f"order {order:.2f}", transform=axis.transAxes, fontsize=9)
 
-    fig.suptitle(r"Single ellipsoid impulse convergence at $t=10$ ($\rho=4$, $E=1$)", fontsize=12)
+    fig.suptitle(figure_title, fontsize=12)
     STUDY.mkdir(parents=True, exist_ok=True)
     DOCS.mkdir(parents=True, exist_ok=True)
-    study_png = STUDY / "single_body_endpoint_convergence.png"
-    docs_png = DOCS / "section3_single_body_endpoint_convergence.png"
+    study_png = STUDY / f"{out_name}.png"
+    docs_png = DOCS / f"section3_{out_name}.png"
     fig.savefig(study_png, dpi=240)
     plt.close(fig)
-    write_rows(STUDY / "single_body_endpoint_convergence_orders.csv", order_rows)
+    write_rows(STUDY / f"{out_name}_orders.csv", order_rows)
     try:
         shutil.copyfile(study_png, docs_png)
     except PermissionError as exc:
@@ -319,9 +380,48 @@ def main() -> None:
             subprocess.run(["cargo", "build", "--release"], cwd=ROOT, check=True)
         for case in all_cases:
             run_case(case, args.rerun)
-    rows = summarize(all_cases)
-    write_rows(STUDY / "single_body_endpoint_convergence_summary.csv", rows)
-    plot(rows)
+    self_rows = summarize_self_reference(all_cases, TARGET_T)
+    write_rows(STUDY / "single_body_endpoint_convergence_self_t10_summary.csv", self_rows)
+    plot(
+        self_rows,
+        "single_body_endpoint_convergence_self_t10",
+        r"Single ellipsoid impulse convergence at $t=10$ ($\rho=4$, $E=1$)",
+    )
+    shutil.copyfile(
+        STUDY / "single_body_endpoint_convergence_self_t10_summary.csv",
+        STUDY / "single_body_endpoint_convergence_summary.csv",
+    )
+    shutil.copyfile(
+        STUDY / "single_body_endpoint_convergence_self_t10_orders.csv",
+        STUDY / "single_body_endpoint_convergence_orders.csv",
+    )
+    shutil.copyfile(
+        STUDY / "single_body_endpoint_convergence_self_t10.png",
+        STUDY / "single_body_endpoint_convergence.png",
+    )
+    try:
+        shutil.copyfile(
+            DOCS / "section3_single_body_endpoint_convergence_self_t10.png",
+            DOCS / "section3_single_body_endpoint_convergence.png",
+        )
+    except PermissionError as exc:
+        print(f"warning: could not copy alias figure to docs: {exc}", flush=True)
+
+    self_t5_rows = summarize_self_reference(all_cases, 5.0)
+    write_rows(STUDY / "single_body_endpoint_convergence_self_t5_summary.csv", self_t5_rows)
+    plot(
+        self_t5_rows,
+        "single_body_endpoint_convergence_self_t5",
+        r"Single ellipsoid impulse convergence at $t=5$ ($\rho=4$, $E=1$)",
+    )
+
+    exact_rows = summarize_exact_reference(all_cases, 5.0)
+    write_rows(STUDY / "single_body_endpoint_convergence_exact_t5_summary.csv", exact_rows)
+    plot(
+        exact_rows,
+        "single_body_endpoint_convergence_exact_t5",
+        r"Single ellipsoid impulse convergence to exact dynamics at $t=5$ ($\rho=4$, $E=1$)",
+    )
 
 
 if __name__ == "__main__":
