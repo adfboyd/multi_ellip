@@ -1,0 +1,12 @@
+source,metric,order
+sphere_operator,rhs_rel_error,3.1378080928340872
+sphere_operator,a_phi_rel_error,3.1378081499766486
+sphere_operator,solved_phi_rel_error,3.026560316270976
+sphere_density,solved_added_rel_error,3.87794335183037
+sphere_density,analytic_phi_added_rel_error,3.913894260906042
+sphere_density,phi_rel_error,3.027689877064171
+sphere_density,analytic_residual_rel,3.141635631862025
+ellipsoid_density,solved_added_rel_error,3.9241225891943317
+ellipsoid_density,analytic_phi_added_rel_error,3.9106386183112942
+ellipsoid_density,phi_rel_error,3.656438268172319
+ellipsoid_density,analytic_residual_rel,3.7013439249807862
