@@ -370,3 +370,11 @@ The equations solved are unchanged; only the nonlinear linearisation strategy
 changes. Full finite-difference Newton can still be forced with
 `variational_reuse_step_jacobian=0`, `variational_reuse_jacobian=0`, and
 `variational_broyden_update=0`.
+
+The discrete Noether momentum diagnostic is also now opt-in through
+`variational_momentum_diagnostic=1`. It is physically useful for validation, but
+it performs additional finite-difference action probes and does not feed back
+into the solve. On the same close three-body case, disabling only this
+diagnostic changed physical output columns by at most `3.3e-11` while reducing
+wall time from `28 s` to `19 s` and mean post-first-step cost from `6.79 s` to
+`3.94 s`.

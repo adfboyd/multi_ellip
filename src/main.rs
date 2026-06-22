@@ -312,7 +312,7 @@ fn main() {
         .max(1.0) as usize;
         hamiltonian_coupled_broyden_update = get("variational_broyden_update", 1.0) > 0.5;
     }
-    let variational_momentum_diagnostic = get("variational_momentum_diagnostic", 1.0) > 0.5;
+    let variational_momentum_diagnostic = get("variational_momentum_diagnostic", 0.0) > 0.5;
     let variational_reuse_step_jacobian =
         variational_scheme && get("variational_reuse_step_jacobian", 1.0) > 0.5;
     let variational_energy_only_lagrangian =
