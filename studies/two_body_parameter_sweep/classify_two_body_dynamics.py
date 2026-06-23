@@ -29,6 +29,7 @@ RECURRENCE_THEILER = 50
 MIN_DIAG_LEN = 4
 TOP_SPECTRAL_PEAKS = 12
 DIVERGENCE_HORIZON = 35
+STATE_MODES = ("marker", "quaternion", "axis")
 
 CLASS_ORDER = [
     "periodic",
@@ -106,6 +107,32 @@ def marker(data: np.ndarray, body: int) -> np.ndarray:
     return np.column_stack([data[f"ofix1_{body}"], data[f"ofix2_{body}"], data[f"ofix3_{body}"]])
 
 
+def quaternion(data: np.ndarray, body: int) -> np.ndarray:
+    q = np.column_stack([data[f"q0_{body}"], data[f"q1_{body}"], data[f"q2_{body}"], data[f"q3_{body}"]])
+    norm = np.linalg.norm(q, axis=1)
+    norm[norm < 1.0e-14] = 1.0
+    return q / norm[:, None]
+
+
+def continuity_orient_quaternion(q: np.ndarray) -> np.ndarray:
+    q = np.array(q, dtype=float, copy=True)
+    for i in range(1, len(q)):
+        if float(np.dot(q[i - 1], q[i])) < 0.0:
+            q[i] *= -1.0
+    return q
+
+
+def continuity_orient_axis(axis: np.ndarray) -> np.ndarray:
+    axis = np.array(axis, dtype=float, copy=True)
+    norm = np.linalg.norm(axis, axis=1)
+    norm[norm < 1.0e-14] = 1.0
+    axis /= norm[:, None]
+    for i in range(1, len(axis)):
+        if float(np.dot(axis[i - 1], axis[i])) < 0.0:
+            axis[i] *= -1.0
+    return axis
+
+
 def angular_velocity(data: np.ndarray, body: int) -> np.ndarray:
     return np.column_stack([data[f"w1_{body}"], data[f"w2_{body}"], data[f"w3_{body}"]])
 
@@ -114,16 +141,31 @@ def position(data: np.ndarray, body: int) -> np.ndarray:
     return np.column_stack([data[f"px_{body}"], data[f"py_{body}"], data[f"pz_{body}"]])
 
 
-def body_state(data: np.ndarray, body: int) -> np.ndarray:
-    return np.column_stack([marker(data, body), angular_velocity(data, body)])
+def body_state(data: np.ndarray, body: int, state_mode: str) -> np.ndarray:
+    omega = angular_velocity(data, body)
+    if state_mode == "marker":
+        return np.column_stack([marker(data, body), omega])
+    if state_mode == "quaternion":
+        return np.column_stack([continuity_orient_quaternion(quaternion(data, body)), omega])
+    if state_mode == "axis":
+        return np.column_stack([continuity_orient_axis(marker(data, body)), omega])
+    raise ValueError(f"unknown state mode {state_mode}")
 
 
-def combined_state(data: np.ndarray) -> np.ndarray:
+def combined_state(data: np.ndarray, state_mode: str) -> np.ndarray:
     p1 = position(data, 1)
     p2 = position(data, 2)
     rel = p2 - p1
     sep = np.linalg.norm(rel, axis=1)[:, None]
-    return np.column_stack([marker(data, 1), marker(data, 2), rel, sep])
+    if state_mode == "marker":
+        orientation = [marker(data, 1), marker(data, 2)]
+    elif state_mode == "quaternion":
+        orientation = [continuity_orient_quaternion(quaternion(data, 1)), continuity_orient_quaternion(quaternion(data, 2))]
+    elif state_mode == "axis":
+        orientation = [continuity_orient_axis(marker(data, 1)), continuity_orient_axis(marker(data, 2))]
+    else:
+        raise ValueError(f"unknown state mode {state_mode}")
+    return np.column_stack([*orientation, rel, sep])
 
 
 def standardize(values: np.ndarray) -> np.ndarray:
@@ -145,6 +187,76 @@ def delay_embed(series: np.ndarray, dim: int = RECURRENCE_DIM, tau: int = RECURR
 def pairwise_distances(embedded: np.ndarray) -> np.ndarray:
     diff = embedded[:, None, :] - embedded[None, :, :]
     return np.sqrt(np.sum(diff * diff, axis=2))
+
+
+def pairwise_angular_distances(vectors: np.ndarray, double_cover: bool) -> np.ndarray:
+    vectors = np.asarray(vectors, dtype=float)
+    norms = np.linalg.norm(vectors, axis=1)
+    norms[norms < 1.0e-14] = 1.0
+    unit = vectors / norms[:, None]
+    dots = np.clip(unit @ unit.T, -1.0, 1.0)
+    if double_cover:
+        dots = np.abs(dots)
+    if unit.shape[1] == 4:
+        return 2.0 * np.arccos(dots)
+    return np.arccos(dots)
+
+
+def distance_scale(dist: np.ndarray) -> float:
+    n = dist.shape[0]
+    mask = np.triu(np.ones((n, n), dtype=bool), k=1)
+    values = dist[mask & np.isfinite(dist)]
+    values = values[values > 1.0e-12]
+    if values.size == 0:
+        return 1.0
+    scale = float(np.median(values))
+    return scale if math.isfinite(scale) and scale > 1.0e-12 else 1.0
+
+
+def pairwise_state_distances(
+    series: np.ndarray,
+    state_mode: str,
+    combined: bool = False,
+    dim: int = RECURRENCE_DIM,
+    tau: int = RECURRENCE_TAU,
+) -> np.ndarray:
+    if state_mode == "marker":
+        return pairwise_distances(delay_embed(series, dim=dim, tau=tau))
+
+    series = np.asarray(series, dtype=float)
+    n = len(series) - (dim - 1) * tau
+    if n <= 2:
+        raise ValueError("not enough samples for delay embedding")
+
+    if state_mode == "quaternion":
+        orient_width = 4
+        orient_groups = [(0, 4), (4, 8)] if combined else [(0, 4)]
+        double_cover = True
+    elif state_mode == "axis":
+        orient_width = 3
+        orient_groups = [(0, 3), (3, 6)] if combined else [(0, 3)]
+        double_cover = True
+    else:
+        raise ValueError(f"unknown state mode {state_mode}")
+
+    orient_cols = {idx for start, stop in orient_groups for idx in range(start, stop)}
+    euclidean_cols = [idx for idx in range(series.shape[1]) if idx not in orient_cols]
+    euclidean = standardize(series[:, euclidean_cols]) if euclidean_cols else np.zeros((len(series), 0))
+    dist2 = np.zeros((n, n), dtype=float)
+    for k in range(dim):
+        start = k * tau
+        stop = start + n
+        for group_start, group_stop in orient_groups:
+            if group_stop - group_start != orient_width:
+                raise ValueError("invalid orientation group")
+            angle = pairwise_angular_distances(series[start:stop, group_start:group_stop], double_cover)
+            scale = distance_scale(angle)
+            dist2 += (angle / scale) ** 2
+        if euclidean_cols:
+            block = euclidean[start:stop]
+            diff = block[:, None, :] - block[None, :, :]
+            dist2 += np.sum(diff * diff, axis=2)
+    return np.sqrt(dist2)
 
 
 def recurrence_from_distances(
@@ -190,9 +302,8 @@ def entropy_from_counts(lengths: list[int]) -> float:
     return float(-np.sum(probs * np.log(probs)))
 
 
-def rqa_metrics(series: np.ndarray) -> dict[str, float]:
-    embedded = delay_embed(series)
-    dist = pairwise_distances(embedded)
+def rqa_metrics(series: np.ndarray, state_mode: str = "marker", combined: bool = False) -> dict[str, float]:
+    dist = pairwise_state_distances(series, state_mode=state_mode, combined=combined)
     rec, mask, eps, rr = recurrence_from_distances(dist)
     lengths = diagonal_lengths(rec)
     recurrent_points = int(rec.sum())
@@ -397,8 +508,8 @@ def classify(metrics: dict[str, float]) -> str:
     return "ambiguous"
 
 
-def analyze_series(series: np.ndarray) -> dict[str, object]:
-    metrics = {**rqa_metrics(series), **spectral_metrics(series)}
+def analyze_series(series: np.ndarray, state_mode: str = "marker", combined: bool = False) -> dict[str, object]:
+    metrics = {**rqa_metrics(series, state_mode=state_mode, combined=combined), **spectral_metrics(series)}
     metrics["broadband_chaos_score"] = broadband_chaos_score(metrics)
     metrics["chaos_score"] = chaos_score(metrics)
     metrics["class"] = classify(metrics)
@@ -424,7 +535,7 @@ def consensus(classes: list[str]) -> str:
     return "mixed"
 
 
-def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, object]:
+def analyze_run(row: dict[str, str], transient_fraction: float, state_mode: str) -> dict[str, object]:
     base: dict[str, object] = {
         "name": row["name"],
         "shape_name": row["shape_name"],
@@ -437,6 +548,7 @@ def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, obj
         return {
             **base,
             "status": "incomplete",
+            "state_mode": state_mode,
             "class_body1": "incomplete",
             "class_body2": "incomplete",
             "class_combined": "incomplete",
@@ -446,6 +558,8 @@ def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, obj
     data = load_output(row)
     names = data.dtype.names or ()
     required = {"time", "ofix1_1", "ofix1_2", "w1_1", "w1_2", "px_1", "px_2"}
+    if state_mode == "quaternion":
+        required.update({f"q{i}_{body}" for body in (1, 2) for i in range(4)})
     if not required.issubset(names):
         raise KeyError(f"{row['name']} is missing required columns: {sorted(required - set(names))}")
     if not np.all(np.isfinite(data["time"])):
@@ -455,15 +569,16 @@ def analyze_run(row: dict[str, str], transient_fraction: float) -> dict[str, obj
     keep = t >= (float(row["tend"]) * transient_fraction)
     data = data[keep]
     analyses = {
-        "body1": analyze_series(body_state(data, 1)),
-        "body2": analyze_series(body_state(data, 2)),
-        "combined": analyze_series(combined_state(data)),
+        "body1": analyze_series(body_state(data, 1, state_mode), state_mode=state_mode),
+        "body2": analyze_series(body_state(data, 2, state_mode), state_mode=state_mode),
+        "combined": analyze_series(combined_state(data, state_mode), state_mode=state_mode, combined=True),
     }
     classes = [str(analyses[key]["class"]) for key in ("body1", "body2", "combined")]
     body_classes = [str(analyses[key]["class"]) for key in ("body1", "body2")]
     out: dict[str, object] = {
         **base,
         "status": "ok",
+        "state_mode": state_mode,
         "class_body1": classes[0],
         "class_body2": classes[1],
         "class_combined": classes[2],
@@ -682,6 +797,15 @@ def main() -> None:
     )
     parser.add_argument("--manifest", type=Path, default=MANIFEST, help="manifest CSV to classify")
     parser.add_argument("--out-dir", type=Path, default=STUDY, help="directory for classification outputs")
+    parser.add_argument(
+        "--state-mode",
+        choices=STATE_MODES,
+        default="marker",
+        help=(
+            "recurrence state: marker uses the tracked body marker; quaternion uses the full sign-invariant "
+            "orientation quaternion; axis uses the marker as an antipodal axis for axisymmetric bodies"
+        ),
+    )
     args = parser.parse_args()
 
     manifest = args.manifest if args.manifest.is_absolute() else ROOT / args.manifest
@@ -699,12 +823,13 @@ def main() -> None:
     out_summary = out_dir / f"{OUT_SUMMARY.stem}{args.suffix}{OUT_SUMMARY.suffix}"
     out_png = out_dir / f"{OUT_PNG.stem}{args.suffix}{OUT_PNG.suffix}"
     out_broadband_png = out_dir / f"{OUT_BROADBAND_PNG.stem}{args.suffix}{OUT_BROADBAND_PNG.suffix}"
-    title_suffix = "full-run" if args.transient_fraction == 0.0 else f"post-transient ({args.transient_fraction:g} tend)"
+    time_suffix = "full-run" if args.transient_fraction == 0.0 else f"post-transient ({args.transient_fraction:g} tend)"
+    title_suffix = f"{time_suffix}, {args.state_mode} state"
 
     results = []
     for i, row in enumerate(rows, start=1):
         print(f"[{i:03d}/{len(rows):03d}] {row['name']}", flush=True)
-        results.append(analyze_run(row, args.transient_fraction))
+        results.append(analyze_run(row, args.transient_fraction, args.state_mode))
 
     summary = summarize(results)
     write_rows(out_csv, results)
