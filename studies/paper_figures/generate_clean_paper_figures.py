@@ -191,19 +191,20 @@ def arrow3d(
         arrow_length_ratio=0.16,
         normalize=False,
     )
-    end = start + vec
-    if label_offset is None:
-        label_offset = np.zeros(3)
-    label_pos = end + label_offset
-    ax.text(
-        label_pos[0],
-        label_pos[1],
-        label_pos[2],
-        label,
-        color=color,
-        fontsize=fontsize,
-        fontweight="bold",
-    )
+    if label:
+        end = start + vec
+        if label_offset is None:
+            label_offset = np.zeros(3)
+        label_pos = end + label_offset
+        ax.text(
+            label_pos[0],
+            label_pos[1],
+            label_pos[2],
+            label,
+            color=color,
+            fontsize=fontsize,
+            fontweight="bold",
+        )
 
 
 def set_equal_3d(ax: plt.Axes, limits: tuple[float, float, float, float, float, float]) -> None:
@@ -238,6 +239,12 @@ def make_two_body_setup() -> None:
         "alpha": 0.86,
         "boxstyle": "round,pad=0.12",
     }
+    velocity_box = {
+        "facecolor": "white",
+        "edgecolor": "none",
+        "alpha": 0.9,
+        "boxstyle": "round,pad=0.10",
+    }
 
     sep_y = 0.42
     sep_z = -0.84
@@ -260,16 +267,14 @@ def make_two_body_setup() -> None:
         c1 + np.array([-0.72, -1.28, -0.72]),
         np.array([1.3, 0.0, 0.0]),
         "#2ca02c",
-        r"$\mathbf{U}_1^0$",
-        label_offset=np.array([0.06, 0.0, 0.0]),
+        "",
     )
     arrow3d(
         ax,
         c2 + np.array([-0.72, -1.28, -0.72]),
         np.array([1.3, 0.0, 0.0]),
         "#2ca02c",
-        r"$\mathbf{U}_2^0$",
-        label_offset=np.array([0.06, 0.0, 0.0]),
+        "",
     )
     arrow3d(
         ax,
@@ -326,6 +331,26 @@ def make_two_body_setup() -> None:
         fontsize=15,
         color="#d62728",
         bbox=marker_box,
+    )
+    ax.text2D(
+        0.330,
+        0.425,
+        r"$\mathbf{U}_1^0$",
+        transform=ax.transAxes,
+        fontsize=15,
+        color="#2ca02c",
+        fontweight="bold",
+        bbox=velocity_box,
+    )
+    ax.text2D(
+        0.650,
+        0.380,
+        r"$\mathbf{U}_2^0$",
+        transform=ax.transAxes,
+        fontsize=15,
+        color="#2ca02c",
+        fontweight="bold",
+        bbox=velocity_box,
     )
     ax.text2D(
         0.610,
