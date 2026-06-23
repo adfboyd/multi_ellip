@@ -19,7 +19,7 @@ SHAPES = {
 DENSITIES = [10.0, 4.0, 1.0, 0.3, 0.1, 0.03]
 ENERGY_RATIOS = [0.2, 0.55, 1.5, 4.0, 11.0, 30.0]
 SEPARATIONS = [3.0, 5.0, 8.0, 11.0]
-REPEATS = 2
+REPEATS = 5
 
 NDIV = 2
 DT = 0.05
@@ -30,12 +30,8 @@ RHO_F = 1.0
 NBODY = 2
 ROTATIONS_OVER_RUN = 100.0
 
-ORIENTATIONS = [
-    ((1.0, 2.0, 0.0, 0.0), (1.0, 0.0, 1.0, 0.0)),
-    ((1.0, 1.0, 1.0, 0.0), (1.0, -1.0, 0.0, 1.0)),
-]
-
 Vector3 = Tuple[float, float, float]
+Quaternion = Tuple[float, float, float, float]
 
 
 class Case:
@@ -83,6 +79,21 @@ def random_unit(rng: random.Random) -> Vector3:
     return (r * math.cos(theta), r * math.sin(theta), z)
 
 
+def random_orientation(rng: random.Random) -> Quaternion:
+    u1 = rng.random()
+    u2 = rng.random()
+    u3 = rng.random()
+    s1 = math.sqrt(1.0 - u1)
+    s2 = math.sqrt(u1)
+    theta1 = 2.0 * math.pi * u2
+    theta2 = 2.0 * math.pi * u3
+    i = s1 * math.sin(theta1)
+    j = s1 * math.cos(theta1)
+    k = s2 * math.sin(theta2)
+    w = s2 * math.cos(theta2)
+    return (w, i, j, k)
+
+
 def case_seed(case: Case) -> int:
     text = (
         f"{case.shape_name}|{case.rho}|{case.energy_ratio}|"
@@ -92,6 +103,10 @@ def case_seed(case: Case) -> int:
     for ch in text:
         seed = ((seed * 1000003) ^ ord(ch)) & 0xFFFFFFFF
     return seed
+
+
+def orientation_seed(case: Case) -> int:
+    return case_seed(case) ^ 0xA536_6B4D
 
 
 def ellipsoid_mass(shape: Vector3, density: float) -> float:
@@ -169,9 +184,10 @@ def run_dir(case: Case) -> Path:
 
 def input_values(case: Case) -> Dict[str, Any]:
     shape = SHAPES[case.shape_name]
-    idx = case.repeat - 1
-    ori1, ori2 = ORIENTATIONS[idx % len(ORIENTATIONS)]
     rng = random.Random(case_seed(case))
+    orientation_rng = random.Random(orientation_seed(case))
+    ori1 = random_orientation(orientation_rng)
+    ori2 = random_orientation(orientation_rng)
     velocity_direction = random_unit(rng)
     axis1 = random_unit(rng)
     axis2 = random_unit(rng)
@@ -310,6 +326,7 @@ def print_plan(shape: str, case_list: List[Case], manifest: Path) -> None:
     print("  Method:           impulse_scheme=1, energy_projection=0")
     print(f"  Mesh/time:        ndiv={NDIV}, dt={DT}, tend={T_END}")
     print(f"  Spin magnitude:   {ROTATIONS_OVER_RUN:g} rotations over tend")
+    print("  Initial orient.:  deterministic-random unit quaternions per body/repeat")
     print(f"  Selected shape:   {shape}")
     print(f"  Total cases:      {len(case_list)}")
 

@@ -22,7 +22,7 @@ SHAPES = {
 DENSITIES = [1.0, 0.1, 0.03]
 ENERGY_RATIOS = [0.25, 4.0, 16.0]
 SEPARATIONS = [3.0, 8.0]
-REPEATS = 2
+REPEATS = 5
 
 NDIV = 2
 DT = 0.05
@@ -35,12 +35,6 @@ DEFAULT_SOLVER_MODE = "coupled_endpoint"
 SOLVER_MODES = ("impulse_projection", "impulse_noproj", "coupled_endpoint")
 
 ROTATIONS_OVER_RUN = 100.0
-ORIENTATIONS = [
-    ((1.0, 2.0, 0.0, 0.0), (1.0, 0.0, 1.0, 0.0)),
-    ((1.0, 1.0, 1.0, 0.0), (1.0, -1.0, 0.0, 1.0)),
-]
-
-
 Vector3 = Tuple[float, float, float]
 Quaternion = Tuple[float, float, float, float]
 Case = Dict[str, Any]
@@ -70,6 +64,21 @@ def random_unit(rng: random.Random) -> Vector3:
     return (r * math.cos(theta), r * math.sin(theta), z)
 
 
+def random_orientation(rng: random.Random) -> Quaternion:
+    u1 = rng.random()
+    u2 = rng.random()
+    u3 = rng.random()
+    s1 = math.sqrt(1.0 - u1)
+    s2 = math.sqrt(u1)
+    theta1 = 2.0 * math.pi * u2
+    theta2 = 2.0 * math.pi * u3
+    i = s1 * math.sin(theta1)
+    j = s1 * math.cos(theta1)
+    k = s2 * math.sin(theta2)
+    w = s2 * math.cos(theta2)
+    return (w, i, j, k)
+
+
 def case_seed(case: Case) -> int:
     text = (
         f"{case['shape_name']}|{case['rho']}|{case['energy_ratio']}|"
@@ -79,6 +88,10 @@ def case_seed(case: Case) -> int:
     for ch in text:
         seed = ((seed * 1000003) ^ ord(ch)) & 0xFFFFFFFF
     return seed
+
+
+def orientation_seed(case: Case) -> int:
+    return case_seed(case) ^ 0xA536_6B4D
 
 
 def ellipsoid_mass(shape: Vector3, density: float) -> float:
@@ -203,10 +216,10 @@ def input_values(case: Case, solver_mode: str) -> Dict[str, Any]:
     rho = float(case["rho"])
     energy_ratio = float(case["energy_ratio"])
     separation = float(case["separation"])
-    repeat = int(case["repeat"])
-    idx = repeat - 1
-    ori1, ori2 = ORIENTATIONS[idx % len(ORIENTATIONS)]
     rng = random.Random(case_seed(case))
+    orientation_rng = random.Random(orientation_seed(case))
+    ori1 = random_orientation(orientation_rng)
+    ori2 = random_orientation(orientation_rng)
     velocity_direction = random_unit(rng)
     axis1 = random_unit(rng)
     axis2 = random_unit(rng)
@@ -370,6 +383,7 @@ def print_plan(
         print("  Coupling:        Hamiltonian midpoint + coupled endpoint velocity")
     print("  Initial v:       both bodies parallel, deterministic-random direction; speed set by E")
     print("  Initial omega:   deterministic-random directions, fixed total rotation count")
+    print("  Initial orient.: deterministic-random unit quaternions per body/repeat")
     print(f"  Total cases:     {len(case_list)}")
     print()
     print("First 8 case names:")
