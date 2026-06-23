@@ -1,0 +1,102 @@
+
+================ Simulation setup ================
+  Run label:         /work/e643/e643/shared/multi_ellip/studies/multibody_convergence_sweep/runs/periodic_grid_ellipsoid_1_0p8_0p6_rho4_E1_sep5_nd1_dt0p05/
+  Started:           2026-06-22 18:51:56
+  Input file:        /work/e643/e643/shared/multi_ellip/studies/multibody_convergence_sweep/runs/periodic_grid_ellipsoid_1_0p8_0p6_rho4_E1_sep5_nd1_dt0p05/input.txt
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/multibody_convergence_sweep/runs/periodic_grid_ellipsoid_1_0p8_0p6_rho4_E1_sep5_nd1_dt0p05/multiple_body_complete.dat
+  Bodies:            2
+  Fluid density:     1
+  Mesh:              ndiv 1 -> 64 triangles / 132 nodes
+  Simulated time:    0 -> 10  (dt = 0.05, ~200 steps)
+  Output cadence:    every 1 step(s)
+  Output rows:       ~201
+  Progress cadence:  every 20 step(s)
+  CPU cores:         256 available, 16 Rayon worker thread(s)
+  Strong coupling:   disabled
+  Impulse scheme:    enabled
+  Hamiltonian step:  disabled
+  Hamiltonian midpt: disabled
+  Variational step:  disabled
+  Energy projection: disabled
+  Projection particular metric: Euclidean
+  Fluid KE gradient: disabled  (eps = 0.001, scale = 1, linear = 1, angular = 1)
+  Fluid KE discrete gradient: disabled
+  Impulse pair metric correction: disabled  (mode = pair discrete-gradient, cutoff = all pairs, inner/outer = 0/0, eps = 0.001, linear scale = 1, angular scale = 0)
+  Impulse metric correction: disabled  (internal load constraint = disabled)
+  Impulse variational defect probe: disabled
+  Impulse quadratic pressure: disabled  (scale = 1)
+  Added-mass stab:   disabled
+  Exact BEM geometry: disabled
+  Exact singular BEM: disabled
+  Legacy singular SLP diagnostic: disabled
+  Phi-dot blend:     0 (off)
+
+  Solver guidance:
+    - Strong coupling: use for stiff close-coupled runs; slower but more implicit.
+    - Impulse scheme: use when impulse/momentum conservation or KE drift is the focus. Recommended.
+    - Added-mass stab: use for higher mesh counts (ndiv > 3) to preserve stability - deprecated.
+================================================
+Solver starting - good luck!
+
+Initial state:
+  Body  1
+    density:          4.000000
+    shape axes ratio: (1.000000, 0.800000, 0.600000)
+    initial KE ratio: 1.000000
+    position:         (-2.500000, 0.000000, 0.000000)
+    velocity:         (-3.543491, -1.595777, -2.250018)
+    angular velocity: (-0.510813, -3.142912, -5.416603)
+    orientation:      (w=0.447214, i=0.894427, j=0.000000, k=0.000000)
+  Body  2
+    density:          4.000000
+    shape axes ratio: (1.000000, 0.800000, 0.600000)
+    initial KE ratio: 1.000000
+    position:         (2.500000, 0.000000, 0.000000)
+    velocity:         (-3.574637, -1.609804, -2.269795)
+    angular velocity: (-0.416578, 2.485928, 5.755436)
+    orientation:      (w=0.707107, i=0.000000, j=0.707107, k=0.000000)
+
+Preparing first step: implicit scheme, no bootstrap passes required.
+First step may take longer than later steps.
+
+First step completed in 4.282 s.
+
+Step    20/200    10.0% | t 1.000 | ETA 1s | step 0.01s | KE 684.1049 | drift +0.04% | fluid 63.9396 | solid 620.1653
+  Impulse FP iterations last/mean/max 9/8.50/9
+Step    40/200    20.0% | t 2.000 | ETA 1s | step 0.01s | KE 684.7869 | drift +0.14% | fluid 53.6375 | solid 631.1494
+  Impulse FP iterations last/mean/max 9/8.55/9
+Step    60/200    30.0% | t 3.000 | ETA 1s | step 0.02s | KE 686.3242 | drift +0.37% | fluid 53.7187 | solid 632.6055
+  Impulse FP iterations last/mean/max 9/8.57/9
+Step    80/200    40.0% | t 4.000 | ETA 1s | step 0.01s | KE 690.4280 | drift +0.97% | fluid 54.2763 | solid 636.1517
+  Impulse FP iterations last/mean/max 9/8.64/9
+Step   100/200    50.0% | t 5.000 | ETA 1s | step 0.01s | KE 695.7060 | drift +1.74% | fluid 46.5576 | solid 649.1484
+  Impulse FP iterations last/mean/max 8/8.70/9
+Step   120/200    60.0% | t 6.000 | ETA 1s | step 0.01s | KE 703.9178 | drift +2.94% | fluid 56.2729 | solid 647.6449
+  Impulse FP iterations last/mean/max 9/8.72/9
+Step   140/200    70.0% | t 7.000 | ETA 0s | step 0.01s | KE 721.6137 | drift +5.53% | fluid 50.6665 | solid 670.9472
+  Impulse FP iterations last/mean/max 8/8.74/9
+Step   160/200    80.0% | t 8.000 | ETA 0s | step 0.01s | KE 742.9319 | drift +8.65% | fluid 49.6196 | solid 693.3123
+  Impulse FP iterations last/mean/max 9/8.75/9
+Step   180/200    90.0% | t 9.000 | ETA 0s | step 0.01s | KE 775.6144 | drift +13.43% | fluid 51.0786 | solid 724.5359
+  Impulse FP iterations last/mean/max 9/8.75/9
+Solver finished successfully - good job!
+Results saved successfully.
+
+================== Run summary ==================
+  Bodies:            2
+  Triangles / nodes: 64 / 132
+  Timesteps:         200  (dt = 0.05)
+  Simulated time:    0 -> 10
+  First-step setup:  4.282 s
+  Mean time/step:    0.0135 s  (excl. first step)
+  Total wall time:   6.98s
+  Impulse FP iters last/mean/max: 9 / 8.760 / 9
+  Approx impulse solves/step:     8.765
+  Impulse start cache hits/direct: 199 / 1
+  Impulse global drift P/H:       4.592416e-10 / 4.992345e-2
+  Impulse per-body max drift P/H: 4.878611e-10 / 9.181522e-3
+  CPU cores:         256 available, 16 Rayon worker thread(s)
+  Started:           2026-06-22 18:51:56
+  Finished:          2026-06-22 18:52:03
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/multibody_convergence_sweep/runs/periodic_grid_ellipsoid_1_0p8_0p6_rho4_E1_sep5_nd1_dt0p05/multiple_body_complete.dat
+================================================
