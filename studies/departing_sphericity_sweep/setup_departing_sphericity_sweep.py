@@ -14,7 +14,7 @@ RUNS = STUDY / "runs"
 FAMILY_NAMES = ("spheroid_prolate", "spheroid_oblate", "triaxial")
 SWEEP_NAMES = ("homogeneous", "heterogeneous_sphere", "heterogeneous_aspherical")
 EPSILONS = [0.0, 1.0e-4, 3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2, 1.0e-1, 3.0e-1, 1.0]
-REPEATS = 5
+REPEATS = 10
 
 RHO = 1.0
 ENERGY_RATIO = 0.5

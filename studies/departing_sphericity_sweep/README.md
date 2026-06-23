@@ -11,7 +11,7 @@ Fixed parameters:
 - `dt = 0.05`
 - `tend = 100`
 - 100 nominal rotations over the run
-- 5 deterministic-random repeats per parameter point
+- 10 deterministic-random repeats per parameter point
 
 Shape families:
 
@@ -33,7 +33,7 @@ The epsilon grid is:
 0, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1
 ```
 
-The full matrix is `3 families * 3 suites * 10 eps values * 5 repeats = 450 cases`.
+The full matrix is `3 families * 3 suites * 10 eps values * 10 repeats = 900 cases`.
 
 ## Local Dry Run
 
