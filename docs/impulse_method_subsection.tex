@@ -1,0 +1,254 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\bx}{\bm{x}}
+\newcommand{\bc}{\bm{c}}
+\newcommand{\bn}{\bm{n}}
+\newcommand{\bu}{\bm{u}}
+\newcommand{\bU}{\bm{U}}
+\newcommand{\bOmega}{\bm{\Omega}}
+\newcommand{\bomega}{\bm{\omega}}
+\newcommand{\bI}{\bm{I}}
+\newcommand{\bL}{\bm{L}}
+\newcommand{\bLambda}{\bm{\Lambda}}
+\newcommand{\bp}{\bm{p}}
+\newcommand{\bh}{\bm{h}}
+\newcommand{\bP}{\bm{P}}
+\newcommand{\bH}{\bm{H}}
+\newcommand{\btau}{\bm{\tau}}
+\newcommand{\bzero}{\bm{0}}
+\newcommand{\quat}[1]{\mathbf{#1}}
+\DeclareMathOperator{\vecop}{vec}
+
+\title{Impulse Time Integration Subsection for POISE}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+\setcounter{section}{3}
+\setcounter{subsection}{2}
+
+\subsection{Impulse time integration}
+\label{sec:impulse-time-integration}
+
+The boundary-element solve described above gives the instantaneous velocity
+potential $\phi$ on the body surfaces.  For the production potential-flow
+sweeps in this work we do not evaluate hydrodynamic force from a finite
+difference approximation to $\partial\phi/\partial t$.  Instead, $\phi$ is used
+to compute Lamb impulse state functions, and the rigid-body update is written
+in impulse-difference form.  This avoids storing a temporal history of the
+potential and gives excellent conservation of total linear momentum in the
+multi-body calculations.
+
+Consider $N_b$ rigid bodies.  Body $b$ has centroid $\bc_b(t)\in\R^3$,
+translational velocity $\bU_b(t)\in\R^3$, lab-frame angular velocity
+$\bOmega_b(t)\in\R^3$, mass $m_b$, body-frame inertia tensor $\bI_b$, and
+surface $S_b$.  The normal $\bn$ follows the convention used in the boundary
+integral equation, and the no-penetration condition supplies the Neumann data
+\begin{equation}
+  \frac{\partial \phi}{\partial n}
+  =
+  \bn\cdot
+  \left[
+    \bU_b+\bOmega_b\times(\bx-\bc_b)
+  \right],
+  \qquad \bx\in S_b .
+  \label{eq:impulse-neumann}
+\end{equation}
+Once the BEM system has been solved, the linear and angular Lamb impulses of
+body $b$ are evaluated by the surface integrals
+\begin{align}
+  \bL_b
+  &=
+  \rho_f\int_{S_b}\phi\,\bn\,\dd S,
+  \label{eq:linear-lamb-impulse}\\
+  \bLambda_b
+  &=
+  \rho_f\int_{S_b}
+    \phi\,(\bx-\bc_b)\times\bn\,\dd S .
+  \label{eq:angular-lamb-impulse}
+\end{align}
+Here $\rho_f$ is the fluid density.  The angular impulse
+$\bLambda_b$ is taken about the translating centroid $\bc_b$, not about a fixed
+origin.
+
+The impulse variables entering the rigid-body dynamics are
+\begin{align}
+  \bp_b
+  &=
+  m_b\bU_b-\bL_b,
+  \label{eq:body-linear-impulse}\\
+  \bh_b
+  &=
+  \bc_b\times\bp_b+\bh_{s,b}-\bLambda_b,
+  \label{eq:body-angular-impulse}
+\end{align}
+where $\bp_b$ is the contribution of body $b$ to the total linear impulse and
+$\bh_b$ is its contribution to the total angular impulse.  The solid angular
+momentum is
+\begin{equation}
+  \bh_{s,b}
+  =
+  \vecop\!\left[
+    \quat{q}_b
+    \left(0,\bI_b\bomega_b\right)
+    \quat{q}_b^{-1}
+  \right],
+  \qquad
+  (0,\bomega_b)=
+  \quat{q}_b^{-1}(0,\bOmega_b)\quat{q}_b ,
+  \label{eq:solid-angular-impulse}
+\end{equation}
+with $\quat{q}_b$ the unit quaternion mapping body-frame vectors into the
+laboratory frame.  The total impulses are therefore
+\begin{equation}
+  \bP=\sum_{b=1}^{N_b}\bp_b,\qquad
+  \bH=\sum_{b=1}^{N_b}\bh_b .
+  \label{eq:total-impulses}
+\end{equation}
+In the absence of external forcing, the continuous inviscid problem conserves
+$\bP$ and $\bH$.
+
+Let $\Delta t=t^{n+1}-t^n$.  At the beginning of a time step the BEM solve gives
+$\bL_b^n$ and $\bLambda_b^n$.  The endpoint velocity and torque are found by a
+fixed-point iteration because the endpoint impulses depend on the unknown
+endpoint configuration.  Given a trial endpoint velocity $\bU_b^{n+1}$ and
+endpoint angular state, the centroid is advanced by the trapezoidal rule
+\begin{equation}
+  \bc_b^{n+1}
+  =
+  \bc_b^n+
+  \frac{\Delta t}{2}
+  \left(\bU_b^n+\bU_b^{n+1}\right).
+  \label{eq:impulse-position-update}
+\end{equation}
+The BEM is then solved again at the trial endpoint to obtain
+$\bL_b^{n+1}$ and $\bLambda_b^{n+1}$.  With no optional energy-gradient or
+pressure correction, the translational residual used by the code is
+\begin{equation}
+  \bm{r}_{U,b}
+  =
+  m_b\left(\bU_b^{n+1}-\bU_b^n\right)
+  -
+  \left(\bL_b^{n+1}-\bL_b^n\right).
+  \label{eq:linear-impulse-residual}
+\end{equation}
+Thus convergence of the iteration enforces
+\begin{equation}
+  m_b\bU_b^{n+1}-\bL_b^{n+1}
+  =
+  m_b\bU_b^n-\bL_b^n,
+  \label{eq:per-body-linear-impulse}
+\end{equation}
+which is the discrete per-body linear-impulse balance used in the fast impulse
+scheme.  The Newton-like correction to $\bU_b^{n+1}$ is preconditioned in the
+body frame by $m_b\mathbf{1}+\mathbf{M}_{a,b}$, where $\mathbf{M}_{a,b}$ is the
+diagonal single-body added-mass estimate used only as a preconditioner.
+
+The angular update must account for the fact that
+\eqref{eq:angular-lamb-impulse} is measured about the moving centroid.  Define
+\begin{equation}
+  \bp_{b}^{m}
+  =
+  \frac{1}{2}
+  \left[
+    \left(m_b\bU_b^n-\bL_b^n\right)
+    +
+    \left(m_b\bU_b^{n+1}-\bL_b^{n+1}\right)
+  \right],
+  \qquad
+  \bU_b^m=\frac{1}{2}\left(\bU_b^n+\bU_b^{n+1}\right).
+  \label{eq:midpoint-impulse}
+\end{equation}
+The step-averaged torque applied to the solid angular momentum is
+\begin{equation}
+  \btau_b^m
+  =
+  \frac{\bLambda_b^{n+1}-\bLambda_b^n}{\Delta t}
+  -
+  \bU_b^m\times\bp_b^m .
+  \label{eq:impulse-torque}
+\end{equation}
+The second term is the transport correction for angular momentum about a
+translating point.  Omitting it gives the wrong angular-impulse balance even for
+a single body.  In the converged linear solve, $\bp_b^m=\bp_b^n=\bp_b^{n+1}$,
+and \eqref{eq:impulse-torque} is the discrete counterpart of
+\[
+  \frac{\dd\bh_{s,b}}{\dd t}
+  =
+  \frac{\dd\bLambda_b}{\dd t}
+  -
+  \bU_b\times\bp_b .
+\]
+
+The orientation and angular velocity are advanced with an implicit-midpoint
+Lie-group update.  Let $\bomega_b^n$ be the body-frame angular velocity at the
+start of the step.  The midpoint body-frame angular velocity solves
+\begin{equation}
+  \bomega_b^m
+  =
+  \bomega_b^n
+  +
+  \frac{\Delta t}{2}
+  \bI_b^{-1}
+  \left[
+    \btau_b^m(\quat{q}_b^m)
+    -
+    \bomega_b^m\times\left(\bI_b\bomega_b^m\right)
+  \right],
+  \label{eq:implicit-midpoint-omega}
+\end{equation}
+where $\btau_b^m(\quat{q}_b^m)$ denotes the lab-frame torque
+\eqref{eq:impulse-torque} rotated into the midpoint body frame.  The midpoint
+orientation is
+\begin{equation}
+  \quat{q}_b^m
+  =
+  \exp\left[
+    \frac{\Delta t}{2}(0,\bOmega_b^m)
+  \right]\quat{q}_b^n,
+  \label{eq:midpoint-orientation}
+\end{equation}
+and the accepted endpoint state is reconstructed as
+\begin{align}
+  \quat{q}_b^{n+1}
+  &=
+  \exp\left[
+    \Delta t(0,\bOmega_b^m)
+  \right]\quat{q}_b^n,
+  \label{eq:endpoint-orientation}\\
+  \bomega_b^{n+1}
+  &=
+  2\bomega_b^m-\bomega_b^n .
+  \label{eq:endpoint-angular-velocity}
+\end{align}
+The exponential map in \eqref{eq:midpoint-orientation} and
+\eqref{eq:endpoint-orientation} is evaluated as
+\[
+  \exp(0,\bm{a})
+  =
+  \left(\cos\|\bm{a}\|,\,
+  \frac{\sin\|\bm{a}\|}{\|\bm{a}\|}\bm{a}\right),
+\]
+with the usual limiting value when $\|\bm{a}\|=0$.
+
+The fixed-point iteration is applied to the stacked endpoint translational
+velocities and step-averaged torques, with Anderson acceleration used to reduce
+the iteration count.  At convergence, the method has advanced the bodies using
+only BEM state functions evaluated at the start and end of the step.  In the
+production runs reported here no algebraic energy projection is applied:
+kinetic energy is monitored as a diagnostic of the impulse discretisation,
+while linear impulse is conserved to near roundoff except in runs that terminate
+early because the state becomes non-finite.
+
+\end{document}
