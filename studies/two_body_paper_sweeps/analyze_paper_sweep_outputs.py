@@ -1,6 +1,7 @@
 import argparse
 import csv
 import math
+import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -8,13 +9,19 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import NullFormatter
 import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[2]
 STUDY = ROOT / "studies" / "two_body_paper_sweeps"
+DOCS_SECTION4 = ROOT / "docs" / "paper_figures" / "section4_two_body"
 SHAPES = ["spheroid_1_0p7_0p7", "ellipsoid_1_0p8_0p6"]
 ENERGIES = [0.2, 0.55, 1.5, 4.0, 11.0, 30.0]
+SHAPE_LABEL = {
+    "spheroid_1_0p7_0p7": "spheroid 1:0.7:0.7",
+    "ellipsoid_1_0p8_0p6": "triaxial 1:0.8:0.6",
+}
 CLASS_ORDER = {
     "periodic": 0,
     "quasi-periodic": 1,
@@ -40,6 +47,17 @@ CLASS_CODE = {
     "": "",
 }
 CLASS_COLORS = ["#2ca02c", "#1f77b4", "#9467bd", "#17becf", "#7f7f7f", "#d62728", "#9e9e9e"]
+CLASS_STYLE = {
+    "periodic": ("#2ca02c", "o", "Periodic"),
+    "quasi-periodic": ("#1f77b4", "^", "Quasiperiodic"),
+    "sensitive-regular": ("#9467bd", "D", "Sensitive regular"),
+    "complex-regular": ("#17becf", "s", "Complex regular"),
+    "mixed": ("#7f7f7f", "X", "Mixed repeats"),
+    "chaotic-like": ("#d62728", "*", "Chaotic-like"),
+    "chaotic": ("#d62728", "*", "Chaotic-like"),
+    "chaotic-candidate": ("#ff7f0e", "P", "Chaotic candidate"),
+    "incomplete": ("#4d4d4d", "x", "Incomplete"),
+}
 
 
 def read_csv(path):
@@ -328,6 +346,108 @@ def plot_class_slice_family(rows, fixed_key, x_key, y_key, title, out, x_label, 
     plt.close(fig)
 
 
+def set_param_axis(ax, axis, values, label):
+    vals = sorted({float(v) for v in values if math.isfinite(float(v))})
+    if axis == "x":
+        ax.set_xscale("log")
+        ax.set_xticks(vals, [f"{v:g}" for v in vals])
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.set_xlabel(label)
+    else:
+        ax.set_yscale("log")
+        ax.set_yticks(vals, [f"{v:g}" for v in vals])
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        ax.set_ylabel(label)
+
+
+def plot_behaviour_scatter_sweep(rows, fixed_key, x_key, y_key, title, out, x_label, y_label):
+    fixed_values = sorted({float(r[fixed_key]) for r in rows})
+    if fixed_key == "rho":
+        fixed_values = sorted(fixed_values, reverse=True)
+    fig, axes = plt.subplots(
+        len(SHAPES),
+        len(fixed_values),
+        figsize=(2.65 * len(fixed_values), 4.35 * len(SHAPES)),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    for row_i, shape in enumerate(SHAPES):
+        shape_rows = [r for r in rows if r["shape_name"] == shape]
+        for col_i, fixed_value in enumerate(fixed_values):
+            ax = axes[row_i][col_i]
+            panel_rows = [
+                r
+                for r in shape_rows
+                if math.isclose(float(r[fixed_key]), fixed_value, rel_tol=0.0, abs_tol=1.0e-12)
+            ]
+            for cls, (color, marker, label) in CLASS_STYLE.items():
+                cls_rows = [r for r in panel_rows if r.get("class", "") == cls]
+                if not cls_rows:
+                    continue
+                sizes = [95 if marker != "*" else 135 for _ in cls_rows]
+                kwargs = {
+                    "s": sizes,
+                    "marker": marker,
+                    "c": color,
+                    "linewidths": 0.55,
+                    "alpha": 0.9,
+                    "label": label,
+                    "zorder": 3,
+                }
+                if marker != "x":
+                    kwargs["edgecolors"] = "black" if marker != "*" else color
+                ax.scatter([float(r[x_key]) for r in cls_rows], [float(r[y_key]) for r in cls_rows], **kwargs)
+            x_values = [float(r[x_key]) for r in panel_rows]
+            y_values = [float(r[y_key]) for r in panel_rows]
+            set_param_axis(ax, "x", x_values, x_label)
+            set_param_axis(ax, "y", y_values, y_label)
+            ax.grid(True, which="both", color="#d9d9d9", linewidth=0.7, zorder=0)
+            ax.set_title(f"{fixed_key}={fixed_value:g}", fontsize=10)
+            if col_i != 0:
+                ax.set_ylabel("")
+            else:
+                ax.set_ylabel(f"{SHAPE_LABEL.get(shape, shape)}\n{y_label}")
+    handles = []
+    labels = []
+    for cls, (color, marker, label) in CLASS_STYLE.items():
+        if any(r.get("class", "") == cls for r in rows):
+            handle = plt.Line2D(
+                [0],
+                [0],
+                marker=marker,
+                color="none",
+                markerfacecolor=color if marker != "x" else "none",
+                markeredgecolor=color,
+                markersize=8.5 if marker != "*" else 10,
+                label=label,
+                linestyle="None",
+            )
+            handles.append(handle)
+            labels.append(label)
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.035),
+        ncol=min(5, len(handles)),
+        frameon=True,
+    )
+    fig.suptitle(title, y=1.02)
+    fig.savefig(out, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
+def mirror_to_docs(paths):
+    try:
+        DOCS_SECTION4.mkdir(parents=True, exist_ok=True)
+        for path in paths:
+            shutil.copy2(path, DOCS_SECTION4 / path.name)
+        return True
+    except PermissionError as exc:
+        print(f"Skipping docs mirror: {exc}")
+        return False
+
+
 def print_summary(aggregate_rows):
     for shape in SHAPES:
         sub = [r for r in aggregate_rows if r["shape_name"] == shape]
@@ -376,6 +496,41 @@ def main():
     plot_metric(aggregate_rows, "mean_max_abs_ke_drift_pct", "Mean max KE drift (%)", out_dir / "energy_drift_map.png", cmap="viridis", log=True)
     plot_metric(aggregate_rows, "mean_min_separation", "Mean minimum centroid separation", out_dir / "minimum_separation_map.png", cmap="cividis")
     plot_metric(aggregate_rows, "n_short_or_missing", "Short or missing repeats", out_dir / "incomplete_map.png", cmap="Reds")
+    scatter_paths = [
+        out_dir / "behaviour_scatter_const_separation.png",
+        out_dir / "behaviour_scatter_const_energy.png",
+        out_dir / "behaviour_scatter_const_density.png",
+    ]
+    plot_behaviour_scatter_sweep(
+        aggregate_rows,
+        fixed_key="separation",
+        x_key="energy_ratio",
+        y_key="rho",
+        title="Two-body behaviour sweep: density versus energy at fixed separation",
+        out=scatter_paths[0],
+        x_label="E",
+        y_label="rho",
+    )
+    plot_behaviour_scatter_sweep(
+        aggregate_rows,
+        fixed_key="energy_ratio",
+        x_key="separation",
+        y_key="rho",
+        title="Two-body behaviour sweep: density versus separation at fixed energy",
+        out=scatter_paths[1],
+        x_label="separation",
+        y_label="rho",
+    )
+    plot_behaviour_scatter_sweep(
+        aggregate_rows,
+        fixed_key="rho",
+        x_key="energy_ratio",
+        y_key="separation",
+        title="Two-body behaviour sweep: separation versus energy at fixed density",
+        out=scatter_paths[2],
+        x_label="E",
+        y_label="separation",
+    )
     plot_class_slice_family(
         aggregate_rows,
         fixed_key="separation",
@@ -406,8 +561,11 @@ def main():
         x_label="E",
         y_label="separation",
     )
+    mirrored = mirror_to_docs(scatter_paths)
     print_summary(aggregate_rows)
     print(f"Wrote {out_dir}")
+    if mirrored:
+        print(f"Mirrored scatter sweep plots to {DOCS_SECTION4}")
 
 
 if __name__ == "__main__":
