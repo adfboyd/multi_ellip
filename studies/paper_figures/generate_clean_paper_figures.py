@@ -169,7 +169,16 @@ def ellipsoid_surface(
     return xyz[..., 0], xyz[..., 1], xyz[..., 2]
 
 
-def arrow3d(ax: plt.Axes, start: np.ndarray, vec: np.ndarray, color: str, label: str, lw: float = 1.6) -> None:
+def arrow3d(
+    ax: plt.Axes,
+    start: np.ndarray,
+    vec: np.ndarray,
+    color: str,
+    label: str,
+    lw: float = 2.4,
+    fontsize: int = 15,
+    label_offset: np.ndarray | None = None,
+) -> None:
     ax.quiver(
         start[0],
         start[1],
@@ -179,11 +188,22 @@ def arrow3d(ax: plt.Axes, start: np.ndarray, vec: np.ndarray, color: str, label:
         vec[2],
         color=color,
         linewidth=lw,
-        arrow_length_ratio=0.14,
+        arrow_length_ratio=0.16,
         normalize=False,
     )
     end = start + vec
-    ax.text(end[0], end[1], end[2], label, color=color, fontsize=10)
+    if label_offset is None:
+        label_offset = np.zeros(3)
+    label_pos = end + label_offset
+    ax.text(
+        label_pos[0],
+        label_pos[1],
+        label_pos[2],
+        label,
+        color=color,
+        fontsize=fontsize,
+        fontweight="bold",
+    )
 
 
 def set_equal_3d(ax: plt.Axes, limits: tuple[float, float, float, float, float, float]) -> None:
@@ -198,40 +218,141 @@ def set_equal_3d(ax: plt.Axes, limits: tuple[float, float, float, float, float, 
 def make_two_body_setup() -> None:
     shape = np.array([1.0, 0.8, 0.6])
     axes = shape / np.cbrt(np.prod(shape))
-    c1 = np.array([-2.2, 0.0, 0.0])
-    c2 = np.array([2.2, 0.0, 0.0])
+    c1 = np.array([-2.45, 0.0, 0.0])
+    c2 = np.array([2.45, 0.0, 0.0])
     r1 = rotation_matrix(np.array([0.2, 1.0, 0.3]), math.radians(32.0))
     r2 = rotation_matrix(np.array([0.9, 0.1, 0.5]), math.radians(-48.0))
 
-    fig = plt.figure(figsize=(8.6, 4.9), constrained_layout=True)
+    fig = plt.figure(figsize=(9.2, 5.0), constrained_layout=True)
     ax = fig.add_subplot(111, projection="3d")
+    ax.set_proj_type("ortho")
 
     for center, rot, color in [(c1, r1, "#4e79a7"), (c2, r2, "#f28e2b")]:
         x, y, z = ellipsoid_surface(axes, center, rot)
-        ax.plot_surface(x, y, z, color=color, alpha=0.64, linewidth=0.0, shade=True)
-        ax.plot_wireframe(x, y, z, color="0.22", linewidth=0.25, rstride=4, cstride=6, alpha=0.34)
+        ax.plot_surface(x, y, z, color=color, alpha=0.78, linewidth=0.0, shade=True)
+        ax.plot_wireframe(x, y, z, color="0.18", linewidth=0.28, rstride=4, cstride=7, alpha=0.22)
 
-    ax.plot([c1[0], c2[0]], [c1[1], c2[1]], [c1[2], c2[2]], color="0.15", lw=1.1, ls="--")
-    ax.text(0.0, 0.08, -0.35, r"$d$", fontsize=12, color="0.12", ha="center")
-    arrow3d(ax, c1 + np.array([-0.45, -1.35, -0.75]), np.array([1.15, 0.0, 0.0]), "#2ca02c", r"$\mathbf{U}_0$")
-    arrow3d(ax, c2 + np.array([-0.45, -1.35, -0.75]), np.array([1.15, 0.0, 0.0]), "#2ca02c", r"$\mathbf{U}_0$")
-    arrow3d(ax, c1 + np.array([0.0, 0.0, 1.1]), np.array([-0.45, 0.48, 0.55]), "#9467bd", r"$\boldsymbol{\Omega}_1$")
-    arrow3d(ax, c2 + np.array([0.0, 0.0, 1.1]), np.array([0.32, 0.58, -0.45]), "#9467bd", r"$\boldsymbol{\Omega}_2$")
+    marker_box = {
+        "facecolor": "white",
+        "edgecolor": "none",
+        "alpha": 0.86,
+        "boxstyle": "round,pad=0.12",
+    }
 
-    label_box = {"facecolor": "white", "edgecolor": "0.75", "alpha": 0.9, "pad": 3.0}
-    ax.text2D(0.18, 0.66, "body 1\naxes 1:0.8:0.6", transform=ax.transAxes, fontsize=9, bbox=label_box)
-    ax.text2D(0.74, 0.42, "body 2\naxes 1:0.8:0.6", transform=ax.transAxes, fontsize=9, bbox=label_box)
+    sep_y = 0.42
+    sep_z = -0.84
+    sep_start = c1 + np.array([0.4, sep_y, sep_z])
+    sep_end = c2 + np.array([-0.4, sep_y, sep_z])
+    sep_vec = sep_end - sep_start
+    ax.plot(
+        [sep_start[0], sep_end[0]],
+        [sep_start[1], sep_end[1]],
+        [sep_start[2], sep_end[2]],
+        color="0.12",
+        lw=2.0,
+    )
+    arrow3d(ax, sep_start, 0.26 * sep_vec, "0.12", "", lw=1.6)
+    arrow3d(ax, sep_end, -0.26 * sep_vec, "0.12", "", lw=1.6)
+    ax.text(0.0, sep_y + 0.04, sep_z - 0.12, r"$d$", fontsize=18, color="0.08", ha="center")
 
-    ax.set_xlabel("$x$")
-    ax.set_ylabel("$y$")
-    ax.set_zlabel("$z$")
-    ax.view_init(elev=20, azim=-58)
-    set_equal_3d(ax, (-3.6, 3.6, -1.8, 1.8, -1.6, 1.7))
-    ax.grid(alpha=0.14)
+    arrow3d(
+        ax,
+        c1 + np.array([-0.72, -1.28, -0.72]),
+        np.array([1.3, 0.0, 0.0]),
+        "#2ca02c",
+        r"$\mathbf{U}_1^0$",
+        label_offset=np.array([0.06, 0.0, 0.0]),
+    )
+    arrow3d(
+        ax,
+        c2 + np.array([-0.72, -1.28, -0.72]),
+        np.array([1.3, 0.0, 0.0]),
+        "#2ca02c",
+        r"$\mathbf{U}_2^0$",
+        label_offset=np.array([0.06, 0.0, 0.0]),
+    )
+    arrow3d(
+        ax,
+        c1 + np.array([-0.05, 0.08, 1.05]),
+        np.array([-0.5, 0.56, 0.58]),
+        "#7e57c2",
+        r"$\boldsymbol{\Omega}_1$",
+        label_offset=np.array([-0.08, 0.02, 0.08]),
+    )
+    arrow3d(
+        ax,
+        c2 + np.array([0.10, 0.16, 1.20]),
+        np.array([0.46, 0.60, -0.32]),
+        "#7e57c2",
+        r"$\boldsymbol{\Omega}_2$",
+        label_offset=np.array([0.14, 0.04, 0.08]),
+    )
+
+    label_box = {
+        "facecolor": "white",
+        "edgecolor": "0.55",
+        "alpha": 0.96,
+        "boxstyle": "round,pad=0.34",
+        "linewidth": 0.9,
+    }
+    ax.text2D(
+        0.095,
+        0.82,
+        "body 1\naxes $(a_1,b_1,c_1)$",
+        transform=ax.transAxes,
+        fontsize=13,
+        bbox=label_box,
+    )
+    # Figure-level overlays keep the marker tips bright red; mplot3d depth
+    # sorting otherwise mutes surface markers behind translucent panels.
+    for xy in [(0.438, 0.500), (0.604, 0.498)]:
+        fig.add_artist(
+            plt.Circle(
+                xy,
+                0.013,
+                transform=ax.transAxes,
+                facecolor="#d62728",
+                edgecolor="#7f0000",
+                linewidth=0.8,
+                zorder=1000,
+                clip_on=False,
+            )
+        )
+    ax.text2D(
+        0.425,
+        0.555,
+        r"$\mathbf{m}_1$",
+        transform=ax.transAxes,
+        fontsize=15,
+        color="#d62728",
+        bbox=marker_box,
+    )
+    ax.text2D(
+        0.610,
+        0.565,
+        r"$\mathbf{m}_2$",
+        transform=ax.transAxes,
+        fontsize=15,
+        color="#d62728",
+        bbox=marker_box,
+    )
+    ax.text2D(
+        0.625,
+        0.23,
+        "body 2\naxes $(a_2,b_2,c_2)$",
+        transform=ax.transAxes,
+        fontsize=13,
+        bbox=label_box,
+    )
+
+    ax.view_init(elev=17, azim=-61)
+    set_equal_3d(ax, (-4.0, 4.0, -1.9, 1.9, -1.45, 1.85))
+    ax.set_axis_off()
+    ax.set_facecolor("white")
 
     out = SECTION4 / "section4_two_body_setup_schematic.png"
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=260)
+    fig.savefig(out, dpi=320, bbox_inches="tight", pad_inches=0.03, facecolor="white")
     plt.close(fig)
     print(out)
 
