@@ -1,10 +1,12 @@
-"""Compare recurrence behaviour for current KE-ratio density marker runs.
+"""Compare recurrence behaviour for current KE-ratio density orientation runs.
 
 This post-processes the single-body orientation marker trajectories from the
 impulse BEM runs and the analytic exact-added-mass references.  The recurrence
 settings intentionally match the more selective settings used in the previous
 study: 3-delay embedding, tau=10, target recurrence rate 3%, and Theiler
-window 50.
+window 50.  Triaxial cases use the tracked marker point as the orientation
+state.  Spheroidal cases use the antipodal symmetry-axis metric, so orientations
+with opposite axis sign are treated as the same physical state.
 """
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -38,6 +43,7 @@ class SourceSpec:
     marker_cols: tuple[str, str, str]
     family: str
     method: str
+    metric: str
 
 
 def case_sort_key(path: Path) -> tuple[float, float, int, str]:
@@ -91,6 +97,17 @@ def load_marker(path: Path, marker_cols: tuple[str, str, str]) -> tuple[np.ndarr
     return time, marker
 
 
+def orient_axis(axis: np.ndarray) -> np.ndarray:
+    out = np.asarray(axis, dtype=float).copy()
+    norm = np.linalg.norm(out, axis=1)
+    norm[norm < 1e-14] = 1.0
+    out /= norm[:, None]
+    for i in range(1, len(out)):
+        if float(np.dot(out[i - 1], out[i])) < 0.0:
+            out[i] *= -1.0
+    return out
+
+
 def standardize(series: np.ndarray) -> np.ndarray:
     y = np.asarray(series, dtype=float)
     mu = np.nanmean(y, axis=0, keepdims=True)
@@ -107,11 +124,38 @@ def delay_embed(series: np.ndarray, dim: int = EMBED_DIM, tau: int = EMBED_TAU) 
     return np.hstack([y[i * tau : i * tau + n] for i in range(dim)])
 
 
+def delay_embed_axis_for_divergence(series: np.ndarray, dim: int = EMBED_DIM, tau: int = EMBED_TAU) -> np.ndarray:
+    axis = orient_axis(series)
+    n = len(axis) - (dim - 1) * tau
+    if n <= 0:
+        raise ValueError("series is too short for requested embedding")
+    return np.hstack([axis[i * tau : i * tau + n] for i in range(dim)])
+
+
 def pairwise_distances(points: np.ndarray) -> np.ndarray:
     gram = points @ points.T
     sq = np.sum(points * points, axis=1)
     dist2 = sq[:, None] + sq[None, :] - 2.0 * gram
     np.maximum(dist2, 0.0, out=dist2)
+    return np.sqrt(dist2)
+
+
+def pairwise_axis_distances(series: np.ndarray, dim: int = EMBED_DIM, tau: int = EMBED_TAU) -> np.ndarray:
+    axis = orient_axis(series)
+    n = len(axis) - (dim - 1) * tau
+    if n <= 0:
+        raise ValueError("series is too short for requested embedding")
+    dist2 = np.zeros((n, n), dtype=float)
+    for k in range(dim):
+        block = axis[k * tau : k * tau + n]
+        dots = np.clip(block @ block.T, -1.0, 1.0)
+        angles = np.arccos(np.abs(dots))
+        finite = angles[np.triu(np.ones_like(angles, dtype=bool), k=1)]
+        finite = finite[np.isfinite(finite) & (finite > 1e-12)]
+        scale = float(np.median(finite)) if finite.size else 1.0
+        if not math.isfinite(scale) or scale <= 1e-12:
+            scale = 1.0
+        dist2 += (angles / scale) ** 2
     return np.sqrt(dist2)
 
 
@@ -297,9 +341,15 @@ def broadband_chaos_score(metrics: dict[str, float | str]) -> float:
     return float(0.40 * broad_spectrum + 0.35 * entropy_score + 0.25 * short_diagonal)
 
 
-def rqa_metrics(marker: np.ndarray, dt: float) -> tuple[dict[str, float | str], np.ndarray]:
-    embedded = delay_embed(marker)
-    dist = pairwise_distances(embedded)
+def rqa_metrics(marker: np.ndarray, dt: float, metric: str) -> tuple[dict[str, float | str], np.ndarray]:
+    if metric == "axis":
+        series = orient_axis(marker)
+        embedded = delay_embed_axis_for_divergence(series)
+        dist = pairwise_axis_distances(series)
+    else:
+        series = marker
+        embedded = delay_embed(series)
+        dist = pairwise_distances(embedded)
     rec, epsilon, rr = recurrence_from_distances(dist)
     diag = diagonal_lengths(rec)
     vert = vertical_lengths(rec)
@@ -310,7 +360,8 @@ def rqa_metrics(marker: np.ndarray, dt: float) -> tuple[dict[str, float | str], 
     max_vert = max(vert) if vert else 0
     n = rec.shape[0]
     metrics: dict[str, float | str] = {
-        "samples": float(len(marker)),
+        "samples": float(len(series)),
+        "orientation_metric": metric,
         "embedded_samples": float(n),
         "dimension": float(EMBED_DIM),
         "delay": float(EMBED_TAU),
@@ -328,7 +379,7 @@ def rqa_metrics(marker: np.ndarray, dt: float) -> tuple[dict[str, float | str], 
         "max_vertical": float(max_vert),
         "diag_entropy": line_entropy(diag),
     }
-    metrics.update(spectral_metrics(marker))
+    metrics.update(spectral_metrics(series))
     metrics.update(rosenstein_metrics(embedded, dist, dt))
     metrics["chaos_score"] = chaos_score(metrics)
     metrics["broadband_chaos_score"] = broadband_chaos_score(metrics)
@@ -416,13 +467,14 @@ def analyse_source(spec: SourceSpec, out_root: Path) -> list[dict[str, float | s
         data_path = case_dir / spec.data_file
         time, marker = load_marker(data_path, spec.marker_cols)
         dt = float(np.median(np.diff(time))) if len(time) > 1 else 1.0
-        metrics, rec = rqa_metrics(marker, dt)
+        metrics, rec = rqa_metrics(marker, dt, spec.metric)
         meta = parse_case_name(case_dir.name)
         row: dict[str, float | str] = {
             "case": case_dir.name,
             "family": spec.family,
             "source": spec.label,
             "method": spec.method,
+            "orientation_metric": spec.metric,
             "path": str(data_path),
             "duration": float(time[-1] - time[0]),
         }
@@ -661,7 +713,7 @@ def plot_overview(rows: list[dict[str, float | str]], agreement: list[dict[str, 
     cbar.set_ticklabels(list(class_order.keys())[:-1])
 
     im1 = axes[1].imshow(entropy_grid, aspect="auto", interpolation="nearest", cmap="magma")
-    axes[1].set_title("Spectral entropy of marker trajectory")
+    axes[1].set_title("Spectral entropy of orientation trajectory")
     axes[1].set_yticks(range(len(sources)), sources)
     axes[1].set_xticks(range(len(cases)), cases, rotation=60, ha="right", fontsize=7)
     fig.colorbar(im1, ax=axes[1], pad=0.01)
@@ -739,6 +791,7 @@ def default_specs() -> list[SourceSpec]:
             ("ofix1_1", "ofix2_1", "ofix3_1"),
             "triaxial_1_0p8_0p6",
             "impulse_nd2",
+            "marker",
         ),
         SourceSpec(
             "triaxial_nd3",
@@ -747,6 +800,7 @@ def default_specs() -> list[SourceSpec]:
             ("ofix1_1", "ofix2_1", "ofix3_1"),
             "triaxial_1_0p8_0p6",
             "impulse_nd3",
+            "marker",
         ),
         SourceSpec(
             "triaxial_exact",
@@ -755,6 +809,7 @@ def default_specs() -> list[SourceSpec]:
             ("ofx", "ofy", "ofz"),
             "triaxial_1_0p8_0p6",
             "exact_added_mass",
+            "marker",
         ),
         SourceSpec(
             "spheroid_nd2",
@@ -763,6 +818,7 @@ def default_specs() -> list[SourceSpec]:
             ("ofix1_1", "ofix2_1", "ofix3_1"),
             "spheroid_1_0p7_0p7",
             "impulse_nd2",
+            "axis",
         ),
         SourceSpec(
             "spheroid_exact",
@@ -771,6 +827,7 @@ def default_specs() -> list[SourceSpec]:
             ("ofx", "ofy", "ofz"),
             "spheroid_1_0p7_0p7",
             "exact_added_mass",
+            "axis",
         ),
     ]
 

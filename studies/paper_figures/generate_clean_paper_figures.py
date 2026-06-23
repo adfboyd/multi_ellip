@@ -80,20 +80,49 @@ def image_panel(paths: list[Path], labels: list[str], out: Path, figsize: tuple[
     print(out)
 
 
+def image_grid_panel(
+    paths: list[Path],
+    labels: list[str],
+    out: Path,
+    ncols: int,
+    figsize: tuple[float, float],
+) -> None:
+    nrows = int(math.ceil(len(paths) / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, constrained_layout=True)
+    axes_arr = np.asarray(axes).reshape(nrows, ncols)
+    for axis in axes_arr.ravel():
+        axis.set_axis_off()
+    for axis, path, label in zip(axes_arr.ravel(), paths, labels):
+        axis.imshow(mpimg.imread(path))
+        axis.set_title(label, fontsize=9)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=220)
+    plt.close(fig)
+    print(out)
+
+
 def make_section3() -> None:
     copy_asset(DOCS / "default_grid_overlay_panel.png", SECTION3 / "section3_grid_discretisation.png")
     copy_asset(DOCS / "exact_singular_convergence.png", SECTION3 / "section3_bem_convergence.png")
     plot_geometric_error_convergence()
 
-    recurrence_root = DOCS / "ke_ratio_recurrence_current_comparison" / "plots" / "triaxial_nd2"
-    image_panel(
+    recurrence_root = DOCS / "ke_ratio_recurrence_current_comparison" / "plots"
+    image_grid_panel(
         [
-            recurrence_root / "ratio1_rho4_run01_recurrence.png",
-            recurrence_root / "ratio20_rho0p25_run04_recurrence.png",
+            recurrence_root / "spheroid_nd2" / "ratio1_rho4_run01_recurrence.png",
+            recurrence_root / "spheroid_nd2" / "ratio20_rho0p25_run04_recurrence.png",
+            recurrence_root / "triaxial_nd2" / "ratio1_rho4_run01_recurrence.png",
+            recurrence_root / "triaxial_nd2" / "ratio20_rho0p25_run04_recurrence.png",
         ],
-        [r"Regular/quasiperiodic, $\rho=4$, $E=1$", r"Chaotic-like, $\rho=0.25$, $E=20$"],
+        [
+            r"Spheroid axis metric, $\rho=4$, $E=1$",
+            r"Spheroid axis metric, $\rho=0.25$, $E=20$",
+            r"Triaxial marker metric, $\rho=4$, $E=1$",
+            r"Triaxial marker metric, $\rho=0.25$, $E=20$",
+        ],
         SECTION3 / "section3_recurrence_examples.png",
-        (8.2, 4.2),
+        ncols=2,
+        figsize=(8.8, 8.0),
     )
 
     copy_asset(
