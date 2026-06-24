@@ -1,7 +1,7 @@
 
 ================ Simulation setup ================
   Run label:         /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p55_sep3_run02_impulse_noproj/
-  Started:           2026-06-22 20:00:41
+  Started:           2026-06-24 02:15:06
   Input file:        /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p55_sep3_run02_impulse_noproj/input.txt
   Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p55_sep3_run02_impulse_noproj/multiple_body_complete.dat
   Bodies:            2
@@ -46,7 +46,7 @@ Initial state:
     position:         (-1.500000, 0.000000, 0.000000)
     velocity:         (4.163089, -2.104122, 3.539417)
     angular velocity: (0.657530, -1.882624, 5.958339)
-    orientation:      (w=0.577350, i=0.577350, j=0.577350, k=0.000000)
+    orientation:      (w=-0.147678, i=0.758755, j=-0.155116, k=0.615159)
   Body  2
     density:          0.030000
     shape axes ratio: (1.000000, 0.700000, 0.700000)
@@ -54,11 +54,69 @@ Initial state:
     position:         (1.500000, 0.000000, 0.000000)
     velocity:         (4.163218, -2.104187, 3.539527)
     angular velocity: (-0.652087, -0.681092, -6.212030)
-    orientation:      (w=0.577350, i=-0.577350, j=0.000000, k=0.577350)
+    orientation:      (w=-0.079207, i=0.245671, j=-0.729236, k=0.633709)
 
 Preparing first step: implicit scheme, no bootstrap passes required.
 First step may take longer than later steps.
 
-First step completed in 0.496 s.
+First step completed in 0.479 s.
 
-Solver stopped with error: Non-finite state detected at x = 1.1500000000000004: position[0] = NaN.
+Step   100/2000    5.0% | t 5.000 | ETA 9m 47s | step 0.26s | KE 218.0038 | drift +154.54% | fluid 159.6770 | solid 58.3268
+  Impulse FP iterations last/mean/max 22/23.67/30
+Step   200/2000   10.0% | t 10.000 | ETA 8m 52s | step 0.29s | KE 212.9161 | drift +148.60% | fluid 155.8343 | solid 57.0818
+  Impulse FP iterations last/mean/max 25/23.86/30
+Step   300/2000   15.0% | t 15.000 | ETA 8m 23s | step 0.29s | KE 227.8998 | drift +166.10% | fluid 166.4023 | solid 61.4975
+  Impulse FP iterations last/mean/max 25/23.90/30
+Step   400/2000   20.0% | t 20.000 | ETA 7m 53s | step 0.27s | KE 215.0517 | drift +151.09% | fluid 154.5675 | solid 60.4842
+  Impulse FP iterations last/mean/max 23/23.98/30
+Step   500/2000   25.0% | t 25.000 | ETA 7m 22s | step 0.28s | KE 223.4790 | drift +160.93% | fluid 162.9547 | solid 60.5244
+  Impulse FP iterations last/mean/max 25/23.98/30
+Step   600/2000   30.0% | t 30.000 | ETA 6m 51s | step 0.28s | KE 227.7473 | drift +165.92% | fluid 161.2464 | solid 66.5009
+  Impulse FP iterations last/mean/max 24/23.95/30
+Step   700/2000   35.0% | t 35.000 | ETA 6m 21s | step 0.31s | KE 210.4792 | drift +145.76% | fluid 156.0472 | solid 54.4319
+  Impulse FP iterations last/mean/max 23/23.96/30
+Step   800/2000   40.0% | t 40.000 | ETA 5m 52s | step 0.31s | KE 231.1485 | drift +169.89% | fluid 164.7849 | solid 66.3636
+  Impulse FP iterations last/mean/max 24/23.94/30
+Step   900/2000   45.0% | t 45.000 | ETA 5m 23s | step 0.27s | KE 210.4348 | drift +145.70% | fluid 155.8262 | solid 54.6086
+  Impulse FP iterations last/mean/max 22/23.95/30
+Step  1000/2000   50.0% | t 50.000 | ETA 4m 54s | step 0.30s | KE 227.6467 | drift +165.80% | fluid 161.6306 | solid 66.0161
+  Impulse FP iterations last/mean/max 25/23.98/30
+Step  1100/2000   55.0% | t 55.000 | ETA 4m 25s | step 0.29s | KE 223.6128 | drift +161.09% | fluid 162.6009 | solid 61.0119
+  Impulse FP iterations last/mean/max 25/23.99/30
+Step  1200/2000   60.0% | t 60.000 | ETA 3m 55s | step 0.32s | KE 214.6866 | drift +150.67% | fluid 154.8898 | solid 59.7968
+  Impulse FP iterations last/mean/max 26/24.00/30
+Step  1300/2000   65.0% | t 65.000 | ETA 3m 25s | step 0.27s | KE 228.1510 | drift +166.39% | fluid 166.3074 | solid 61.8436
+  Impulse FP iterations last/mean/max 24/23.99/30
+Step  1400/2000   70.0% | t 70.000 | ETA 2m 54s | step 0.23s | KE 212.7411 | drift +148.40% | fluid 155.9014 | solid 56.8397
+  Impulse FP iterations last/mean/max 24/23.99/30
+Step  1500/2000   75.0% | t 75.000 | ETA 2m 23s | step 0.24s | KE 226.8768 | drift +164.90% | fluid 161.1774 | solid 65.6995
+  Impulse FP iterations last/mean/max 25/24.00/30
+Step  1600/2000   80.0% | t 80.000 | ETA 1m 53s | step 0.21s | KE 222.9203 | drift +160.28% | fluid 162.9813 | solid 59.9390
+  Impulse FP iterations last/mean/max 23/23.99/30
+Step  1700/2000   85.0% | t 85.000 | ETA 1m 24s | step 0.23s | KE 216.5058 | drift +152.79% | fluid 154.1947 | solid 62.3112
+  Impulse FP iterations last/mean/max 24/23.99/30
+Step  1800/2000   90.0% | t 90.000 | ETA 55s | step 0.21s | KE 224.5138 | drift +162.14% | fluid 166.7017 | solid 57.8121
+  Impulse FP iterations last/mean/max 24/24.00/30
+Step  1900/2000   95.0% | t 95.000 | ETA 27s | step 0.20s | KE 217.2906 | drift +153.71% | fluid 154.4156 | solid 62.8750
+  Impulse FP iterations last/mean/max 23/23.99/30
+Solver finished successfully - good job!
+Results saved successfully.
+
+================== Run summary ==================
+  Bodies:            2
+  Triangles / nodes: 256 / 516
+  Timesteps:         2000  (dt = 0.05)
+  Simulated time:    0 -> 100
+  First-step setup:  0.479 s
+  Mean time/step:    0.2709 s  (excl. first step)
+  Total wall time:   9m 2s
+  Impulse FP iters last/mean/max: 25 / 23.993 / 30
+  Approx impulse solves/step:     23.993
+  Impulse start cache hits/direct: 1999 / 1
+  Impulse global drift P/H:       8.138210e-2 / 1.465585e0
+  Impulse per-body max drift P/H: 1.024322e-1 / 6.386412e-1
+  CPU cores:         256 available, 8 Rayon worker thread(s)
+  Started:           2026-06-24 02:15:06
+  Finished:          2026-06-24 02:24:09
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p55_sep3_run02_impulse_noproj/multiple_body_complete.dat
+================================================

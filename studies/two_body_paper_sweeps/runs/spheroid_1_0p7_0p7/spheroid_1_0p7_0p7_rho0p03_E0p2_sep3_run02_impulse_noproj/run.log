@@ -1,7 +1,7 @@
 
 ================ Simulation setup ================
   Run label:         /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p2_sep3_run02_impulse_noproj/
-  Started:           2026-06-22 20:00:40
+  Started:           2026-06-24 02:15:04
   Input file:        /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p2_sep3_run02_impulse_noproj/input.txt
   Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/spheroid_1_0p7_0p7/spheroid_1_0p7_0p7_rho0p03_E0p2_sep3_run02_impulse_noproj/multiple_body_complete.dat
   Bodies:            2
@@ -46,7 +46,7 @@ Initial state:
     position:         (-1.500000, 0.000000, 0.000000)
     velocity:         (-1.063217, 8.627082, -1.884276)
     angular velocity: (4.351010, -0.755125, 4.469554)
-    orientation:      (w=0.577350, i=0.577350, j=0.577350, k=0.000000)
+    orientation:      (w=-0.477270, i=-0.306842, j=0.064487, k=-0.820916)
   Body  2
     density:          0.030000
     shape axes ratio: (1.000000, 0.700000, 0.700000)
@@ -54,11 +54,11 @@ Initial state:
     position:         (1.500000, 0.000000, 0.000000)
     velocity:         (-1.144803, 9.289084, -2.028867)
     angular velocity: (-1.888879, 1.708950, 5.743696)
-    orientation:      (w=0.577350, i=-0.577350, j=0.000000, k=0.577350)
+    orientation:      (w=-0.810838, i=-0.491482, j=0.292134, k=0.125083)
 
 Preparing first step: implicit scheme, no bootstrap passes required.
 First step may take longer than later steps.
 
-First step completed in 0.437 s.
+First step completed in 0.415 s.
 
-Solver stopped with error: Non-finite state detected at x = 0.7500000000000001: position[0] = NaN.
+Solver stopped with error: Non-finite state detected at x = 4.149999999999993: position[0] = NaN.

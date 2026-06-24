@@ -1,7 +1,7 @@
 
 ================ Simulation setup ================
   Run label:         /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p03_E0p2_sep5_run02_impulse_noproj/
-  Started:           2026-06-22 20:03:25
+  Started:           2026-06-24 02:24:42
   Input file:        /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p03_E0p2_sep5_run02_impulse_noproj/input.txt
   Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p03_E0p2_sep5_run02_impulse_noproj/multiple_body_complete.dat
   Bodies:            2
@@ -46,7 +46,7 @@ Initial state:
     position:         (-2.500000, 0.000000, 0.000000)
     velocity:         (-0.483736, 3.234834, 8.741190)
     angular velocity: (-1.567767, -5.907348, 1.457316)
-    orientation:      (w=0.577350, i=0.577350, j=0.577350, k=0.000000)
+    orientation:      (w=-0.022710, i=-0.144341, j=-0.792045, k=0.592718)
   Body  2
     density:          0.030000
     shape axes ratio: (1.000000, 0.800000, 0.600000)
@@ -54,17 +54,11 @@ Initial state:
     position:         (2.500000, 0.000000, 0.000000)
     velocity:         (-0.460132, 3.076994, 8.314674)
     angular velocity: (-4.739622, -2.706643, 3.112632)
-    orientation:      (w=0.577350, i=-0.577350, j=0.000000, k=0.577350)
+    orientation:      (w=0.673694, i=0.272038, j=0.686967, k=-0.014431)
 
 Preparing first step: implicit scheme, no bootstrap passes required.
 First step may take longer than later steps.
 
-First step completed in 0.547 s.
+First step completed in 0.602 s.
 
-Step   100/2000    5.0% | t 5.000 | ETA 12m 53s | step 0.42s | KE 227.5812 | drift -0.26% | fluid 211.3401 | solid 16.2411
-  Impulse FP iterations last/mean/max 30/29.99/30
-Step   200/2000   10.0% | t 10.000 | ETA 11m 52s | step 0.39s | KE 227.7894 | drift -0.17% | fluid 209.0267 | solid 18.7627
-  Impulse FP iterations last/mean/max 30/30.00/30
-Step   300/2000   15.0% | t 15.000 | ETA 10m 42s | step 0.35s | KE 235.9856 | drift +3.42% | fluid 219.6278 | solid 16.3578
-  Impulse FP iterations last/mean/max 30/30.00/30
-Solver stopped with error: Non-finite state detected at x = 15.500000000000085: position[0] = NaN.
+Solver stopped with error: Non-finite state detected at x = 3.999999999999994: position[0] = NaN.

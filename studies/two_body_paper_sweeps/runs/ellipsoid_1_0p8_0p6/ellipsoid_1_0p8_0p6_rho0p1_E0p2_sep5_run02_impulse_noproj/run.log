@@ -1,7 +1,7 @@
 
 ================ Simulation setup ================
   Run label:         /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p1_E0p2_sep5_run02_impulse_noproj/
-  Started:           2026-06-22 19:54:14
+  Started:           2026-06-24 02:05:09
   Input file:        /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p1_E0p2_sep5_run02_impulse_noproj/input.txt
   Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p1_E0p2_sep5_run02_impulse_noproj/multiple_body_complete.dat
   Bodies:            2
@@ -46,7 +46,7 @@ Initial state:
     position:         (-2.500000, 0.000000, 0.000000)
     velocity:         (-7.809453, -2.620605, -6.098679)
     angular velocity: (-0.713651, 0.257865, -6.237197)
-    orientation:      (w=0.577350, i=0.577350, j=0.577350, k=0.000000)
+    orientation:      (w=-0.445450, i=0.802127, j=-0.328771, k=0.223777)
   Body  2
     density:          0.100000
     shape axes ratio: (1.000000, 0.800000, 0.600000)
@@ -54,15 +54,69 @@ Initial state:
     position:         (2.500000, 0.000000, 0.000000)
     velocity:         (-7.748995, -2.600318, -6.051466)
     angular velocity: (0.362539, 2.116012, -5.905038)
-    orientation:      (w=0.577350, i=-0.577350, j=0.000000, k=0.577350)
+    orientation:      (w=0.351361, i=0.215421, j=-0.340784, k=0.844989)
 
 Preparing first step: implicit scheme, no bootstrap passes required.
 First step may take longer than later steps.
 
-First step completed in 0.320 s.
+First step completed in 0.367 s.
 
-Step   100/2000    5.0% | t 5.000 | ETA 9m 24s | step 0.30s | KE 277.4496 | drift -1.08% | fluid 212.4048 | solid 65.0448
-  Impulse FP iterations last/mean/max 23/21.87/26
-Step   200/2000   10.0% | t 10.000 | ETA 9m 14s | step 0.33s | KE 1035.1430 | drift +269.04% | fluid 653.4094 | solid 381.7336
-  Impulse FP iterations last/mean/max 25/22.56/30
-Solver stopped with error: Non-finite state detected at x = 10.400000000000013: position[0] = NaN.
+Step   100/2000    5.0% | t 5.000 | ETA 9m 29s | step 0.29s | KE 282.5361 | drift -2.63% | fluid 225.5887 | solid 56.9473
+  Impulse FP iterations last/mean/max 21/21.63/26
+Step   200/2000   10.0% | t 10.000 | ETA 9m 0s | step 0.28s | KE 289.1993 | drift -0.33% | fluid 236.5341 | solid 52.6653
+  Impulse FP iterations last/mean/max 20/21.71/26
+Step   300/2000   15.0% | t 15.000 | ETA 8m 22s | step 0.30s | KE 287.4751 | drift -0.92% | fluid 233.9330 | solid 53.5422
+  Impulse FP iterations last/mean/max 22/21.79/26
+Step   400/2000   20.0% | t 20.000 | ETA 7m 46s | step 0.27s | KE 287.3041 | drift -0.98% | fluid 231.1658 | solid 56.1384
+  Impulse FP iterations last/mean/max 23/21.73/26
+Step   500/2000   25.0% | t 25.000 | ETA 7m 15s | step 0.26s | KE 279.5537 | drift -3.66% | fluid 219.7631 | solid 59.7906
+  Impulse FP iterations last/mean/max 21/21.76/26
+Step   600/2000   30.0% | t 30.000 | ETA 6m 44s | step 0.27s | KE 281.2029 | drift -3.09% | fluid 229.1108 | solid 52.0922
+  Impulse FP iterations last/mean/max 21/21.78/26
+Step   700/2000   35.0% | t 35.000 | ETA 6m 15s | step 0.26s | KE 279.6217 | drift -3.63% | fluid 218.2605 | solid 61.3612
+  Impulse FP iterations last/mean/max 21/21.78/26
+Step   800/2000   40.0% | t 40.000 | ETA 5m 45s | step 0.33s | KE 284.7364 | drift -1.87% | fluid 224.7118 | solid 60.0246
+  Impulse FP iterations last/mean/max 24/21.77/26
+Step   900/2000   45.0% | t 45.000 | ETA 5m 15s | step 0.27s | KE 281.7770 | drift -2.89% | fluid 219.9492 | solid 61.8278
+  Impulse FP iterations last/mean/max 20/21.76/26
+Step  1000/2000   50.0% | t 50.000 | ETA 4m 45s | step 0.21s | KE 287.7052 | drift -0.85% | fluid 225.2628 | solid 62.4424
+  Impulse FP iterations last/mean/max 19/21.78/26
+Step  1100/2000   55.0% | t 55.000 | ETA 4m 16s | step 0.29s | KE 282.1767 | drift -2.75% | fluid 221.8902 | solid 60.2864
+  Impulse FP iterations last/mean/max 21/21.78/26
+Step  1200/2000   60.0% | t 60.000 | ETA 3m 48s | step 0.31s | KE 289.8240 | drift -0.12% | fluid 232.3320 | solid 57.4921
+  Impulse FP iterations last/mean/max 22/21.79/26
+Step  1300/2000   65.0% | t 65.000 | ETA 3m 20s | step 0.29s | KE 281.2323 | drift -3.08% | fluid 222.0113 | solid 59.2210
+  Impulse FP iterations last/mean/max 23/21.80/26
+Step  1400/2000   70.0% | t 70.000 | ETA 2m 50s | step 0.27s | KE 283.9336 | drift -2.15% | fluid 214.9745 | solid 68.9591
+  Impulse FP iterations last/mean/max 22/21.79/26
+Step  1500/2000   75.0% | t 75.000 | ETA 2m 21s | step 0.32s | KE 280.1887 | drift -3.44% | fluid 214.5659 | solid 65.6229
+  Impulse FP iterations last/mean/max 25/21.80/26
+Step  1600/2000   80.0% | t 80.000 | ETA 1m 52s | step 0.27s | KE 282.8827 | drift -2.51% | fluid 210.0894 | solid 72.7933
+  Impulse FP iterations last/mean/max 23/21.80/26
+Step  1700/2000   85.0% | t 85.000 | ETA 1m 24s | step 0.28s | KE 277.4181 | drift -4.39% | fluid 217.5075 | solid 59.9106
+  Impulse FP iterations last/mean/max 24/21.81/26
+Step  1800/2000   90.0% | t 90.000 | ETA 56s | step 0.27s | KE 287.4594 | drift -0.93% | fluid 223.1939 | solid 64.2655
+  Impulse FP iterations last/mean/max 23/21.81/26
+Step  1900/2000   95.0% | t 95.000 | ETA 27s | step 0.28s | KE 278.5520 | drift -4.00% | fluid 220.0210 | solid 58.5310
+  Impulse FP iterations last/mean/max 26/21.81/26
+Solver finished successfully - good job!
+Results saved successfully.
+
+================== Run summary ==================
+  Bodies:            2
+  Triangles / nodes: 256 / 516
+  Timesteps:         2000  (dt = 0.05)
+  Simulated time:    0 -> 100
+  First-step setup:  0.367 s
+  Mean time/step:    0.2752 s  (excl. first step)
+  Total wall time:   9m 10s
+  Impulse FP iters last/mean/max: 24 / 21.818 / 26
+  Approx impulse solves/step:     21.819
+  Impulse start cache hits/direct: 1999 / 1
+  Impulse global drift P/H:       2.462570e-8 / 4.206124e-2
+  Impulse per-body max drift P/H: 2.863767e-8 / 2.024883e-2
+  CPU cores:         256 available, 8 Rayon worker thread(s)
+  Started:           2026-06-24 02:05:09
+  Finished:          2026-06-24 02:14:20
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/two_body_paper_sweeps/runs/ellipsoid_1_0p8_0p6/ellipsoid_1_0p8_0p6_rho0p1_E0p2_sep5_run02_impulse_noproj/multiple_body_complete.dat
+================================================
