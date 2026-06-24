@@ -242,8 +242,14 @@ def make_two_body_setup() -> None:
     velocity_box = {
         "facecolor": "white",
         "edgecolor": "none",
-        "alpha": 0.9,
+        "alpha": 0.98,
         "boxstyle": "round,pad=0.10",
+    }
+    distance_box = {
+        "facecolor": "white",
+        "edgecolor": "none",
+        "alpha": 0.96,
+        "boxstyle": "round,pad=0.08",
     }
 
     sep_y = 0.42
@@ -260,7 +266,6 @@ def make_two_body_setup() -> None:
     )
     arrow3d(ax, sep_start, 0.26 * sep_vec, "0.12", "", lw=1.6)
     arrow3d(ax, sep_end, -0.26 * sep_vec, "0.12", "", lw=1.6)
-    ax.text(0.0, sep_y + 0.04, sep_z - 0.12, r"$d$", fontsize=18, color="0.08", ha="center")
 
     arrow3d(
         ax,
@@ -343,14 +348,23 @@ def make_two_body_setup() -> None:
         bbox=velocity_box,
     )
     ax.text2D(
-        0.650,
-        0.380,
+        0.690,
+        0.348,
         r"$\mathbf{U}_2^0$",
         transform=ax.transAxes,
         fontsize=15,
         color="#2ca02c",
         fontweight="bold",
         bbox=velocity_box,
+    )
+    ax.text2D(
+        0.505,
+        0.465,
+        r"$d$",
+        transform=ax.transAxes,
+        fontsize=18,
+        color="0.08",
+        bbox=distance_box,
     )
     ax.text2D(
         0.610,
