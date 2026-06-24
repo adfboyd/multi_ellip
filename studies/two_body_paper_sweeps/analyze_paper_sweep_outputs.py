@@ -22,6 +22,10 @@ SHAPE_LABEL = {
     "spheroid_1_0p7_0p7": "spheroid 1:0.7:0.7",
     "ellipsoid_1_0p8_0p6": "triaxial 1:0.8:0.6",
 }
+CLASSIFICATION_DIR = {
+    "spheroid_1_0p7_0p7": "classification_spheroid_1_0p7_0p7_axis",
+    "ellipsoid_1_0p8_0p6": "classification_ellipsoid_1_0p8_0p6_quaternion",
+}
 CLASS_ORDER = {
     "periodic": 0,
     "quasi-periodic": 1,
@@ -453,7 +457,10 @@ def print_summary(aggregate_rows):
         sub = [r for r in aggregate_rows if r["shape_name"] == shape]
         classes = Counter(r["class"] for r in sub)
         complete_groups = sum(1 for r in sub if int(r["n_short_or_missing"]) == 0)
-        print(f"{shape}: {complete_groups}/{len(sub)} groups have both repeats complete")
+        repeat_counts = Counter(int(r["n_complete"]) for r in sub)
+        repeat_text = ", ".join(f"{n}:{count}" for n, count in sorted(repeat_counts.items()))
+        print(f"{shape}: {complete_groups}/{len(sub)} groups have all expected repeats complete")
+        print("  complete repeats per group:", repeat_text)
         print("  classes:", dict(classes))
         low = [r for r in sub if float(r["rho"]) <= 0.1]
         print("  low-density classes:", dict(Counter(r["class"] for r in low)))
@@ -485,7 +492,7 @@ def main():
         run_rows = summarize_runs(manifest)
         write_csv(study / f"analysis_{shape}" / "run_metrics.csv", run_rows)
         all_run_rows.extend(run_rows)
-        summary = study / f"classification_{shape}" / "two_body_dynamics_classification_summary.csv"
+        summary = study / CLASSIFICATION_DIR[shape] / "two_body_dynamics_classification_summary.csv"
         class_rows.extend(read_csv(summary))
 
     aggregate_rows = aggregate(all_run_rows, class_rows)
