@@ -1,0 +1,122 @@
+
+================ Simulation setup ================
+  Run label:         /work/e643/e643/shared/multi_ellip/studies/departing_sphericity_sweep/runs/triaxial/heterogeneous_aspherical/triaxial_heterogeneous_aspherical_eps0p03_rho1_E0p5_sep8_run09_impulse_noproj/
+  Started:           2026-06-24 03:04:22
+  Input file:        /work/e643/e643/shared/multi_ellip/studies/departing_sphericity_sweep/runs/triaxial/heterogeneous_aspherical/triaxial_heterogeneous_aspherical_eps0p03_rho1_E0p5_sep8_run09_impulse_noproj/input.txt
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/departing_sphericity_sweep/runs/triaxial/heterogeneous_aspherical/triaxial_heterogeneous_aspherical_eps0p03_rho1_E0p5_sep8_run09_impulse_noproj/multiple_body_complete.dat
+  Bodies:            2
+  Fluid density:     1
+  Mesh:              ndiv 2 -> 256 triangles / 516 nodes
+  Simulated time:    0 -> 100  (dt = 0.05, ~2000 steps)
+  Output cadence:    every 1 step(s)
+  Output rows:       ~2001
+  Progress cadence:  every 100 step(s)
+  CPU cores:         256 available, 8 Rayon worker thread(s)
+  Strong coupling:   disabled
+  Impulse scheme:    enabled
+  Hamiltonian step:  disabled
+  Hamiltonian midpt: disabled
+  Variational step:  disabled
+  Energy projection: disabled
+  Projection particular metric: Euclidean
+  Fluid KE gradient: disabled  (eps = 0.001, scale = 1, linear = 1, angular = 1)
+  Fluid KE discrete gradient: disabled
+  Impulse pair metric correction: disabled  (mode = pair discrete-gradient, cutoff = all pairs, inner/outer = 0/0, eps = 0.001, linear scale = 1, angular scale = 0)
+  Impulse metric correction: disabled  (internal load constraint = disabled)
+  Impulse variational defect probe: disabled
+  Impulse quadratic pressure: disabled  (scale = 1)
+  Added-mass stab:   disabled
+  Exact BEM geometry: disabled
+  Exact singular BEM: disabled
+  Legacy singular SLP diagnostic: disabled
+  Phi-dot blend:     0 (off)
+
+  Solver guidance:
+    - Strong coupling: use for stiff close-coupled runs; slower but more implicit.
+    - Impulse scheme: use when impulse/momentum conservation or KE drift is the focus. Recommended.
+    - Added-mass stab: use for higher mesh counts (ndiv > 3) to preserve stability - deprecated.
+================================================
+Solver starting - good luck!
+
+Initial state:
+  Body  1
+    density:          1.000000
+    shape axes ratio: (1.000000, 0.970874, 0.942596)
+    initial KE ratio: 0.500000
+    position:         (-4.000000, 0.000000, 0.000000)
+    velocity:         (-3.762379, -2.546079, -3.186665)
+    angular velocity: (-5.952078, -1.808553, -0.883356)
+    orientation:      (w=0.653876, i=-0.272879, j=-0.686477, k=0.163502)
+  Body  2
+    density:          1.000000
+    shape axes ratio: (1.000000, 0.500000, 0.250000)
+    initial KE ratio: 0.500000
+    position:         (4.000000, 0.000000, 0.000000)
+    velocity:         (-4.216840, -2.853622, -3.571585)
+    angular velocity: (-5.120563, 1.775265, 3.179101)
+    orientation:      (w=0.910311, i=-0.158848, j=0.213138, k=0.317290)
+
+Preparing first step: implicit scheme, no bootstrap passes required.
+First step may take longer than later steps.
+
+First step completed in 0.316 s.
+
+Step   100/2000    5.0% | t 5.000 | ETA 5m 53s | step 0.21s | KE 410.0098 | drift +0.27% | fluid 144.0841 | solid 265.9257
+  Impulse FP iterations last/mean/max 14/12.76/14
+Step   200/2000   10.0% | t 10.000 | ETA 5m 37s | step 0.21s | KE 409.7404 | drift +0.20% | fluid 159.0538 | solid 250.6866
+  Impulse FP iterations last/mean/max 14/12.81/14
+Step   300/2000   15.0% | t 15.000 | ETA 5m 20s | step 0.19s | KE 409.7086 | drift +0.19% | fluid 166.6976 | solid 243.0110
+  Impulse FP iterations last/mean/max 14/12.85/14
+Step   400/2000   20.0% | t 20.000 | ETA 5m 1s | step 0.17s | KE 410.6018 | drift +0.41% | fluid 134.0289 | solid 276.5729
+  Impulse FP iterations last/mean/max 12/12.86/14
+Step   500/2000   25.0% | t 25.000 | ETA 4m 42s | step 0.18s | KE 408.8083 | drift -0.03% | fluid 186.4032 | solid 222.4051
+  Impulse FP iterations last/mean/max 13/12.87/14
+Step   600/2000   30.0% | t 30.000 | ETA 4m 23s | step 0.19s | KE 410.8287 | drift +0.47% | fluid 131.3912 | solid 279.4375
+  Impulse FP iterations last/mean/max 13/12.87/14
+Step   700/2000   35.0% | t 35.000 | ETA 4m 5s | step 0.20s | KE 409.3007 | drift +0.09% | fluid 179.3089 | solid 229.9919
+  Impulse FP iterations last/mean/max 13/12.87/14
+Step   800/2000   40.0% | t 40.000 | ETA 3m 46s | step 0.19s | KE 410.1738 | drift +0.31% | fluid 149.2457 | solid 260.9281
+  Impulse FP iterations last/mean/max 13/12.88/14
+Step   900/2000   45.0% | t 45.000 | ETA 3m 26s | step 0.21s | KE 410.1341 | drift +0.30% | fluid 151.1382 | solid 258.9959
+  Impulse FP iterations last/mean/max 14/12.86/14
+Step  1000/2000   50.0% | t 50.000 | ETA 3m 8s | step 0.20s | KE 409.6796 | drift +0.18% | fluid 169.2404 | solid 240.4391
+  Impulse FP iterations last/mean/max 13/12.87/14
+Step  1100/2000   55.0% | t 55.000 | ETA 2m 49s | step 0.20s | KE 410.8556 | drift +0.47% | fluid 136.1705 | solid 274.6850
+  Impulse FP iterations last/mean/max 13/12.87/15
+Step  1200/2000   60.0% | t 60.000 | ETA 2m 30s | step 0.17s | KE 409.0538 | drift +0.03% | fluid 183.6354 | solid 225.4184
+  Impulse FP iterations last/mean/max 12/12.87/15
+Step  1300/2000   65.0% | t 65.000 | ETA 2m 11s | step 0.21s | KE 410.5029 | drift +0.39% | fluid 136.4619 | solid 274.0411
+  Impulse FP iterations last/mean/max 14/12.87/15
+Step  1400/2000   70.0% | t 70.000 | ETA 1m 52s | step 0.19s | KE 409.2093 | drift +0.07% | fluid 179.6522 | solid 229.5572
+  Impulse FP iterations last/mean/max 14/12.87/15
+Step  1500/2000   75.0% | t 75.000 | ETA 1m 34s | step 0.18s | KE 410.2055 | drift +0.31% | fluid 144.6038 | solid 265.6018
+  Impulse FP iterations last/mean/max 14/12.87/15
+Step  1600/2000   80.0% | t 80.000 | ETA 1m 15s | step 0.21s | KE 409.5638 | drift +0.16% | fluid 163.1297 | solid 246.4341
+  Impulse FP iterations last/mean/max 14/12.88/15
+Step  1700/2000   85.0% | t 85.000 | ETA 56s | step 0.19s | KE 409.9844 | drift +0.26% | fluid 159.4510 | solid 250.5335
+  Impulse FP iterations last/mean/max 13/12.88/15
+Step  1800/2000   90.0% | t 90.000 | ETA 37s | step 0.19s | KE 410.5421 | drift +0.40% | fluid 140.9954 | solid 269.5467
+  Impulse FP iterations last/mean/max 13/12.87/15
+Step  1900/2000   95.0% | t 95.000 | ETA 18s | step 0.16s | KE 409.1750 | drift +0.06% | fluid 178.9620 | solid 230.2130
+  Impulse FP iterations last/mean/max 13/12.87/15
+Solver finished successfully - good job!
+Results saved successfully.
+
+================== Run summary ==================
+  Bodies:            2
+  Triangles / nodes: 256 / 516
+  Timesteps:         2000  (dt = 0.05)
+  Simulated time:    0 -> 100
+  First-step setup:  0.316 s
+  Mean time/step:    0.1872 s  (excl. first step)
+  Total wall time:   6m 14s
+  Impulse FP iters last/mean/max: 13 / 12.876 / 15
+  Approx impulse solves/step:     12.877
+  Impulse start cache hits/direct: 1999 / 1
+  Impulse global drift P/H:       4.050975e-9 / 5.119747e-3
+  Impulse per-body max drift P/H: 7.320092e-9 / 2.607493e-3
+  CPU cores:         256 available, 8 Rayon worker thread(s)
+  Started:           2026-06-24 03:04:22
+  Finished:          2026-06-24 03:10:37
+  Output file:       /work/e643/e643/shared/multi_ellip/studies/departing_sphericity_sweep/runs/triaxial/heterogeneous_aspherical/triaxial_heterogeneous_aspherical_eps0p03_rho1_E0p5_sep8_run09_impulse_noproj/multiple_body_complete.dat
+================================================
