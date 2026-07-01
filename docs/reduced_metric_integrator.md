@@ -198,12 +198,34 @@ momentum maps are conserved to machine precision (was `4.7e-3` / `3.5e-4`), and
 energy is now bounded/oscillatory rather than machine-exact -- the correct
 symplectic-momentum variational-integrator trade.
 
-**Residual, two-body.** The interacting case is not yet machine-exact in momentum
-(`2e-5`/`2e-4`) because the *finite-difference configuration force* only satisfies
-the momentum identities (`sum_b F_b = 0` from translation invariance; the
-analogous torque identity) up to FD truncation. Symmetrizing the discrete force
-(project out the net lab-frame force/torque) closes this -- the immediate next
-refinement -- and is orthogonal to the transport, which is now exact.
+**Milestone 2c (implemented).** Making the *interacting* two-body case
+machine-exact in momentum needed two fixes, found by a dt-scaling diagnosis
+(the drift was `O(dt)` accumulated, i.e. `O(dt^2)` per step -- a symmetry leak,
+not pure truncation):
+
+1. *Apply the full configuration impulse once, at the half configuration, then
+   transport* (`mu_mid = Ad*_{n->half} mu_n + dt f`, `mu_{n+1} = Ad*_{half->n+1}
+   mu_mid`). Splitting it `0.5 dt` before / `0.5 dt` after transport leaves the
+   second half in the `n+1` frame, so the per-step spatial-momentum change is
+   `0.5 dt sum_b (R_b^half + R_b^{n+1}) F_b` -- the `R^{n+1}` term is a nonzero
+   `O(dt^2)` leak. Applying it once makes the change `dt sum_b R_b^half F_b`.
+2. *Project the FD config force onto the complement of the 6 global rigid-motion
+   directions.* The interaction energy is invariant under a rigid motion of the
+   whole configuration (at fixed body-frame `zeta`), so the true force has zero
+   net rigid component; central-difference FD respects this only to `~1e-10`.
+
+Both are needed: fix 1 alone reaches `~1e-10`; adding fix 2 reaches machine
+precision. Result (VI, `--vi`, default projection on):
+
+| Case | Energy | `|dPlin|` | `|dPang|` |
+|---|---|---|---|
+| Two ellipsoids, sep=10, t=0.5 | `8e-5` (bounded) | `9e-14` | `1e-13` |
+| Two ellipsoids, sep=3.5 (close), t=0.5 | `8e-5` (bounded) | `8e-14` | `9e-14` |
+
+The reduced-metric integrator now conserves both spatial momentum maps to machine
+precision and keeps energy bounded, for anisotropic bodies in close contact --
+the regime that motivated the whole reduced-metric programme. `--noproject`
+toggles fix 2 for the A/B check.
 
 To reproduce:
 
@@ -258,9 +280,10 @@ Expected properties:
    (`reduced_metric_kirchhoff --vi`): single-body spatial momenta conserved to
    `2e-14`, energy bounded. Two-body momentum limited to `2e-5` by the
    finite-difference config force, not the transport.
-2c. **Next** -- symmetrize the discrete config force (project out net lab
-   force/torque) so two-body momentum is machine-exact; validate against the
-   existing `Variational` scheme's short reference trajectory on a close
-   two-body case.
-3. Interaction surrogate / analytic self-blocks to cut the metric cost, then
+2c. **Done** -- full-impulse-at-half + rigid-mode projection make two-body
+   spatial momentum machine-exact (`~1e-13`) at close contact, energy bounded.
+3. **Next (validation)** -- compare the `--vi` scheme against the existing
+   `Variational` scheme's short reference trajectory on a close two-body case
+   (trajectory RMS, not just conservation diagnostics).
+4. Interaction surrogate / analytic self-blocks to cut the metric cost, then
    promote toward a production `CouplingScheme`.

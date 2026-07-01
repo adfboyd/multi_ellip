@@ -226,6 +226,7 @@ fn config_force(
     props: &[BodyProps],
     zeta: &DVector<f64>,
     eps: f64,
+    project: bool,
 ) -> DVector<f64> {
     let n = cfg.nbody();
     let dof = 6 * n;
@@ -265,7 +266,81 @@ fn config_force(
             f[6 * b + 3 + c] = (ep - em) / (2.0 * eps);
         }
     }
+    // 2c: project out the 6 global rigid-motion directions. The interaction
+    // energy is invariant under a rigid motion of the whole configuration (at
+    // fixed body-frame zeta), so the true config force is orthogonal to those
+    // directions; the finite difference violates this at truncation order and
+    // that violation is exactly the spurious net force/torque that drifts the
+    // momentum. Removing it enforces sum_b F_b = 0 and sum_b (x_b x F_b + T_b)=0.
+    if project {
+        project_out_rigid_modes(&mut f, cfg);
+    }
     f
+}
+
+/// The 6 infinitesimal global rigid-motion directions expressed in the
+/// body-frame perturbation coordinates used by `config_force` (translation
+/// coordinate `6b+c` = lab move `R_b e_c`; rotation coordinate `6b+3+c` =
+/// body-frame right rotation about axis c). Global lab translation `a` ->
+/// per body body-frame translation `R_b^T a`; global lab rotation `theta` about
+/// the origin -> body-frame translation `R_b^T (theta x x_b)` and body-frame
+/// rotation `R_b^T theta`.
+fn rigid_mode_directions(cfg: &Config) -> Vec<DVector<f64>> {
+    let n = cfg.nbody();
+    let dof = 6 * n;
+    let mut dirs = Vec::with_capacity(6);
+    for axis in 0..3 {
+        let mut a = Vector3::zeros();
+        a[axis] = 1.0;
+        let mut d = DVector::zeros(dof);
+        for b in 0..n {
+            let rt = cfg.ori[b].to_rotation_matrix().transpose();
+            let tb = rt.matrix() * a;
+            for c in 0..3 {
+                d[6 * b + c] = tb[c];
+            }
+        }
+        dirs.push(d);
+    }
+    for axis in 0..3 {
+        let mut theta = Vector3::zeros();
+        theta[axis] = 1.0;
+        let mut d = DVector::zeros(dof);
+        for b in 0..n {
+            let rt = cfg.ori[b].to_rotation_matrix().transpose();
+            let trans = rt.matrix() * theta.cross(&cfg.pos[b]);
+            let rot = rt.matrix() * theta;
+            for c in 0..3 {
+                d[6 * b + c] = trans[c];
+                d[6 * b + 3 + c] = rot[c];
+            }
+        }
+        dirs.push(d);
+    }
+    dirs
+}
+
+/// Remove the component of `f` along the global rigid-motion subspace (Euclidean
+/// projection via Gram-Schmidt orthonormalisation of the mode directions).
+fn project_out_rigid_modes(f: &mut DVector<f64>, cfg: &Config) {
+    let dirs = rigid_mode_directions(cfg);
+    let mut basis: Vec<DVector<f64>> = Vec::with_capacity(dirs.len());
+    for d in dirs {
+        let mut u = d;
+        for b in &basis {
+            let proj = b.dot(&u);
+            u -= proj * b;
+        }
+        let nrm = u.norm();
+        if nrm > 1.0e-10 {
+            u /= nrm;
+            basis.push(u);
+        }
+    }
+    for b in &basis {
+        let c = b.dot(f);
+        *f -= c * b;
+    }
 }
 
 /// Kirchhoff RHS (body frame) given midpoint momentum mu and velocity zeta and
@@ -393,6 +468,7 @@ fn main() {
     }
     let input = &args[1];
     let use_vi = args.iter().any(|s| s == "--vi");
+    let project = !args.iter().any(|s| s == "--noproject");
     let numeric: Vec<&String> = args
         .iter()
         .skip(2)
@@ -484,7 +560,7 @@ fn main() {
         for _ in 0..fp_iters {
             let cfg_half = half_config(&cfg, &zeta_mid, dt);
             let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
-            let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps);
+            let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project);
             let zeta_mid_new = if use_vi {
                 // 2b: mu_mid = Ad*_{n->half}(mu_n) + 0.5 dt f_cfg; zeta_mid = M^-1 mu_mid.
                 let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
@@ -505,13 +581,18 @@ fn main() {
 
         // Commit.
         let cfg_half = half_config(&cfg, &zeta_mid, dt);
-        let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps);
+        let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project);
         let cfg_new = advance_config(&cfg, &zeta_mid, dt);
         if use_vi {
-            // Two exact half-legs (n->half, half->n+1) compose to the exact full
-            // increment, so the spatial momentum map is conserved to machine eps.
-            let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
-            mu = transport_exact(&mu_mid, &cfg_half, &cfg_new) + 0.5 * dt * &f_cfg;
+            // Apply the full impulse once, at the half configuration, then
+            // transport n->n+1 via two exact half-legs. This makes the per-step
+            // spatial-momentum change exactly dt * Ad*_{g_half^-1} f_cfg, whose
+            // net (sum over bodies) is zeroed by the rigid-mode projection, so
+            // total momentum is conserved to machine precision. (Splitting the
+            // impulse across the two legs instead leaves the second half in the
+            // n+1 frame, an O(dt^2)-per-step / O(dt)-accumulated momentum leak.)
+            let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + dt * &f_cfg;
+            mu = transport_exact(&mu_mid, &cfg_half, &cfg_new);
         } else {
             let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
             let mu_mid = &m_bf * &zeta_mid;
