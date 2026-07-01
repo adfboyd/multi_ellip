@@ -146,6 +146,53 @@ To reproduce:
     ./target/release/reduced_metric_integrator input_two_sphere.txt
     ./target/release/reduced_metric_integrator input_two_ellip_long.txt
 
+## Milestone 2: body-frame Kirchhoff integrator
+
+`src/bin/reduced_metric_kirchhoff.rs` fixes the milestone-1 rotational drift.
+
+Root cause of the prototype drift: differentiating the kinetic energy w.r.t.
+orientation *at fixed lab angular velocity* double-counts the R-omega kinematic
+link, injecting a spurious `-omega x L` torque for anisotropic bodies. The fix
+is to work in the **body frame**, where each body's self-metric block is
+constant (a free body then has zero configuration torque), and evolve the
+**Kirchhoff equations** with an implicit-midpoint discretization:
+
+    dP_b/dt  = P_b x Omega_b + F_b^cfg
+    dPi_b/dt = Pi_b x Omega_b + P_b x V_b + T_b^cfg
+
+with `(P_b, Pi_b)` body-frame linear/angular momenta, `(V_b, Omega_b)`
+body-frame velocities, and `F/T^cfg` the body-frame configuration forces from the
+*interaction* part of the metric (finite-differenced; identically zero for a
+single body). The metric is `M_bf = T(R)^T M_lab T(R)`, `T = blkdiag(R_b, R_b)`.
+
+**Results** (ndiv=2):
+
+| Case | Energy drift | Linear momentum | Notes |
+|---|---|---|---|
+| Single spinning ellipsoid (`input_one_ellip.txt`, t=5) | `9e-14` | `O(dt^2)` | free Kirchhoff top: energy at machine precision |
+| Two ellipsoids + spin (t=1) | `3e-7` | `O(dt^2)` | energy increment *decreasing* (bounded, not secular) |
+
+The single-body energy is conserved to machine precision because implicit
+midpoint conserves the quadratic energy `0.5 zeta^T M_bf zeta` and the Casimir
+`|Pi|` exactly for the constant-metric (free) top. For the coupled two-body case
+the residual `3e-7` is dominated by the finite-difference configuration force and
+the varying-metric midpoint error, both reducible; the per-step energy increment
+decreases with time rather than accumulating -- contrast the milestone-1 `1e-4`
+secular ellipsoid drift.
+
+**Known remaining item.** The spatial (lab) linear-momentum map is conserved
+only to `O(dt^2)` (confirmed: halving dt quarters the drift, `4.7e-3 -> 1.2e-3`
+at t=5). The midpoint-on-the-Kirchhoff-ODE conserves energy and `|Pi|` exactly
+but transports the spatial momentum only to second order. A full discrete
+Euler-Poincare reconstruction (coadjoint `Ad*` transport of the momentum) would
+restore exact momentum conservation while keeping bounded energy -- milestone 2b.
+
+To reproduce:
+
+    cargo build --release --bin reduced_metric_kirchhoff
+    ./target/release/reduced_metric_kirchhoff input_one_ellip.txt
+    ./target/release/reduced_metric_kirchhoff input_two_ellip_long.txt
+
 ## Proposed integrator
 
 Advance the reduced system with a Lie-group variational / symplectic integrator
@@ -186,9 +233,11 @@ Expected properties:
 1. **Done** -- explicit `M_a(q)` assembly validated (`added_mass_matrix_probe`),
    reduced implicit-midpoint integrator validated on the sphere/frozen-rotation
    regime (`reduced_metric_integrator`): energy `6e-7`, momentum `8e-8`.
-2. **Next** -- proper SE(3) Lie-group variational angular update so anisotropic
-   bodies conserve energy (remove the secular `1e-4` ellipsoid drift). Validate
-   against the existing `Variational` scheme's short reference trajectory on a
-   close two-body ellipsoid case.
+2. **Done** -- body-frame Kirchhoff integrator (`reduced_metric_kirchhoff`)
+   removes the anisotropic-body energy drift: single ellipsoid `9e-14`, two
+   ellipsoids `3e-7` (bounded). Residual: `O(dt^2)` spatial-momentum drift.
+2b. **Next** -- discrete Euler-Poincare (`Ad*`) momentum transport to restore
+   exact spatial-momentum conservation; validate against the existing
+   `Variational` scheme's short reference trajectory on a close two-body case.
 3. Interaction surrogate / analytic self-blocks to cut the metric cost, then
    promote toward a production `CouplingScheme`.
