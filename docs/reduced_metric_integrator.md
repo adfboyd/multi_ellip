@@ -233,6 +233,55 @@ To reproduce:
     ./target/release/reduced_metric_kirchhoff input_one_ellip.txt
     ./target/release/reduced_metric_kirchhoff input_two_ellip_long.txt
 
+## Milestone 3: trajectory validation against the `Variational` reference
+
+Conservation diagnostics are necessary but not sufficient -- they say nothing
+about *trajectory* accuracy. So the `--vi` scheme was compared directly against
+the production `Variational` scheme (`variational_scheme=1`) on the close
+two-body ellipsoid case (sep=3.5), both reading identical initial conditions.
+The Kirchhoff binary writes a trajectory with `--traj PATH`; the comparison uses
+per-body centroid distance and quaternion geodesic angle (`q ~ -q` folded).
+
+Direct scheme-to-scheme agreement (max over t in [0, 0.5]):
+
+| dt | `dpos` | `dang` (rad) |
+|---|---|---|
+| 0.05 | `5.6e-3` | `4.0e-3` |
+| 0.025 | `2.5e-3` | `2.3e-3` |
+
+The difference shrinks with dt: the two schemes **converge to the same continuum
+dynamics** -- a mutual validation, since they discretise the same
+potential-flow Lagrangian by completely different routes (explicit reduced metric
+vs finite-differenced fluid action).
+
+Resolving each scheme's own error against a fine Kirchhoff reference
+(`dt=0.0125`):
+
+| scheme, dt | `dpos` vs fine | rate |
+|---|---|---|
+| Kirchhoff `--vi`, 0.05 | `1.1e-4` | 2nd order |
+| Kirchhoff `--vi`, 0.025 | `2.2e-5` | (5.0x per halving) |
+| Variational, 0.05 | `5.5e-3` | 1st order |
+| Variational, 0.025 | `2.5e-3` | (2.2x per halving) |
+
+Findings:
+
+- The reduced-metric Kirchhoff integrator is clean **second order** and, on this
+  test, about **50x more accurate** than the production `Variational` scheme at
+  `dt=0.05`.
+- The `Variational` scheme is empirically **first order** in trajectory here.
+  This is *not* a solver-approximation artifact: rerunning it with strict
+  settings (no Jacobian reuse, no Broyden, `variational_jacobian_interval=1`,
+  `variational_tol=1e-11`, 40 iters) gives an identical `5.55e-3`. The likely
+  cause is the two-point discrete-Lagrangian startup
+  (`backward_state_from_current_velocity` is a first-order reconstruction of the
+  previous configuration), which seeds an `O(dt)` phase error; the one-step
+  Kirchhoff scheme has no such startup. Worth confirming separately.
+
+Net: the reduced-metric route is not only structurally cheaper to make
+determined -- on this case it is also more accurate than the existing reference,
+while agreeing with it in the continuum limit.
+
 ## Proposed integrator
 
 Advance the reduced system with a Lie-group variational / symplectic integrator
@@ -282,8 +331,10 @@ Expected properties:
    finite-difference config force, not the transport.
 2c. **Done** -- full-impulse-at-half + rigid-mode projection make two-body
    spatial momentum machine-exact (`~1e-13`) at close contact, energy bounded.
-3. **Next (validation)** -- compare the `--vi` scheme against the existing
-   `Variational` scheme's short reference trajectory on a close two-body case
-   (trajectory RMS, not just conservation diagnostics).
-4. Interaction surrogate / analytic self-blocks to cut the metric cost, then
-   promote toward a production `CouplingScheme`.
+3. **Done** -- trajectory comparison vs the `Variational` scheme: both converge
+   to the same dynamics; Kirchhoff `--vi` is 2nd order and ~50x more accurate at
+   `dt=0.05`, Variational is empirically 1st order (startup, not solver approx).
+   Compare with `reduced_metric_kirchhoff ... --traj PATH`.
+4. **Next** -- interaction surrogate / analytic self-blocks to cut the metric
+   cost, then promote toward a production `CouplingScheme`. (Also: confirm the
+   `Variational` first-order startup hypothesis independently.)

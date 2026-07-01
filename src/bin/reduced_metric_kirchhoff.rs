@@ -28,6 +28,7 @@ use nalgebra::{DMatrix, DVector, Matrix3, Quaternion, UnitQuaternion, Vector3};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::time::Instant;
 
 fn read_values(path: &str) -> HashMap<String, f64> {
@@ -469,6 +470,12 @@ fn main() {
     let input = &args[1];
     let use_vi = args.iter().any(|s| s == "--vi");
     let project = !args.iter().any(|s| s == "--noproject");
+    // Optional trajectory CSV: `--traj PATH`. Row = time then per body
+    // px,py,pz,qw,qi,qj,qk (orientation as a unit quaternion).
+    let traj_path: Option<String> = args
+        .iter()
+        .position(|s| s == "--traj")
+        .and_then(|i| args.get(i + 1).cloned());
     let numeric: Vec<&String> = args
         .iter()
         .skip(2)
@@ -552,6 +559,33 @@ fn main() {
         0.0, e0, 0.0, 0.0, 0.0, "-"
     );
 
+    // Optional trajectory output.
+    let mut traj = traj_path.as_ref().map(|p| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(p).expect("cannot open --traj"));
+        write!(f, "time").unwrap();
+        for b in 1..=nbody {
+            write!(f, ",px_{b},py_{b},pz_{b},qw_{b},qi_{b},qj_{b},qk_{b}").unwrap();
+        }
+        writeln!(f).unwrap();
+        f
+    });
+    let write_traj = |traj: &mut Option<std::io::BufWriter<std::fs::File>>, t: f64, cfg: &Config| {
+        if let Some(f) = traj {
+            write!(f, "{t}").unwrap();
+            for b in 0..cfg.nbody() {
+                let q = cfg.ori[b].quaternion();
+                write!(
+                    f,
+                    ",{},{},{},{},{},{},{}",
+                    cfg.pos[b][0], cfg.pos[b][1], cfg.pos[b][2], q.w, q.i, q.j, q.k
+                )
+                .unwrap();
+            }
+            writeln!(f).unwrap();
+        }
+    };
+    write_traj(&mut traj, 0.0, &cfg);
+
     let t_run = Instant::now();
     for step in 0..nsteps {
         // Fixed point on zeta_mid.
@@ -606,6 +640,7 @@ fn main() {
         let e = 0.5 * zeta.dot(&mu);
         let plin = total_linear_momentum_lab(&cfg, &mu);
         let pang = total_angular_momentum_lab(&cfg, &mu);
+        write_traj(&mut traj, (step + 1) as f64 * dt, &cfg);
         if (step + 1) % tprint == 0 {
             println!(
                 "{:7.3} {:14.8} {:13.3e} {:11.3e} {:11.3e} {:10.2e}",
