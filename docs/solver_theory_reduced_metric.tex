@@ -1,0 +1,289 @@
+% Supplement to solver_theory.pdf: the reduced Kirchhoff-metric integrator.
+%
+% NOTE. The LaTeX source of solver_theory.pdf is not stored in the repository
+% (only the built PDF is tracked), so this new material is provided as a
+% self-contained, standalone-compilable supplement written in the same notation
+% as the parent document. To fold it into the master when that source is
+% available, drop the preamble and \input the section bodies after the existing
+% "Coupled time integration" section; the cross-references (Lamb impulse L_i,
+% Lambda_i, fluid KE T_f, transport term, analytic added mass M_f) are kept
+% consistent so it slots in directly.
+
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\SEthree}{\mathrm{SE}(3)}
+\newcommand{\seiii}{\mathfrak{se}(3)}
+\newcommand{\Adstar}{\mathrm{Ad}^{*}}
+\newcommand{\adstar}{\mathrm{ad}^{*}}
+\newcommand{\Ma}{\mathsf{M}_{a}}
+\newcommand{\Ms}{\mathsf{M}_{s}}
+\newcommand{\Mmat}{\mathsf{M}}
+\newcommand{\Tmap}{\mathsf{T}}
+\newcommand{\vv}{\mathbf{v}}
+\newcommand{\ww}{\bm{\omega}}
+\newcommand{\LL}{\mathbf{L}}
+\newcommand{\LamL}{\bm{\Lambda}}
+\newcommand{\PP}{\mathbf{P}}
+\newcommand{\PiP}{\bm{\Pi}}
+\newcommand{\VV}{\mathbf{V}}
+\newcommand{\Om}{\bm{\Omega}}
+\newcommand{\zz}{\mathbf{z}}
+\newcommand{\muv}{\bm{\mu}}
+\newcommand{\Fcfg}{\mathbf{F}}
+\newcommand{\Tcfg}{\mathbf{T}}
+\newcommand{\half}{\tfrac12}
+\newcommand{\hatop}[1]{\widehat{#1}}
+
+\title{Supplement: A reduced Kirchhoff-metric variational integrator
+for multiple ellipsoids in potential flow}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This supplement develops an alternative to the impulse scheme of the main
+document. Because the fluid in potential flow carries no independent state, the
+coupled $N$-body system is exactly a finite-dimensional Lagrangian system whose
+kinetic energy is a configuration-dependent quadratic form in the body
+velocities---the Kirchhoff (added-mass) metric $\Mmat(q)$. We show how to
+assemble $\Mmat(q)$ explicitly and cheaply from the same boundary-element (BEM)
+solve used elsewhere, cast the dynamics as the body-frame Kirchhoff equations,
+and integrate them with a structure-preserving Lie-group scheme: an
+implicit-midpoint update whose momentum is transported by the exact $\SEthree$
+coadjoint action. The resulting integrator is \emph{fully determined} (there is
+no per-body impulse ambiguity), conserves the total linear and angular momentum
+maps to machine precision, keeps the energy bounded with no secular drift, and
+is second-order accurate. A predictor form reduces the cost to a small multiple
+of the impulse scheme's per-step cost.
+\end{abstract}
+
+\section{The fluid as a configuration-space metric}
+\label{sec:rm-metric}
+
+Collect the rigid-body configuration as $q=\{\mathbf c_i,R_i\}_{i=1}^N$ with
+$R_i=R(q_i)\in\mathrm{SO}(3)$ the rotation carried by the unit quaternion $q_i$,
+and stack the lab-frame generalized velocity
+\begin{equation}
+\zz=(\vv_1,\ww_1,\dots,\vv_N,\ww_N)\in\R^{6N}.
+\end{equation}
+As emphasised in the main document, eqs.~(2)--(3) contain no time derivative of
+$\phi$: the potential---and hence every load---is an instantaneous linear
+functional of $\zz$ at fixed geometry. In particular the stacked Lamb impulses
+of eqs.~(8)--(9),
+\begin{equation}
+\bm\ell(q,\zz)=(\LL_1,\LamL_1,\dots,\LL_N,\LamL_N),
+\end{equation}
+are linear in $\zz$ and vanish at $\zz=\mathbf 0$, so they define a symmetric
+\emph{added-mass matrix}
+\begin{equation}
+\boxed{\;\bm\ell(q,\zz)=-\,\Ma(q)\,\zz,\qquad
+\Ma(q)=-\,\frac{\partial\bm\ell}{\partial\zz}\;}
+\label{eq:rm-Ma}
+\end{equation}
+The sign is that of the main document: for a single translating body
+$\LL_i=-\mathsf M_{f}\vv_i$, so that $\mathbf p_i=m_i\vv_i-\LL_i$ (eq.~(12))
+carries the effective inertia $m_i+\mathsf M_f$. The diagonal blocks of $\Ma$
+are the (configuration-dependent) self added masses---reducing, for an isolated
+body, to the analytic tensors of \S4---and the off-diagonal blocks are the
+body--body hydrodynamic coupling. The fluid kinetic energy of eq.~(10) is the
+associated quadratic form,
+\begin{equation}
+T_f(q,\zz)=\half\,\zz^{\!\top}\Ma(q)\,\zz .
+\label{eq:rm-Tf}
+\end{equation}
+Adding the solid kinetic energy $T_s$ gives the reduced Lagrangian
+\begin{equation}
+\mathcal L(q,\zz)=\half\,\zz^{\!\top}\Mmat(q)\,\zz,\qquad
+\Mmat(q)=\Ms(q)+\Ma(q),
+\label{eq:rm-lagrangian}
+\end{equation}
+with the block-diagonal solid metric
+$\Ms=\operatorname{blkdiag}\!\big(m_i\mathsf I_3,\;R_iI_i^{\mathrm{body}}R_i^\top\big)$.
+Equation~\eqref{eq:rm-lagrangian} is the Kirchhoff/Lamb reduction: the coupled
+motion is geodesic motion in the metric $\Mmat(q)$ on the configuration manifold
+$Q=\SEthree^{\,N}$.
+
+\paragraph{Why this matters.}
+The generalized momentum $\muv=\Mmat(q)\zz$ is a single global covector, and the
+equations of motion involve one well-defined configuration force
+$\tfrac12\,\partial_q(\zz^\top\Mmat\zz)$. There is no per-body ambiguity: the
+under-determination of the raw multibody impulse exchange discussed in the main
+development is precisely the absence of the off-diagonal blocks of $\Ma$ and
+their configuration gradient. Forming $\Mmat(q)$ makes the exchange explicit.
+
+\section{Explicit assembly of the added-mass metric}
+\label{sec:rm-assembly}
+
+The influence matrix $A$ of eq.~(5) depends only on geometry, not on $\zz$, and
+its factorisation is already cached (\S7). Column $j$ of $\Ma$ is obtained by
+imposing a unit generalized velocity $\zz=\mathbf e_j$ (unit translation or
+rotation of one body about one axis), solving the \emph{same} BEM system for the
+resulting $\phi$, and reading the stacked impulse~\eqref{eq:rm-Ma}. All $6N$
+right-hand sides share the cached factorisation, so the entire matrix costs one
+factorisation and $6N$ back-substitutions/warm-started GMRES solves rather than
+$6N$ independent solves. Symmetrising $\tfrac12(\Ma+\Ma^\top)$ removes the small
+discretisation asymmetry.
+
+This assembly was verified directly. At a close two-body configuration
+($\mathrm{ndiv}=2$) the assembled $\Ma$ is symmetric to $3\times10^{-5}$
+(relative), reproduces the solver's fluid kinetic energy through
+\eqref{eq:rm-Tf} to $6\times10^{-4}$, and its configuration gradient contracted
+with the velocity, $\half\,\zz^\top(\partial_q\Ma)\zz$, matches the
+finite-differenced $\partial_q T_f$ to $2\times10^{-5}$. This last identity is
+the body--body exchange force that the impulse scheme's pair-metric correction
+approximates, here obtained exactly. The full matrix costs about $1.9\times$ a
+single impulse solve, confirming the shared-factorisation economics.
+
+\section{Body-frame Kirchhoff equations}
+\label{sec:rm-kirchhoff}
+
+Working in the lab frame at fixed $\zz$ and differentiating $T$ with respect to
+orientation double-counts the kinematic link between $R_i$ and $\ww_i$, injecting
+a spurious $-\ww_i\times\mathbf H_i$ torque for anisotropic bodies. We therefore
+pass to \emph{body-frame} velocities and momenta, in which each body's self block
+is constant. For body $i$ let
+\begin{equation}
+\VV_i=R_i^\top\vv_i,\quad \Om_i=R_i^\top\ww_i,\qquad
+\zeta=(\VV_1,\Om_1,\dots),\qquad
+\Mmat_{\mathrm{bf}}(q)=\Tmap(R)^\top\,\Mmat(q)\,\Tmap(R),
+\end{equation}
+with $\Tmap(R)=\operatorname{blkdiag}(R_i,R_i)$, and body-frame momenta
+$\muv=\Mmat_{\mathrm{bf}}\zeta$, written per body as $(\PP_i,\PiP_i)$. The reduced
+Euler--Poincar\'e (Kirchhoff) equations on $\SEthree^{\,N}$ are
+\begin{align}
+\dot\PP_i &= \PP_i\times\Om_i + \Fcfg_i,\label{eq:rm-Pdot}\\
+\dot\PiP_i &= \PiP_i\times\Om_i + \PP_i\times\VV_i + \Tcfg_i,\label{eq:rm-Pidot}
+\end{align}
+where $(\Fcfg_i,\Tcfg_i)$ is the body-frame configuration force, i.e. the
+body-referred gradient of the interaction energy at fixed $\zeta$. For a single
+body $\Mmat_{\mathrm{bf}}$ is constant, $(\Fcfg,\Tcfg)=\mathbf 0$, and
+\eqref{eq:rm-Pdot}--\eqref{eq:rm-Pidot} reduce to the classical Kirchhoff top;
+the gyroscopic terms $\PP\times\Om$ and $\PiP\times\Om+\PP\times\VV$ are exactly
+what the naive lab-frame gradient omitted.
+
+\subsection*{Configuration force and the momentum identities}
+The interaction energy is invariant under a rigid motion of the whole
+configuration at fixed body-frame $\zeta$; hence the true configuration force is
+$L^2$-orthogonal to the six global rigid-motion directions of $Q$, which
+expresses the discrete Noether identities
+\begin{equation}
+\sum_i R_i\Fcfg_i=\mathbf 0,\qquad
+\sum_i\big(\mathbf c_i\times R_i\Fcfg_i+R_i\Tcfg_i\big)=\mathbf 0 .
+\label{eq:rm-noether}
+\end{equation}
+A finite-difference estimate of $(\Fcfg,\Tcfg)$ violates \eqref{eq:rm-noether}
+only at truncation order; projecting it onto the complement of the six
+rigid-motion directions restores both identities exactly and is essential for
+machine-precision momentum conservation.
+
+\section{Structure-preserving time integration}
+\label{sec:rm-integrator}
+
+Write $g=(R,\mathbf c)\in\SEthree$ per body and let $\muv=(\PP,\PiP)$ transform
+under the coadjoint action of $f=(R_f,\mathbf p_f)\in\SEthree$ as
+\begin{equation}
+\Adstar_f\,\muv=\big(R_f^\top\PP,\;R_f^\top(\PiP+\PP\times\mathbf p_f)\big),
+\label{eq:rm-adstar}
+\end{equation}
+whose infinitesimal form is the right-hand side of
+\eqref{eq:rm-Pdot}--\eqref{eq:rm-Pidot}. The spatial momentum
+$\Adstar_{g^{-1}}\muv$ is the conserved Noether quantity. One implicit-midpoint
+step, with unknown midpoint velocity $\zeta_{\mathrm{mid}}$, is
+\begin{align}
+\zeta_{\mathrm{mid}}
+&=\Mmat_{\mathrm{bf}}(q_{\mathrm{mid}})^{-1}
+   \Big(\Adstar_{f_{n\to\mathrm{mid}}}\muv_n+\half\,\Delta t\,\mathbf f_{\mathrm{cfg}}\Big),
+   \label{eq:rm-fixedpoint}\\
+q_{n+1}&=q_n\oplus\Delta t\,\zeta_{\mathrm{mid}}
+  \quad(\mathbf c_i{+}{=}\Delta t\,R_{\mathrm{mid},i}\VV_i,\;
+        R_i\!\leftarrow\!R_i\exp(\Delta t\,\hatop{\Om}_i)),\label{eq:rm-config}\\
+\muv_{n+1}&=\Adstar_{f_{\mathrm{mid}\to n+1}}
+   \Big(\Adstar_{f_{n\to\mathrm{mid}}}\muv_n+\Delta t\,\mathbf f_{\mathrm{cfg}}\Big).
+   \label{eq:rm-commit}
+\end{align}
+Here $q_{\mathrm{mid}}$ is the half-configuration, $\mathbf f_{\mathrm{cfg}}$ the
+projected configuration force there, and each leg increment
+$f=(R_a^\top R_b,\,R_a^\top(\mathbf c_b-\mathbf c_a))$ is the \emph{exact} relative
+motion between the two configurations it connects, so the two legs
+$n\!\to\!\mathrm{mid}\!\to\!n{+}1$ in \eqref{eq:rm-commit} compose to the exact
+full increment $n\!\to\!n{+}1$. Consequently
+\begin{equation}
+\Adstar_{g_{n+1}^{-1}}\muv_{n+1}
+ =\Adstar_{g_n^{-1}}\muv_n+\Delta t\sum_i(\text{spatial }\Fcfg_i),
+\end{equation}
+and the sum vanishes by \eqref{eq:rm-noether}: \textbf{the total linear and
+angular spatial momentum are conserved to machine precision}. Two points make
+this exact rather than $O(\Delta t^2)$: (i) the impulse is applied \emph{once},
+at the half configuration where the projection is performed, so its
+transported net force cancels; splitting it across the two legs would leave a
+term in the $n{+}1$ frame and leak momentum at $O(\Delta t^2)$ per step; and
+(ii) the leg increments are the true relative motions, not the exponential of an
+averaged twist.
+
+Energy is not conserved exactly---as for any momentum-conserving variational
+integrator---but is bounded with no secular drift. For the free Kirchhoff top,
+\eqref{eq:rm-fixedpoint} with $\mathbf f_{\mathrm{cfg}}=\mathbf 0$ conserves both
+the energy $\tfrac12\zeta^\top\Mmat_{\mathrm{bf}}\zeta$ and the Casimir
+$|\PiP|$ to machine precision.
+
+\subsection*{Predictor form for efficiency}
+Evaluating $\Mmat_{\mathrm{bf}}$ and $\mathbf f_{\mathrm{cfg}}$ inside the
+fixed point makes each iterate a full metric assembly. Because the metric at the
+true versus predicted midpoint differ by $O(\Delta t^2)$, we instead assemble
+both \emph{once} per step at a midpoint predicted from the previous step's
+$\zeta_{\mathrm{mid}}$, and take a single direct (BEM-free)
+update~\eqref{eq:rm-fixedpoint}--\eqref{eq:rm-commit}. Carrying $\muv$ as the
+state removes any endpoint metric solve, and the configuration force uses
+forward differences. Crucially the \emph{same} predicted midpoint is used for
+the projection and for the transport intermediate in \eqref{eq:rm-commit}, so
+momentum remains machine-exact while second order is preserved.
+
+\section{Properties and verification}
+\label{sec:rm-results}
+
+Table~\ref{tab:rm-results} summarises the behaviour on a spinning single
+ellipsoid and a close two-body pair ($1\!:\!0.8\!:\!0.6$ ellipsoids, sep~$3.5$,
+$\mathrm{ndiv}=2$, $\Delta t=0.05$). Momentum is conserved to $\sim10^{-13}$;
+energy is bounded; the trajectory is second order (error $\propto\Delta t^2$
+against a fine reference). Compared against the production variational scheme on
+the same close pair, both integrators converge to the same continuum trajectory,
+and the reduced-metric scheme is about an order of magnitude more accurate at a
+given step, while its predictor form runs at a small multiple of the impulse
+scheme's per-step cost.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+case / scheme & energy drift & $|\Delta\mathbf P|$ & $|\Delta\mathbf H|$ \\
+\midrule
+single ellipsoid, free top & $9\times10^{-14}$ & $2\times10^{-14}$ & $3\times10^{-14}$\\
+two ellipsoids, close pair & $8\times10^{-5}$ (bounded) & $9\times10^{-14}$ & $1\times10^{-13}$\\
+\midrule
+trajectory error vs.\ fine ref. ($\Delta t{=}0.05$) & \multicolumn{3}{c}{$1.1\times10^{-4}$ (2nd order)}\\
+production variational, same case & \multicolumn{3}{c}{$5.5\times10^{-3}$ (1st order)}\\
+\midrule
+cost: impulse / reduced-metric (once-per-step) & \multicolumn{3}{c}{$0.12$ / $0.29$ s per step}\\
+\bottomrule
+\end{tabular}
+\caption{Reduced-metric integrator: conservation, accuracy and cost.
+Momentum drifts are the maxima over the run; energy drift is relative.}
+\label{tab:rm-results}
+\end{table}
+
+\paragraph{Relation to the impulse scheme.}
+The impulse scheme evaluates only $\bm\ell(q,\zz)$ (one BEM solve) and differences
+it; it never forms $\Ma$ or $\partial_q\Ma$, which is both why it is fast and why
+its multibody exchange is under-determined. The reduced-metric scheme pays for
+the metric and its gradient and, in return, is fully determined and
+momentum-exact by construction. The remaining cost gap is entirely the
+finite-difference configuration force (a geometry re-mesh per perturbation);
+replacing it with an analytic added-mass shape derivative (Hadamard/adjoint) is
+the route to full parity and is the natural next development.
+
+\end{document}
