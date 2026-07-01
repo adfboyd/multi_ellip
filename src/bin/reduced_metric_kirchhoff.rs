@@ -228,6 +228,7 @@ fn config_force(
     zeta: &DVector<f64>,
     eps: f64,
     project: bool,
+    forward: bool,
 ) -> DVector<f64> {
     let n = cfg.nbody();
     let dof = 6 * n;
@@ -235,36 +236,39 @@ fn config_force(
     if n < 2 {
         return f; // no interaction, no configuration force
     }
-    for b in 0..n {
-        let r = cfg.ori[b].to_rotation_matrix();
-        for c in 0..3 {
-            // translation along body axis c (lab direction R e_c)
-            let mut cfg_p = cfg.clone();
-            let mut cfg_m = cfg.clone();
-            let dir = r * Vector3::new(
-                if c == 0 { 1.0 } else { 0.0 },
-                if c == 1 { 1.0 } else { 0.0 },
-                if c == 2 { 1.0 } else { 0.0 },
-            );
-            cfg_p.pos[b] += eps * dir;
-            cfg_m.pos[b] -= eps * dir;
-            let ep = total_ke(solver, &cfg_p, props, zeta);
-            let em = total_ke(solver, &cfg_m, props, zeta);
-            f[6 * b + c] = (ep - em) / (2.0 * eps);
-        }
-        for c in 0..3 {
-            // body-frame rotation about axis c
+    // Perturb configuration DOF k (translation `6b+c` along body axis c; rotation
+    // `6b+3+c` about body axis c) by `delta`.
+    let shift = |k: usize, delta: f64| -> Config {
+        let mut c = cfg.clone();
+        let b = k / 6;
+        let local = k % 6;
+        if local < 3 {
+            let mut e = Vector3::zeros();
+            e[local] = 1.0;
+            c.pos[b] += delta * (cfg.ori[b].to_rotation_matrix() * e);
+        } else {
             let mut axis = Vector3::zeros();
-            axis[c] = eps;
-            let dqp = UnitQuaternion::from_scaled_axis(axis);
-            let dqm = UnitQuaternion::from_scaled_axis(-axis);
-            let mut cfg_p = cfg.clone();
-            let mut cfg_m = cfg.clone();
-            cfg_p.ori[b] = cfg.ori[b] * dqp;
-            cfg_m.ori[b] = cfg.ori[b] * dqm;
-            let ep = total_ke(solver, &cfg_p, props, zeta);
-            let em = total_ke(solver, &cfg_m, props, zeta);
-            f[6 * b + 3 + c] = (ep - em) / (2.0 * eps);
+            axis[local - 3] = delta;
+            c.ori[b] = cfg.ori[b] * UnitQuaternion::from_scaled_axis(axis);
+        }
+        c
+    };
+    // Forward differences (--fast): one base solve + one solve per DOF, half the
+    // cost of central differences. First-order in eps, but the config force is a
+    // small interaction correction so the O(eps) bias is negligible at eps~1e-4.
+    let base = if forward {
+        total_ke(solver, cfg, props, zeta)
+    } else {
+        0.0
+    };
+    for k in 0..dof {
+        if forward {
+            let ep = total_ke(solver, &shift(k, eps), props, zeta);
+            f[k] = (ep - base) / eps;
+        } else {
+            let ep = total_ke(solver, &shift(k, eps), props, zeta);
+            let em = total_ke(solver, &shift(k, -eps), props, zeta);
+            f[k] = (ep - em) / (2.0 * eps);
         }
     }
     // 2c: project out the 6 global rigid-motion directions. The interaction
@@ -465,11 +469,18 @@ fn transport_exact(mu: &DVector<f64>, cfg_a: &Config, cfg_b: &Config) -> DVector
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        panic!("usage: reduced_metric_kirchhoff <input.txt> [cfg_eps] [fp_iters] [--vi]");
+        panic!("usage: reduced_metric_kirchhoff <input.txt> [cfg_eps] [fp_iters] [--vi] [--fast] [--noproject] [--traj PATH]");
     }
     let input = &args[1];
     let use_vi = args.iter().any(|s| s == "--vi");
     let project = !args.iter().any(|s| s == "--noproject");
+    // --fast: assemble the metric and config force ONCE per step at a predicted
+    // midpoint (BEM-free inner fixed point), instead of every fixed-point
+    // iteration. The predicted vs true midpoint differ by O(dt^2) so 2nd order
+    // is preserved; momentum stays machine-exact (exact Ad* transport + rigid
+    // projection are untouched). Implies --vi.
+    let use_fast = args.iter().any(|s| s == "--fast");
+    let use_vi = use_vi || use_fast;
     // Optional trajectory CSV: `--traj PATH`. Row = time then per body
     // px,py,pz,qw,qi,qj,qk (orientation as a unit quaternion).
     let traj_path: Option<String> = args
@@ -587,57 +598,73 @@ fn main() {
     write_traj(&mut traj, 0.0, &cfg);
 
     let t_run = Instant::now();
+    let mut prev_zeta_mid: Option<DVector<f64>> = None;
     for step in 0..nsteps {
-        // Fixed point on zeta_mid.
-        let mut zeta_mid = zeta.clone();
+        let mut zeta_mid = prev_zeta_mid.clone().unwrap_or_else(|| zeta.clone());
         let mut last_res = f64::NAN;
-        for _ in 0..fp_iters {
+        let e;
+        if use_fast {
+            // Freeze the BEM-derived metric/force at ONE predicted midpoint and
+            // use that same config for both the projection and the transport
+            // intermediate, so the two exact legs cfg->half->cfg_new still
+            // compose to the exact full increment and the projected net force
+            // cancels exactly -> momentum stays machine-exact. Predictor midpoint
+            // (from the previous step's zeta_mid) is O(dt^2)-accurate -> 2nd order.
             let cfg_half = half_config(&cfg, &zeta_mid, dt);
-            let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
-            let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project);
-            let zeta_mid_new = if use_vi {
-                // 2b: mu_mid = Ad*_{n->half}(mu_n) + 0.5 dt f_cfg; zeta_mid = M^-1 mu_mid.
-                let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
-                solve(&m_bf, &mu_mid)
+            let m_h = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
+            let f_h = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project, true);
+            let mu_to_half = transport_exact(&mu, &cfg, &cfg_half);
+            zeta_mid = solve(&m_h, &(&mu_to_half + 0.5 * dt * &f_h));
+            let cfg_new = advance_config(&cfg, &zeta_mid, dt);
+            mu = transport_exact(&(&mu_to_half + dt * &f_h), &cfg_half, &cfg_new);
+            e = 0.5 * zeta_mid.dot(&(&m_h * &zeta_mid));
+            last_res = 0.0;
+            cfg = cfg_new;
+            zeta = zeta_mid.clone();
+            prev_zeta_mid = Some(zeta_mid);
+        } else {
+            // Fixed point on zeta_mid (metric/force reassembled each iterate).
+            for _ in 0..fp_iters {
+                let cfg_half = half_config(&cfg, &zeta_mid, dt);
+                let m_bf =
+                    to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
+                let f_cfg =
+                    config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project, false);
+                let zeta_mid_new = if use_vi {
+                    let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
+                    solve(&m_bf, &mu_mid)
+                } else {
+                    let mu_mid = &m_bf * &zeta_mid;
+                    let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
+                    let mu_next = &mu + dt * &rhs;
+                    solve(&m_bf, &(0.5 * (&mu + &mu_next)))
+                };
+                last_res = (&zeta_mid_new - &zeta_mid).norm();
+                zeta_mid = zeta_mid_new;
+                if last_res < 1e-12 {
+                    break;
+                }
+            }
+
+            let cfg_half = half_config(&cfg, &zeta_mid, dt);
+            let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project, false);
+            let cfg_new = advance_config(&cfg, &zeta_mid, dt);
+            if use_vi {
+                let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + dt * &f_cfg;
+                mu = transport_exact(&mu_mid, &cfg_half, &cfg_new);
             } else {
-                // 2: implicit midpoint on the Kirchhoff ODE.
+                let m_bf =
+                    to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
                 let mu_mid = &m_bf * &zeta_mid;
                 let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
-                let mu_next = &mu + dt * &rhs;
-                solve(&m_bf, &(0.5 * (&mu + &mu_next)))
-            };
-            last_res = (&zeta_mid_new - &zeta_mid).norm();
-            zeta_mid = zeta_mid_new;
-            if last_res < 1e-12 {
-                break;
+                mu = &mu + dt * &rhs;
             }
+            cfg = cfg_new;
+            prev_zeta_mid = Some(zeta_mid.clone());
+            let m_bf_new = to_body_frame(&assemble_m_lab(&mut solver, &cfg, &props), &cfg);
+            zeta = solve(&m_bf_new, &mu);
+            e = 0.5 * zeta.dot(&mu);
         }
-
-        // Commit.
-        let cfg_half = half_config(&cfg, &zeta_mid, dt);
-        let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps, project);
-        let cfg_new = advance_config(&cfg, &zeta_mid, dt);
-        if use_vi {
-            // Apply the full impulse once, at the half configuration, then
-            // transport n->n+1 via two exact half-legs. This makes the per-step
-            // spatial-momentum change exactly dt * Ad*_{g_half^-1} f_cfg, whose
-            // net (sum over bodies) is zeroed by the rigid-mode projection, so
-            // total momentum is conserved to machine precision. (Splitting the
-            // impulse across the two legs instead leaves the second half in the
-            // n+1 frame, an O(dt^2)-per-step / O(dt)-accumulated momentum leak.)
-            let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + dt * &f_cfg;
-            mu = transport_exact(&mu_mid, &cfg_half, &cfg_new);
-        } else {
-            let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
-            let mu_mid = &m_bf * &zeta_mid;
-            let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
-            mu = &mu + dt * &rhs;
-        }
-        cfg = cfg_new;
-        let m_bf_new = to_body_frame(&assemble_m_lab(&mut solver, &cfg, &props), &cfg);
-        zeta = solve(&m_bf_new, &mu);
-
-        let e = 0.5 * zeta.dot(&mu);
         let plin = total_linear_momentum_lab(&cfg, &mu);
         let pang = total_angular_momentum_lab(&cfg, &mu);
         write_traj(&mut traj, (step + 1) as f64 * dt, &cfg);

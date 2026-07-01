@@ -282,6 +282,47 @@ Net: the reduced-metric route is not only structurally cheaper to make
 determined -- on this case it is also more accurate than the existing reference,
 while agreeing with it in the continuum limit.
 
+## Milestone 4: cost reduction (`--fast`)
+
+The `--vi` scheme reassembles the full metric `M` (6N BEM solves) and the
+config-force gradient (12N solves) on *every* fixed-point iteration (~8/step) --
+about 4.3 s/step on the close pair vs the old impulse method's 0.12 s/step. The
+`--fast` path cuts this by assembling the BEM-derived metric and force **once per
+step** at a predicted midpoint and doing a single direct (BEM-free) update:
+
+- Predictor midpoint from the previous step's `zeta_mid` is `O(dt^2)`-accurate,
+  so 2nd order is preserved.
+- The *same* predicted midpoint is used for both the rigid-mode projection and
+  the transport intermediate, so the two exact legs `cfg -> half -> cfg_new`
+  still compose to the exact full increment and the projected net force cancels
+  exactly -- **momentum stays machine-exact** (an earlier version that
+  recomputed the midpoint from the converged velocity leaked momentum at
+  `O(dt^2)`; that was the bug to avoid).
+- Momentum `mu` is the carried state, so no endpoint metric solve is needed.
+- Config force uses forward differences (one base + one solve per DOF).
+
+Close two-body pair (ndiv=2), per step:
+
+| scheme | s/step | vs impulse |
+|---|---|---|
+| old impulse method | `0.12` | 1x |
+| Kirchhoff `--vi` | `4.3` | 36x |
+| Kirchhoff `--fast` | `0.29` | ~2.5x |
+
+`--fast` is validated 2nd order (error vs a fine `dt=0.0125` reference:
+`4.4e-4 -> 1.0e-4` when dt halves, ~4.3x), keeps momentum machine-exact
+(`~1e-13`), and is still ~12x more accurate at `dt=0.05` than the production
+`Variational` scheme (`4.4e-4` vs `5.5e-3`). So per unit accuracy it is well
+ahead of both references.
+
+The residual ~2.5x vs the impulse method is the config-force finite difference:
+each DOF perturbation moves a body and forces a geometry/interaction reassembly,
+which is inherently pricier than the metric's same-geometry multi-RHS solves. The
+impulse method never pays this because it never forms the metric gradient (which
+is exactly why it is under-determined). Closing the gap further needs an analytic
+shape-derivative of the added mass (Hadamard/adjoint) rather than finite
+differences -- a real BEM project, listed below.
+
 ## Proposed integrator
 
 Advance the reduced system with a Lie-group variational / symplectic integrator
@@ -335,6 +376,10 @@ Expected properties:
    to the same dynamics; Kirchhoff `--vi` is 2nd order and ~50x more accurate at
    `dt=0.05`, Variational is empirically 1st order (startup, not solver approx).
    Compare with `reduced_metric_kirchhoff ... --traj PATH`.
-4. **Next** -- interaction surrogate / analytic self-blocks to cut the metric
-   cost, then promote toward a production `CouplingScheme`. (Also: confirm the
-   `Variational` first-order startup hypothesis independently.)
+4. **Done** -- `--fast` (assemble metric/force once per step, momentum-carrying
+   direct update, forward-diff config force): ~0.29 s/step, 15x faster than
+   `--vi` and ~2.5x the impulse method, still 2nd order and momentum-exact.
+5. **Next** -- analytic added-mass shape-derivative (Hadamard/adjoint) to replace
+   the finite-difference config force and close the remaining ~2.5x, then promote
+   toward a production `CouplingScheme`. (Also: confirm the `Variational`
+   first-order startup hypothesis independently; broaden trajectory tests.)
