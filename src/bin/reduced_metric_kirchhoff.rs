@@ -332,18 +332,78 @@ fn total_linear_momentum_lab(cfg: &Config, mu: &DVector<f64>) -> Vector3<f64> {
     s
 }
 
+/// Total spatial angular momentum about the lab origin:
+/// sum_b [ R_b Pi_b + x_b x (R_b P_b) ]. Conserved by the exact dynamics.
+fn total_angular_momentum_lab(cfg: &Config, mu: &DVector<f64>) -> Vector3<f64> {
+    let mut s = Vector3::zeros();
+    for b in 0..cfg.nbody() {
+        let r = cfg.ori[b].to_rotation_matrix();
+        let p_lab = r * Vector3::new(mu[6 * b], mu[6 * b + 1], mu[6 * b + 2]);
+        let pi_lab = r * Vector3::new(mu[6 * b + 3], mu[6 * b + 4], mu[6 * b + 5]);
+        s += pi_lab + cfg.pos[b].cross(&p_lab);
+    }
+    s
+}
+
+/// SE(3) coadjoint Ad*_f acting on a single body's momentum mu_b = (P, Pi):
+///   Ad*_f mu = ( R_f^T P,  R_f^T (Pi + P x p_f) )
+/// with f = (R_f, p_f) the body-frame relative increment. This is the exact
+/// group coadjoint; composing two half-increments reproduces the full step and
+/// keeps the spatial momentum map Ad*_{g^-1} mu invariant (milestone 2b).
+fn ad_star_se3(
+    rf: &Matrix3<f64>,
+    pf: &Vector3<f64>,
+    p: &Vector3<f64>,
+    pi: &Vector3<f64>,
+) -> (Vector3<f64>, Vector3<f64>) {
+    let p_new = rf.transpose() * p;
+    let pi_new = rf.transpose() * (pi + p.cross(pf));
+    (p_new, pi_new)
+}
+
+/// Exact coadjoint transport of the stacked momentum from configuration
+/// `cfg_a` to `cfg_b`, using the true per-body relative increment
+/// f = (R_a^T R_b, R_a^T (x_b - x_a)). Because these legs are the exact group
+/// increments, composing leg (a->half) with leg (half->b) reproduces the full
+/// increment (a->b) exactly, so the spatial momentum map is preserved to machine
+/// precision (unlike an approximate exp-of-average increment).
+fn transport_exact(mu: &DVector<f64>, cfg_a: &Config, cfg_b: &Config) -> DVector<f64> {
+    let n = cfg_a.nbody();
+    let mut out = DVector::zeros(6 * n);
+    for b in 0..n {
+        let ra = cfg_a.ori[b].to_rotation_matrix();
+        let rb = cfg_b.ori[b].to_rotation_matrix();
+        let rf = ra.matrix().transpose() * rb.matrix();
+        let pf = ra.matrix().transpose() * (cfg_b.pos[b] - cfg_a.pos[b]);
+        let p = Vector3::new(mu[6 * b], mu[6 * b + 1], mu[6 * b + 2]);
+        let pi = Vector3::new(mu[6 * b + 3], mu[6 * b + 4], mu[6 * b + 5]);
+        let (p_new, pi_new) = ad_star_se3(&rf, &pf, &p, &pi);
+        for c in 0..3 {
+            out[6 * b + c] = p_new[c];
+            out[6 * b + 3 + c] = pi_new[c];
+        }
+    }
+    out
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        panic!("usage: reduced_metric_kirchhoff <input.txt> [cfg_eps] [fp_iters]");
+        panic!("usage: reduced_metric_kirchhoff <input.txt> [cfg_eps] [fp_iters] [--vi]");
     }
     let input = &args[1];
-    let cfg_eps = args
-        .get(2)
+    let use_vi = args.iter().any(|s| s == "--vi");
+    let numeric: Vec<&String> = args
+        .iter()
+        .skip(2)
+        .filter(|s| !s.starts_with("--"))
+        .collect();
+    let cfg_eps = numeric
+        .first()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(1.0e-4);
-    let fp_iters = args
-        .get(3)
+    let fp_iters = numeric
+        .get(1)
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(20);
 
@@ -391,7 +451,12 @@ fn main() {
     let sys = Simulation::new(fluid, bodies.clone(), ndiv);
     let mut solver = BemSolver::new(sys);
 
-    println!("reduced Kirchhoff-metric integrator (milestone 2, body-frame)");
+    let scheme = if use_vi {
+        "milestone 2b, Ad* variational transport"
+    } else {
+        "milestone 2, implicit-midpoint ODE"
+    };
+    println!("reduced Kirchhoff-metric integrator ({scheme})");
     println!("input={input}  nbody={nbody}  ndiv={ndiv}  dt={dt}  tend={tend}  steps={nsteps}");
     println!("cfg_eps={cfg_eps:.3e}  fp_iters={fp_iters}");
     println!();
@@ -400,12 +465,16 @@ fn main() {
     let mut mu = &m_bf0 * &zeta;
     let e0 = 0.5 * zeta.dot(&mu);
     let plin0 = total_linear_momentum_lab(&cfg, &mu);
+    let pang0 = total_angular_momentum_lab(&cfg, &mu);
 
     println!(
-        "{:>7} {:>14} {:>14} {:>14} {:>10}",
-        "t", "E_total", "E_drift_rel", "|dPlin|", "fp_res"
+        "{:>7} {:>14} {:>13} {:>11} {:>11} {:>10}",
+        "t", "E_total", "E_drift_rel", "|dPlin|", "|dPang|", "fp_res"
     );
-    println!("{:7.3} {:14.8} {:14.3e} {:14.3e} {:>10}", 0.0, e0, 0.0, 0.0, "-");
+    println!(
+        "{:7.3} {:14.8} {:13.3e} {:11.3e} {:11.3e} {:>10}",
+        0.0, e0, 0.0, 0.0, 0.0, "-"
+    );
 
     let t_run = Instant::now();
     for step in 0..nsteps {
@@ -415,12 +484,18 @@ fn main() {
         for _ in 0..fp_iters {
             let cfg_half = half_config(&cfg, &zeta_mid, dt);
             let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
-            let mu_mid = &m_bf * &zeta_mid;
             let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps);
-            let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
-            let mu_next = &mu + dt * &rhs;
-            let mu_mid_target = 0.5 * (&mu + &mu_next);
-            let zeta_mid_new = solve(&m_bf, &mu_mid_target);
+            let zeta_mid_new = if use_vi {
+                // 2b: mu_mid = Ad*_{n->half}(mu_n) + 0.5 dt f_cfg; zeta_mid = M^-1 mu_mid.
+                let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
+                solve(&m_bf, &mu_mid)
+            } else {
+                // 2: implicit midpoint on the Kirchhoff ODE.
+                let mu_mid = &m_bf * &zeta_mid;
+                let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
+                let mu_next = &mu + dt * &rhs;
+                solve(&m_bf, &(0.5 * (&mu + &mu_next)))
+            };
             last_res = (&zeta_mid_new - &zeta_mid).norm();
             zeta_mid = zeta_mid_new;
             if last_res < 1e-12 {
@@ -430,24 +505,34 @@ fn main() {
 
         // Commit.
         let cfg_half = half_config(&cfg, &zeta_mid, dt);
-        let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
-        let mu_mid = &m_bf * &zeta_mid;
         let f_cfg = config_force(&mut solver, &cfg_half, &props, &zeta_mid, cfg_eps);
-        let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
-        mu = &mu + dt * &rhs;
-        cfg = advance_config(&cfg, &zeta_mid, dt);
+        let cfg_new = advance_config(&cfg, &zeta_mid, dt);
+        if use_vi {
+            // Two exact half-legs (n->half, half->n+1) compose to the exact full
+            // increment, so the spatial momentum map is conserved to machine eps.
+            let mu_mid = transport_exact(&mu, &cfg, &cfg_half) + 0.5 * dt * &f_cfg;
+            mu = transport_exact(&mu_mid, &cfg_half, &cfg_new) + 0.5 * dt * &f_cfg;
+        } else {
+            let m_bf = to_body_frame(&assemble_m_lab(&mut solver, &cfg_half, &props), &cfg_half);
+            let mu_mid = &m_bf * &zeta_mid;
+            let rhs = kirchhoff_rhs(&mu_mid, &zeta_mid, &f_cfg);
+            mu = &mu + dt * &rhs;
+        }
+        cfg = cfg_new;
         let m_bf_new = to_body_frame(&assemble_m_lab(&mut solver, &cfg, &props), &cfg);
         zeta = solve(&m_bf_new, &mu);
 
         let e = 0.5 * zeta.dot(&mu);
         let plin = total_linear_momentum_lab(&cfg, &mu);
+        let pang = total_angular_momentum_lab(&cfg, &mu);
         if (step + 1) % tprint == 0 {
             println!(
-                "{:7.3} {:14.8} {:14.3e} {:14.3e} {:10.2e}",
+                "{:7.3} {:14.8} {:13.3e} {:11.3e} {:11.3e} {:10.2e}",
                 (step + 1) as f64 * dt,
                 e,
                 (e - e0).abs() / e0.abs().max(1e-30),
                 (plin - plin0).norm(),
+                (pang - pang0).norm(),
                 last_res
             );
         }
@@ -461,6 +546,10 @@ fn main() {
     println!(
         "final |dPlin|      = {:.3e}",
         (total_linear_momentum_lab(&cfg, &mu) - plin0).norm()
+    );
+    println!(
+        "final |dPang|      = {:.3e}",
+        (total_angular_momentum_lab(&cfg, &mu) - pang0).norm()
     );
     println!();
     println!("final positions / orientations:");

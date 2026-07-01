@@ -180,12 +180,30 @@ the varying-metric midpoint error, both reducible; the per-step energy increment
 decreases with time rather than accumulating -- contrast the milestone-1 `1e-4`
 secular ellipsoid drift.
 
-**Known remaining item.** The spatial (lab) linear-momentum map is conserved
+**Milestone 2b (implemented, `--vi` flag).** The milestone-2 midpoint-on-the-ODE
+conserves energy and `|Pi|` exactly but transports the *spatial* momentum map
 only to `O(dt^2)` (confirmed: halving dt quarters the drift, `4.7e-3 -> 1.2e-3`
-at t=5). The midpoint-on-the-Kirchhoff-ODE conserves energy and `|Pi|` exactly
-but transports the spatial momentum only to second order. A full discrete
-Euler-Poincare reconstruction (coadjoint `Ad*` transport of the momentum) would
-restore exact momentum conservation while keeping bounded energy -- milestone 2b.
+at t=5). Replacing the update with an exact SE(3) coadjoint transport
+`mu_{n+1} = Ad*_f(mu_n + dt f_cfg)`, using the true per-leg increments
+`f = (R_a^T R_b, R_a^T (x_b - x_a))` so the two half-legs compose to the exact
+full increment, restores exact spatial-momentum conservation:
+
+| Case (`--vi`) | Energy | `|dPlin|` | `|dPang|` |
+|---|---|---|---|
+| Single spinning ellipsoid (t=5) | `2e-5` (bounded) | `2e-14` | `3e-14` |
+| Two ellipsoids + spin (t=1) | `1e-4` (bounded) | `2e-5` | `2e-4` |
+
+The single-body case is decisive: both the linear and the angular spatial
+momentum maps are conserved to machine precision (was `4.7e-3` / `3.5e-4`), and
+energy is now bounded/oscillatory rather than machine-exact -- the correct
+symplectic-momentum variational-integrator trade.
+
+**Residual, two-body.** The interacting case is not yet machine-exact in momentum
+(`2e-5`/`2e-4`) because the *finite-difference configuration force* only satisfies
+the momentum identities (`sum_b F_b = 0` from translation invariance; the
+analogous torque identity) up to FD truncation. Symmetrizing the discrete force
+(project out the net lab-frame force/torque) closes this -- the immediate next
+refinement -- and is orthogonal to the transport, which is now exact.
 
 To reproduce:
 
@@ -236,8 +254,13 @@ Expected properties:
 2. **Done** -- body-frame Kirchhoff integrator (`reduced_metric_kirchhoff`)
    removes the anisotropic-body energy drift: single ellipsoid `9e-14`, two
    ellipsoids `3e-7` (bounded). Residual: `O(dt^2)` spatial-momentum drift.
-2b. **Next** -- discrete Euler-Poincare (`Ad*`) momentum transport to restore
-   exact spatial-momentum conservation; validate against the existing
-   `Variational` scheme's short reference trajectory on a close two-body case.
+2b. **Done** -- discrete Euler-Poincare (`Ad*`) momentum transport
+   (`reduced_metric_kirchhoff --vi`): single-body spatial momenta conserved to
+   `2e-14`, energy bounded. Two-body momentum limited to `2e-5` by the
+   finite-difference config force, not the transport.
+2c. **Next** -- symmetrize the discrete config force (project out net lab
+   force/torque) so two-body momentum is machine-exact; validate against the
+   existing `Variational` scheme's short reference trajectory on a close
+   two-body case.
 3. Interaction surrogate / analytic self-blocks to cut the metric cost, then
    promote toward a production `CouplingScheme`.
