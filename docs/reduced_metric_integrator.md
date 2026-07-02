@@ -323,6 +323,36 @@ is exactly why it is under-determined). Closing the gap further needs an analyti
 shape-derivative of the added mass (Hadamard/adjoint) rather than finite
 differences -- a real BEM project, listed below.
 
+## Validation sweep: body count and mesh resolution
+
+`--fast` was swept over 3 and 4 triaxial bodies (`1:0.8:0.6`, compact clusters,
+distinct spins/orientations) and `ndiv = 2, 3` to test the claims beyond the
+original two-body `ndiv=2` case.
+
+| N | ndiv | dt | s/step | E drift | `|dPlin|` | `|dPang|` |
+|---|---|---|---|---|---|---|
+| 3 | 2 | 0.05 | 0.50 | `1.1e-5` | `4e-15` | `9e-15` |
+| 4 | 2 | 0.05 | 1.49 | `3.9e-5` | `4e-15` | `1e-14` |
+| 3 | 3 | 0.05 | 9.8 | `1.3e-5` | `2e-15` | `7e-15` |
+| 4 | 3 | 0.05 | 24.2 | `4.0e-5` | `1e-15` | `6e-15` |
+
+Findings:
+
+- **Momentum is machine-exact for every case** (`<= ~1e-13`, growing only with
+  step count as roundoff) -- the exact `Ad*` transport + rigid-mode projection
+  hold independently of N and `ndiv`, as the construction requires. Energy stays
+  small and bounded (oscillatory, not secular). No NaNs, no fixed-point/GMRES
+  trouble.
+- **Second order holds at N=3** (`ndiv=2`): final-position error ratio between
+  `dt = 0.05` and `0.025` (vs a `dt=0.0125` reference) is `4.8x`.
+- **Cost scaling is the real constraint.** Per body: `~3x` from N=3 to N=4
+  (super-linear -- the config-force finite difference re-meshes per DOF, and DOFs
+  scale as `6N`). Per mesh level: `~20x` from `ndiv=2` to `3` (BEM solve cost
+  grows worse than the `4x` node count). `ndiv=4` is impractical here (`>240`
+  s/step, did not complete). This is exactly what the analytic added-mass
+  shape-derivative (milestone 5) is meant to relieve: it removes the
+  re-mesh-per-perturbation config-force cost that dominates at high `ndiv`/N.
+
 ## Proposed integrator
 
 Advance the reduced system with a Lie-group variational / symplectic integrator
